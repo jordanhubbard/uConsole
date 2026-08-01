@@ -68,4 +68,36 @@ cp -rf build/install/include/  $DEB_FOLDER/usr/src/linux-headers-${VERSION}
 rm -rf ${DEB_FOLDER}.tar.gz
 tar zcvf ${DEB_FOLDER}.tar.gz  ${DEB_FOLDER}
 ```
+# config.txt
+
+config.txt needs some modifications for cm4/cm5 to boot.
+```
+[pi4]         
+#dtoverlay=clockworkpi-devterm      
+dtoverlay=clockworkpi-uconsole   
+dtoverlay=vc4-kms-v3d-pi4,cma-384  
+enable_uart=1
+
+[pi5]
+#dtoverlay=clockworkpi-devterm-cm5
+dtoverlay=clockworkpi-uconsole-cm5
+dtoverlay=vc4-kms-v3d-pi5,cma-384
+dtparam=uart0
+dtparam=pciex1
+dtparam=pciex1_gen=3
+
+[all]                                                                                                                                                   
+ignore_lcd=1 
+max_framebuffers=2
+disable_overscan=1
+dtparam=audio=on
+dtoverlay=audremap,pins_12_13
+dtoverlay=dwc2,dr_mode=host
+dtparam=ant2
+dtparam=spi=on
+dtoverlay=spi0-0cs
+gpio=10=ip,np
+gpio=9=op,dh
+```
+
 
