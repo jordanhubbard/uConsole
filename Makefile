@@ -18,7 +18,7 @@ flash-bundle: firmware flash-tool
 
 check:
 	python3 -m unittest discover -s tests -v
-	shellcheck Bin/uconsole_keyboard_flash/maple_upload Bin/uconsole_keyboard_flash/flash.sh
+	shellcheck Code/scripts/uconsole-4g-cm5 Bin/uconsole_keyboard_flash/maple_upload Bin/uconsole_keyboard_flash/flash.sh
 
 clean:
 	rm -rf -- '$(BUILD_DIR)'
