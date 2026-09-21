@@ -1,14 +1,37 @@
 # uConsole
 
+## Building source
+
+Install the [keyboard firmware toolchain](Code/uconsole_keyboard/README.md)
+and a native C compiler, Make, Python 3, `patch`, `tar`, and ShellCheck. Then:
+
+```sh
+make all check
+make flash-bundle
+```
+
+This builds the keyboard firmware, serial reset helper and modem fastboot
+tool, runs the automated checks, and packages a keyboard flashing bundle for
+the helper's architecture under `build/`. It does not flash hardware or
+install a kernel on the build host. See the [flashing guide](Bin/uconsole_keyboard_flash/README.md)
+and [modem updater guide](Code/scripts/README.md) for device operations.
+
+Kernel/OS builds use separate source trees and toolchains: [CM4/CM5](Code/patch/cm4/20260414/README.md),
+[A06](Code/patch/a06/20230630/README.md), and [R01](Code/patch/r01/20230614/README.md).
+The [upstream issue worklist](docs/upstream-issues.md) records build evidence
+and outstanding hardware/manufacturer dependencies.
+The [Quickshell build and package guide](Code/patch/quickshell/README.md)
+covers the optional Trixie desktop toolkit requested in issue #45.
+
 
 ## uConsole OS Images
 
 |Product | Image name  |Release date | System  | Kernel |Size|      Downloads      | MD5sum | 
 |--------|:----------|:------------|:--------|:--------------|:------------|:--------------|:---------:| 
-|uConsole CM4 | uConsole_CM4_v3.1_64bit.img.bz2| April  14 2026 | 64-bit| Linux 6.12.62| 2.1G | [Download](http://dl.clockworkpi.com/uConsole_CM4_v3.1_64bit.img.bz2 ) ([Mirror](https://drive.google.com/file/d/17OFCPCBwddaqQ957R4vbY-3KzugGtaU-/view?usp=drive_link )) | 1b31b501d11d95da7f1380d50d47a8a9 |
-|uConsole CM4 | uConsole_CM4_v0.1b_xfce_64bit.img.7z| Apr  5  2023 | 64-bit| Linux 5.10.17| 1.2G | [Download](http://dl.clockworkpi.com/uConsole_CM4_v0.1b_xfce_64bit.img.7z ) ([Mirror](https://drive.google.com/file/d/1gBpVK1rMM5zmq5z4-DlKlDmTFJQvwMFz/view?usp=drive_link )) | a191603d7da0f826d347f1bb8d525687 |
-|uConsole A06 | uConsole_A06_v1.1e.img.7z| Jul  1  2023 | 64-bit| Linux 5.15.119| 1.4G | [Download]( http://dl.clockworkpi.com/uConsole_A06_v1.1e.img.7z) ([Mirror](https://drive.google.com/file/d/1H5wdB_cCSW-qbf6Ijgcn-Uw4EQQkWrP1/view?usp=drive_link )) | 56bbb623f41bf6327d408fb415052819 |
-|uConsole R01 | uConsole_R01_v1.3b.img.7z| Jun 13  2023 | 64-bit| Linux 5.4.61| 1.4G | [Download](http://dl.clockworkpi.com/uConsole_R01_v1.3b.img.7z ) ([Mirror](https://drive.google.com/file/d/1lDdO3-aj8zeO6JDJVBaCgNkehhffdNm1/view?usp=drive_link )) | 53ca37ccc0333436d06fb5978ac699fd |
+|uConsole CM4 | uConsole_CM4_v3.1_64bit.img.bz2| April  14 2026 | 64-bit| Linux 6.12.62| 2.1G | [Download (HTTPS)](https://drive.google.com/file/d/17OFCPCBwddaqQ957R4vbY-3KzugGtaU-/view?usp=drive_link) ([Manufacturer mirror (HTTP)](http://dl.clockworkpi.com/uConsole_CM4_v3.1_64bit.img.bz2)) | 1b31b501d11d95da7f1380d50d47a8a9 |
+|uConsole CM4 | uConsole_CM4_v0.1b_xfce_64bit.img.7z| Apr  5  2023 | 64-bit| Linux 5.10.17| 1.2G | [Download (HTTPS)](https://drive.google.com/file/d/1gBpVK1rMM5zmq5z4-DlKlDmTFJQvwMFz/view?usp=drive_link) ([Manufacturer mirror (HTTP)](http://dl.clockworkpi.com/uConsole_CM4_v0.1b_xfce_64bit.img.7z)) | a191603d7da0f826d347f1bb8d525687 |
+|uConsole A06 | uConsole_A06_v1.1e.img.7z| Jul  1  2023 | 64-bit| Linux 5.15.119| 1.4G | [Download (HTTPS)](https://drive.google.com/file/d/1H5wdB_cCSW-qbf6Ijgcn-Uw4EQQkWrP1/view?usp=drive_link) ([Manufacturer mirror (HTTP)](http://dl.clockworkpi.com/uConsole_A06_v1.1e.img.7z)) | 56bbb623f41bf6327d408fb415052819 |
+|uConsole R01 | uConsole_R01_v1.3b.img.7z| Jun 13  2023 | 64-bit| Linux 5.4.61| 1.4G | [Download (HTTPS)](https://drive.google.com/file/d/1lDdO3-aj8zeO6JDJVBaCgNkehhffdNm1/view?usp=drive_link) ([Manufacturer mirror (HTTP)](http://dl.clockworkpi.com/uConsole_R01_v1.3b.img.7z)) | 53ca37ccc0333436d06fb5978ac699fd |
 
 
 uConsole_CM4_v0.1b_xfce_64bit.img.7z  (based on [RPI-lite](https://downloads.raspberrypi.org/raspios_lite_armhf/images/raspios_lite_armhf-2023-05-03/2023-05-03-raspios-bullseye-armhf-lite.img.xz) with xfce)   
@@ -18,7 +41,10 @@ uConsole_CM4_v0.1b_xfce_64bit.img.7z  (based on [RPI-lite](https://downloads.ras
 
 ## Images mirror
 
-* Community-driven download mirror: [http://dl.clockworkpi.io](http://dl.clockworkpi.io)
+All four HTTPS archive payloads were downloaded and checked on 2026-09-20;
+their MD5 values match the table above. See the [verification record and SHA-256 checksums](docs/os-image-verification.md).
+
+* Community-driven download mirror: [https://dl.clockworkpi.io](https://dl.clockworkpi.io)
 
 
 After downloading the files, you will need to extract or decompress them. Please keep in mind that MacOS 11.6 or a higher version is required to extract 7z files.  
@@ -33,18 +59,21 @@ To learn how to create an image, please refer to our [Wiki](https://github.com/c
 If you want to use the 4G extension, you can find helpful tips on how to use it on the [uConsole Wiki](https://github.com/clockworkpi/uConsole/wiki/How-to-use-the-4G-extension).
 
 ## uConsole Keyboard Firmware
-uConsole keyboard firmware flash program available. You can download it from this link: [uConsole Keyboard Firmware Flash Program](https://github.com/clockworkpi/uConsole/raw/master/Bin/uconsole_keyboard_flash.tar.gz).
+Build the current firmware and upload tools with `make flash-bundle`; the
+result is `build/uconsole_keyboard_flash-ARCH.tar.gz`, where `ARCH` is the
+native reset helper's architecture. Use a bundle built for the machine that
+will perform the upload. The [flashing guide](Bin/uconsole_keyboard_flash/README.md)
+describes requirements and error handling.
 
 Here's how you can flash the firmware on uConsole(A06 or CM4) or a PC running Ubuntu 22.04:
 
-1. Download the uconsole_keyboard_flash.tar.gz file.
-2. Extract the contents of the archive: `tar zxvf uconsole_keyboard_flash.tar.gz`.
+1. Build or obtain the current flashing bundle for the upload machine.
+2. Extract the archive, substituting its architecture: `tar xzf uconsole_keyboard_flash-ARCH.tar.gz`.
 3. Install the required package using the following command: `sudo apt install -y dfu-util`.
 4. Navigate to the extracted directory: `cd uconsole_keyboard_flash`.
 5. Execute the flash script with root privileges: `sudo ./flash.sh`.
 6. If everything goes well, you will see a progress bar indicating the flashing process.
-7. If any issues occur or the keyboard loses control (which is unlikely), simply reboot uConsole to resolve it.
-8. Rest assured that this flash program will not brick your keyboard.
+7. If the command fails, retain its output and follow the flashing guide before retrying. A failed upload is not reported as success.
 
 ## 4G extension firmware
 
@@ -54,6 +83,11 @@ Here's how you can flash the firmware on uConsole(A06 or CM4) or a PC running Ub
 ## Assembly Guidelines
 
 * [Assembly Guidelines](https://github.com/clockworkpi/uConsole/blob/master/Clockwork_uConsole_Assembly_Guidelines.pdf)  
+
+## Hardware design files
+
+See the [hardware file inventory](PCB/README.md) for PCB manufacturing exports,
+component placement data, supported file formats, and missing editable sources.
 
 ## Schematic
 
@@ -109,5 +143,3 @@ There are 6 gears in gearbox
 
 ## Community
 Please visit our [Github Wiki](https://github.com/clockworkpi/uConsole/wiki) and https://forum.clockworkpi.com for more information.
-
-
