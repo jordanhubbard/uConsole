@@ -1,73 +1,93 @@
-# Kernel for uConsole_CM4_v3.1_64bit.img 
-Kernel source tree:  
-`https://github.com/cuu/ClockworkPi-linux`   branch rpi-6.12.y  
-Commit hash:  
-`03436f4117533693d608b10eb4b3965987230b68`  
+# CM4 / CM5 kernel for the April 2026 image
 
-# How to compile the kernel
+Source: <https://github.com/cuu/ClockworkPi-linux>, branch `rpi-6.12.y`,
+commit `03436f4117533693d608b10eb4b3965987230b68` (Linux 6.12.62).
+Use that exact revision, then apply `0001-remove-unused-panel-locals.patch`
+from this directory in the kernel tree. The patch removes five unused local
+variables without changing panel initialization or display behavior.
 
-```
+## Build
+
+Select one profile and a separate output directory for each:
+
+| Core | Defconfig | Output directory | Boot image name |
+| --- | --- | --- | --- |
+| CM4 | `bcm2711_defconfig` | `build-cm4` | `kernel8.img` |
+| CM5 | `bcm2712_defconfig` | `build-cm5` | `kernel_2712.img` |
+
+The CM5 configuration uses 16 KiB pages. Keep each image, configuration and
+module directory together. These builds have been verified on an ARM64 Linux
+host; boot and peripheral operation still require the target hardware.
+
+From the kernel source directory (CM4 example; use the table for CM5):
+
+```sh
 export ARCH=arm64
 export CROSS_COMPILE=aarch64-linux-gnu-
-export DTS_SUBDIR=broadcom
-export IMAGE=Image.gz
-export KERNEL=kernel8
+KERNEL_BUILD="$PWD/build-cm4"
+BOOT_IMAGE=kernel8.img
+DEFCONFIG=bcm2711_defconfig
 
-
-make O=build bcm2711_defconfig
-
-make O=build menuconfig
-
-make O=build -j 2 $IMAGE headers modules dtbs V=1
-
-mkdir -p install/boot/overlays
-make O=build INSTALL_MOD_PATH=install modules_install
-cp build/arch/$ARCH/boot/dts/$DTS_SUBDIR/*.dtb install/boot/
-cp build/arch/$ARCH/boot/dts/overlays/*.dtb* install/boot/overlays/
-cp arch/${ARCH}/boot/dts/overlays/README install/boot/overlays/
-cp build/arch/$ARCH/boot/$IMAGE install/boot/kernel8.img
-
-rm -rf install/lib
-mv build/install/lib/ install
-
-rm -rf install.tar.gz
-tar zcvf install.tar.gz install
-
+mkdir -p "$KERNEL_BUILD/tmp"
+export TMPDIR="$KERNEL_BUILD/tmp"
+make O="$KERNEL_BUILD" "$DEFCONFIG"
+# Optional customization: make O="$KERNEL_BUILD" menuconfig
+make O="$KERNEL_BUILD" -j8 Image.gz headers modules dtbs
 ```
 
-## How to package kernel files to a deb file  
+`TMPDIR` keeps compiler scratch files on the build filesystem, including when
+that filesystem is RAM-backed or on a separate disk. Source and object files
+alone being on another filesystem does not stop GCC from filling `/tmp`.
 
-Use the files produced above 
+## Stage a kernel archive
 
+Continue in the same shell after a successful build. This stages files without
+installing anything into the host's `/boot` or `/lib/modules`:
+
+```sh
+VERSION=$(make -s O="$KERNEL_BUILD" kernelrelease)
+KERNEL_STAGE="$PWD/install-$VERSION"
+mkdir -p "$KERNEL_STAGE/boot/firmware/overlays"
+make O="$KERNEL_BUILD" INSTALL_MOD_PATH="$KERNEL_STAGE" modules_install
+
+cp "$KERNEL_BUILD/arch/$ARCH/boot/Image.gz" "$KERNEL_STAGE/boot/firmware/$BOOT_IMAGE"
+cp "$KERNEL_BUILD/arch/$ARCH/boot/dts/broadcom/"*.dtb "$KERNEL_STAGE/boot/firmware/"
+cp "$KERNEL_BUILD/arch/$ARCH/boot/dts/overlays/"*.dtbo "$KERNEL_STAGE/boot/firmware/overlays/"
+cp "arch/$ARCH/boot/dts/overlays/README" "$KERNEL_STAGE/boot/firmware/overlays/"
+cp "$KERNEL_BUILD/.config" "$KERNEL_STAGE/boot/config-$VERSION"
+cp "$KERNEL_BUILD/System.map" "$KERNEL_STAGE/boot/System.map-$VERSION"
+
+# The build symlink points to this machine's source/output and is not portable.
+tar --exclude="./lib/modules/$VERSION/build" \
+    -czf "install-$VERSION.tar.gz" -C "$KERNEL_STAGE" .
 ```
-VERSION=$(make O=build kernelrelease | sed -n '2p')
-DEB_FOLDER=uconsole-kernel-cm4-rpi_$VERSION
 
+This produces a tar archive, not a Debian package. `make headers_install`
+exports userspace API headers; those alone are not a complete kernel header
+package for building external modules. Use the kernel's supported packaging
+workflow if a Debian image/header package is needed.
 
-mkdir -p $DEB_FOLDER/boot/firmware/overlays
-mkdir -p $DEB_FOLDER/usr/src
+## Check compiled display overlays
 
-make O=build INSTALL_MOD_PATH=install modules_install
-make O=build INSTALL_HDR_PATH=install headers_install
+Use Raspberry Pi's [dtmerge utility](https://github.com/raspberrypi/utils/tree/master/dtmerge)
+for overlays with Raspberry Pi parameters and dormant fragments. Generic
+`fdtoverlay` can reject the combined display overlays even though `dtmerge`
+applies them successfully.
 
-cp build/arch/$ARCH/boot/dts/$DTS_SUBDIR/*.dtb $DEB_FOLDER/boot/firmware
-cp build/arch/$ARCH/boot/dts/overlays/*.dtb* $DEB_FOLDER/boot/firmware/overlays/
-cp arch/${ARCH}/boot/dts/overlays/README $DEB_FOLDER/boot/firmware/overlays/
-cp build/arch/$ARCH/boot/$IMAGE $DEB_FOLDER/boot/firmware/kernel8.img
+From the uConsole repository, after building the kernel and `dtmerge`:
 
-rm -rf $DEB_FOLDER/lib
-
-cp -rf build/install/lib/ $DEB_FOLDER
-
-cp build/.config  $DEB_FOLDER/boot/config-${VERSION}
-cp build/System.map $DEB_FOLDER/boot/System.map-${VERSION}
-cp build/arch/$ARCH/boot/$IMAGE $DEB_FOLDER/boot/vmlinuz-${VERSION}
-
-cp -rf build/install/include/  $DEB_FOLDER/usr/src/linux-headers-${VERSION}
-
-rm -rf ${DEB_FOLDER}.tar.gz
-tar zcvf ${DEB_FOLDER}.tar.gz  ${DEB_FOLDER}
+```sh
+python3 tools/verify_display_overlays.py \
+  --dtmerge /path/to/dtmerge \
+  --dts-dir /path/to/kernel/build-cm4/arch/arm64/boot/dts \
+  --output build/kernel-cm4 --model cm4
 ```
+
+For CM5, select its output directory and `--model cm5`. The check combines
+the uConsole and VC4 overlays with `cma-384`, then checks panel orientation,
+enabled display nodes, battery property and CMA size. It emits the merged DTB
+and JSON evidence. This is structural validation, not a hardware boot test.
+
 # config.txt
 
 config.txt needs some modifications for cm4/cm5 to boot.
@@ -99,5 +119,4 @@ dtoverlay=spi0-0cs
 gpio=10=ip,np
 gpio=9=op,dh
 ```
-
 
