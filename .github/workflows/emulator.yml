@@ -1,17 +1,50 @@
-name: Emulator host tools
+name: Host CI
+
 on:
   push:
-    paths: ['tools/*emulator*.py', 'tools/uconsole_*.py', 'uconsole-tasks.json', 'tests/test_emulator*.py', '.github/workflows/emulator.yml']
   pull_request:
-    paths: ['tools/*emulator*.py', 'tools/uconsole_*.py', 'uconsole-tasks.json', 'tests/test_emulator*.py', '.github/workflows/emulator.yml']
+
 permissions:
   contents: read
+
 jobs:
-  portable-tools:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+  linux:
+    name: Linux tests and GUI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test dependencies
+        run: sudo apt-get update && sudo apt-get install -y shellcheck xvfb python3-tk
+      - name: Run headless tests and shell checks
+        run: make check
+      - name: Run desktop tests in Xvfb
+        run: xvfb-run -a /usr/bin/python3 -m unittest discover -s tests -p 'test_*gui.py' -v
+
+  macos:
+    name: macOS portable tests
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install shellcheck
+        run: brew install shellcheck
+      - name: Run portable tests
+        run: |
+          python -m unittest discover -s tests -p 'test_cm5_power.py' -v
+          python -m unittest discover -s tests -p 'test_emulator.py' -v
+          python -m unittest discover -s tests -p 'test_keyboard_flash.py' -v
+          python -m unittest discover -s tests -p 'test_modem_flash.py' -v
+      - name: Run shell checks
+        run: shellcheck Code/scripts/uconsole-4g-cm5 Bin/uconsole_keyboard_flash/maple_upload Bin/uconsole_keyboard_flash/flash.sh
+
+  windows:
+    name: Windows host-tool portability
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
