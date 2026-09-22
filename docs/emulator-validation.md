@@ -1,6 +1,6 @@
 # Local CM4 emulator validation
 
-Tested on 2026-09-21, Linux ARM64 (`sparky`), using QEMU 10.2.4 with the two
+Tested on 2026-09-21, Linux ARM64 (`sparky`), using QEMU 10.2.4 with the three
 repository patches. These results establish a usable development environment,
 **not complete uConsole hardware equivalence**. See [coverage](emulator.md).
 
@@ -24,6 +24,12 @@ repository patches. These results establish a usable development environment,
 * Linux enumerates QEMU USB keyboard and relative mouse devices through DWC2.
   QMP keyboard injection delivered Linux SysRq sync, remount and poweroff
   requests in the normal guest. This does not validate STM32 keyboard firmware.
+* The runtime tree contains an enabled `/soc/i2c@7e205000/pmic@34`. After the
+  shipped I2C driver module loads, Linux reports `AXP20x variant AXP221 found`
+  and binds `22-0034`. The qtest harness independently reads chip ID `0x06`
+  through the emulated BCM2835 I2C controller and observes a NACK at an unused
+  address. Battery state, charging, regulators, ADC and PMIC interrupts remain
+  outside this result.
 * Normal systemd boot completes the image's first-boot resizing/setup and its
   requested reboot. A subsequent boot reaches `clockworkpi login:` on ttyAMA1.
   It acquires `10.0.2.15` through the optional USB network substitute, and host
@@ -43,13 +49,17 @@ repository patches. These results establish a usable development environment,
 * QMP status, pause and resume work. The workbench editor/copy test created
   `/root/gui-proof.txt` and read it back with SHA-256
   `a06f8425622ce728e62499f0cf8d72b0eb727b6556f2606b838814b8c7132a9b`.
+  GUI tests also verify that selected boot output and clean agent context reach
+  the desktop clipboard.
 
 ## Checks and evidence
 
-The repository suite runs 37 tests. All 37 passed with the system Python/Tk
-under Xvfb. The default Python run skips GUI tests if Tk is unavailable.
-ShellCheck passes. The QEMU qtest harness separately exercises watchdog arm,
-countdown, reload, cancel, password rejection, expiry/reset and Linux poweroff.
+The repository suite runs 42 tests in its normal headless invocation: 33 pass
+and 9 GUI tests skip without a display. The three workbench GUI tests also pass
+under Xvfb, including the clipboard path. ShellCheck passes. Separate QEMU
+qtest harnesses exercise watchdog arm, countdown, reload, cancel,
+password rejection, expiry/reset and Linux poweroff, plus AXP221 I2C identity
+and NACK handling.
 
 Generated local evidence (ignored by Git):
 
@@ -58,6 +68,7 @@ Generated local evidence (ignored by Git):
 | `qemu-configure.log`, `qemu-build.log` | Baseline QEMU configuration/build |
 | `qemu-watchdog-build.log`, `qemu-memory-build.log` | Device-model fixes built |
 | `watchdog-test.log` | Real QEMU register/timer tests |
+| `pmic-qemu.log`, `export-smoke/serial.log` | Linux AXP221 probe and I2C binding |
 | `maintenance-evidence.log` | Guest OS, kernel, RAM, input devices |
 | `normal-firstboot-patched.log` | First-boot setup and requested reboot |
 | `workspace/serial.log` | Subsequent normal login, network, USB SysRq poweroff |

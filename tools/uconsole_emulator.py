@@ -98,9 +98,12 @@ def prepare(args):
 def command(args):
     workspace = args.workspace.resolve()
     config = read_config(workspace)
-    ports = [args.qmp_port, args.serial_port, args.gdb_port, args.ssh_port]
+    ports = [args.qmp_port, args.serial_port, args.gdb_port, args.ssh_port,
+             args.keyboard_cdc_port, args.modem_at_port]
     if args.vnc_display is not None:
         ports.append(5900 + args.vnc_display)
+        if args.display != 'none':
+            raise ValueError('--vnc-display cannot be combined with a local display backend')
     ports = [port for port in ports if port is not None]
     if any(not 1 <= port <= 65535 for port in ports) or len(ports) != len(set(ports)):
         raise ValueError('Listener ports must be distinct and between 1 and 65535')
@@ -117,7 +120,7 @@ def command(args):
            '-kernel', str(workspace / 'kernel8.img'),
            '-dtb', str(workspace / 'cm4-qemu.dtb'),
            '-drive', f'if=sd,format=qcow2,file={drive}',
-           '-append', cmdline, '-display', 'none', '-monitor', 'none',
+           '-append', cmdline, '-display', args.display, '-monitor', 'none',
            '-qmp', f'tcp:127.0.0.1:{args.qmp_port},server=on,wait=off',
            '-device', 'usb-kbd', '-device', 'usb-mouse']
     if args.serial_port:
@@ -136,6 +139,12 @@ def command(args):
     if args.ssh_port:
         cmd += ['-netdev', f'user,id=net,hostfwd=tcp:127.0.0.1:{args.ssh_port}-:22',
                 '-device', 'usb-net,netdev=net']
+    if args.keyboard_cdc_port:
+        cmd += ['-chardev', f'socket,id=keyboard-cdc,host=127.0.0.1,port={args.keyboard_cdc_port},server=on,wait=off',
+                '-device', 'usb-serial,chardev=keyboard-cdc,serial=20230713']
+    if args.modem_at_port:
+        cmd += ['-chardev', f'socket,id=modem-at,host=127.0.0.1,port={args.modem_at_port},server=on,wait=off',
+                '-device', 'usb-serial,chardev=modem-at,serial=uconsole-modem-at']
     return cmd
 
 
@@ -266,7 +275,13 @@ def parser():
     launch.add_argument('--qmp-port', type=int, default=4444)
     launch.add_argument('--gdb-port', type=int)
     launch.add_argument('--ssh-port', type=int)
+    launch.add_argument('--keyboard-cdc-port', type=int,
+                        help='split-device surrogate for the STM32 USB CDC function')
+    launch.add_argument('--modem-at-port', type=int,
+                        help='split-device surrogate for one optional modem AT serial port')
     launch.add_argument('--vnc-display', type=int)
+    launch.add_argument('--display', choices=['none', 'gtk', 'sdl'], default='none',
+                        help='optional local QEMU framebuffer window (not DSI emulation)')
     launch.add_argument('--pause', action='store_true')
     launch.add_argument('--dry-run', action='store_true')
     launch.set_defaults(func=run)

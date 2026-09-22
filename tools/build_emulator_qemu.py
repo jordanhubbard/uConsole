@@ -32,7 +32,8 @@ def main():
     if not source.exists():
         with tarfile.open(archive) as tar:
             tar.extractall(ROOT, filter='data')
-    for name in ['bcm2835-watchdog-timer.patch', 'raspi4-upper-memory.patch']:
+    for name in ['bcm2835-watchdog-timer.patch', 'raspi4-upper-memory.patch',
+                 'uconsole-axp221-pmic.patch']:
         patch = ROOT.parent.parent / 'Code/patch/qemu' / name
         check = subprocess.run(['patch', '--dry-run', '--forward', '-p1', '-i', str(patch)],
                                cwd=source, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

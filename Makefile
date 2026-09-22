@@ -52,3 +52,4 @@ emulator-workbench:
 check-emulator:
 	python3 -m unittest discover -s tests -p 'test_emulator.py' -v
 	python3 tools/test_emulator_watchdog.py
+	python3 tools/test_emulator_pmic.py

@@ -2,10 +2,12 @@
 
 This repository now has a **partial CM4 development environment**, based on
 QEMU's `raspi4b` BCM2711 model. It boots the official CM4 kernel and filesystem,
-provides a maintenance shell, USB input substitutes, writable disk overlays,
-image export, QMP controls, and a small desktop source editor/serial workbench.
+provides a maintenance shell, an AXP221 PMIC, USB input substitutes, writable
+disk overlays, image export, QMP controls, and a desktop source editor/serial
+workbench with a machine-readable agent interface.
 It is **not yet a complete virtual uConsole**. In particular, it does not validate
-the DSI display, VideoCore GPU, battery/charging, keyboard firmware, or modem.
+the DSI display, VideoCore GPU, battery/charging behavior, STM32 keyboard
+firmware, or the complete modem.
 
 ## Research and adoption decision
 
@@ -47,8 +49,8 @@ optional modem uses GPIO power sequencing and USB data/control/fastboot.
 | UART | PL011 console, stdio or loopback TCP | Electrical/timing validation, UART Bluetooth assignment |
 | Keyboard/trackball | QEMU USB keyboard and relative mouse over DWC2 | STM32F103 firmware, composite descriptors, Fn layers, joystick, LEDs, CDC and DFU |
 | Watchdog/power reset | Repository QEMU patch adds countdown/reload/cancel/expiry | Broader power-management register coverage |
-| Display | Optional QEMU VNC framebuffer endpoint | VC4/V3D, DSI, CWU50 panel and OCP8178 backlight; no desktop claim |
-| PMIC/battery | Not modeled | AXP221 at I2C address 0x34, regulators, ADC, charge and interrupt behavior |
+| Display | Optional local GTK/SDL or loopback VNC framebuffer | VC4/V3D, DSI, CWU50 panel and OCP8178 backlight; no panel-fidelity claim |
+| PMIC/battery | QEMU AXP221 at I2C address 0x34; Linux driver probes it | Regulators, battery state, ADC, charging and interrupt behavior |
 | Networking | Optional QEMU USB RNDIS adapter and user-mode NAT/SSH forwarding | Actual Wi-Fi/BT hardware and radio behavior; guest configuration still required |
 | Optional 4G | Not modeled | SIM7600 USB/AT/QMI/fastboot, GPIO power/reset and fault scenarios |
 | Audio/expansion | Not modeled | PWM/audio path and expansion hardware |
@@ -70,7 +72,8 @@ python3 tools/uconsole_emulator.py prepare /path/to/uConsole_CM4_v3.1_64bit.img.
 ```
 
 The bootstrap downloads QEMU 10.2.4 from the official HTTPS distribution site,
-checks the repository-pinned SHA-256, applies the watchdog patch and builds in
+checks the repository-pinned SHA-256, applies the watchdog, upper-memory and
+uConsole AXP221 patches, and builds in
 `build/emulator/`. It does not replace system QEMU. The archive hash records the
 artifact used here; it is not a signature-verification mechanism.
 
@@ -94,16 +97,46 @@ python3 tools/uconsole_emulator.py run --mode maintenance
 # Normal systemd boot, serial console and optional SSH port forwarding.
 python3 tools/uconsole_emulator.py run --serial-port 4445 --ssh-port 2222
 
-# Desktop source editor, serial console, start/pause/resume, copy and export.
+# Desktop source editor, serial console, agent context, tasks, files and export.
 python3 tools/uconsole_workbench.py
 ```
 
 On this Ubuntu host use `/usr/bin/python3 tools/uconsole_workbench.py`, since
-that Python installation has Tk. The workbench is an initial IDE foundation:
-plain source editing plus emulator controls. It does not yet have language
-servers, project builds, an integrated GDB frontend or a graphical guest display.
-Its console accepts lines; use SSH or another terminal client for full-screen
-terminal programs. Start only one owner for ports 4444/4445 at a time.
+that Python installation has Tk. Select text in either pane and press
+**Copy selection**, Control-C, Command-C, or use the right-click menu. **Copy
+boot log** copies the entire visible serial transcript. **Copy agent context**
+places a clean Markdown bundle with workspace identity, runtime state, fidelity
+limits and recent boot output on the system clipboard, ready to paste into a
+chat. **Paste command** moves clipboard text into the line input without sending
+it, so the command remains reviewable.
+
+The **Guest files** browser lists and downloads files through the maintenance
+console. **Tasks** loads the checked-in `uconsole-tasks.json`; tasks use argument
+arrays or explicit guest scripts and produce structured output. The display
+selector can open QEMU's GTK or SDL framebuffer in a second window. This still
+does not emulate DSI/VC4. The workbench does not yet have language servers or an
+integrated GDB frontend. Its console accepts lines; use SSH or another terminal
+client for full-screen terminal programs. Start only one owner for ports
+4444/4445 at a time.
+
+The same operations are available without the GUI for coding agents and CI:
+
+```sh
+python3 tools/uconsole_agent.py inspect
+python3 tools/uconsole_agent.py context --output /tmp/uconsole-context.md
+python3 tools/uconsole_agent.py tasks
+python3 tools/uconsole_agent.py task guest-summary
+python3 tools/uconsole_agent.py exec -- uname -a
+python3 tools/uconsole_agent.py ls /etc
+python3 tools/uconsole_agent.py put ./config /etc/example.conf
+python3 tools/uconsole_agent.py get /var/log/boot.log ./boot.log
+```
+
+Commands return JSON where automation needs state or transfer metadata. Guest
+commands and file operations require a maintenance shell on the selected serial
+port. Transfers are checksum-verified and limited to 8 MiB; use SSH/SCP for
+larger artifacts. The context command strips ANSI escapes and its own command
+wrappers so an agent receives useful boot evidence rather than terminal noise.
 
 To modify an image from a host terminal:
 
@@ -113,7 +146,8 @@ python3 tools/uconsole_emulator.py run --mode maintenance --serial-port 4445
 python3 tools/uconsole_emulator.py put ./example.conf /etc/example.conf
 ```
 
-`put` uses the existing root shell, uploads files up to 1 MiB in bounded chunks,
+The legacy emulator `put` command uses the existing root shell, uploads files up
+to 1 MiB in bounded chunks,
 verifies the SHA-256 in the guest, installs with mode 0644 and syncs. It replaces
 the specified guest file. Only one client can own the serial connection; the
 workbench releases its connection during its Copy to guest operation. For shell
@@ -157,6 +191,31 @@ refreshed after a guest kernel upgrade: export and prepare a new workspace.
 bind only to loopback. `--ssh-port` creates a USB network substitute and forwards
 to guest port 22; it does not enable SSH or provision credentials.
 
+`run --display gtk` and `run --display sdl` open the same generic QEMU
+framebuffer locally. `--keyboard-cdc-port 4550` adds a USB serial surrogate for
+the STM32 CDC function, while QEMU's separate USB keyboard and mouse cover input.
+`--modem-at-port 4551` adds one generic USB serial surrogate for AT-command
+client development. These split devices deliberately do not claim the uConsole
+STM32 composite descriptors, DFU behavior, or the SIM7600 USB/QMI/fastboot
+contract.
+
+## Compare with the physical CM4 uConsole
+
+The inventory tool captures the same read-only probes from an emulator or real
+machine without storing credentials. SSH must already be configured:
+
+```sh
+python3 tools/uconsole_hardware_probe.py capture emulator.json
+python3 tools/uconsole_hardware_probe.py capture hardware.json --ssh user@uconsole.local
+python3 tools/uconsole_hardware_probe.py compare emulator.json hardware.json
+```
+
+It records kernel, device-tree model, CPU, USB/input devices, network links,
+power supplies, I2C, GPIO, modules and command line, preserving failures when an
+optional command is absent. The comparison identifies changed probes without
+pretending textual equality is hardware equivalence. A physical capture remains
+pending until this machine has an authenticated SSH route to the booted unit.
+
 | Host | Current status |
 | --- | --- |
 | Linux ARM64 (this machine) | QEMU built and CM4 maintenance boot exercised; Tk tested under Xvfb |
@@ -175,9 +234,11 @@ tree. It enables the DWC2 controller in host mode, disables the Bluetooth child
 of UART0, and removes UART `skip-init` and hardware flow-control properties.
 The shipped aliases name this PL011 console `ttyAMA1`. The direct kernel command
 line selects it and identifies root by the image's MBR partition UUID.
-The full uConsole DSI/PMIC overlays are deliberately not applied until their
-devices exist in the emulator. QEMU also removes several unsupported BCM2711
-nodes itself. Each of these differences limits hardware-validation claims.
+The full uConsole carrier overlay is not applied because its DSI panel,
+backlight and regulator graph still reference devices absent from QEMU. The
+machine patch supplies the PMIC node directly. QEMU also removes several
+unsupported BCM2711 nodes itself. Each difference limits hardware-validation
+claims.
 
 The [watchdog patch](../Code/patch/qemu/bcm2835-watchdog-timer.patch) fixes QEMU's
 immediate-reset behavior when Linux arms its watchdog. The Linux driver uses
@@ -192,21 +253,30 @@ board's total RAM, not the already-limited boot memory size. Without this change
 Linux sees only the lower region (about 917 MiB usable); with it the tested
 kernel reports `MemTotal: 1902268 kB`.
 
+The [AXP221 patch](../Code/patch/qemu/uconsole-axp221-pmic.patch) attaches QEMU's
+existing AXP221 model at the uConsole address, enables the CM4 I2C controller in
+the runtime tree, and describes AC and battery child functions. Linux identifies
+the device as AXP221. The current QEMU model exposes its register file but does
+not yet simulate a configurable battery, charge cycle, ADC readings, regulator
+wiring, or PMIC interrupts.
+
 ## Validation and remaining implementation
 
 ```sh
 python3 -m unittest discover -s tests -p 'test_emulator.py' -v
 python3 tools/test_emulator_watchdog.py
+python3 tools/test_emulator_pmic.py
 xvfb-run -a /usr/bin/python3 -m unittest discover -s tests -p 'test_emulator_gui.py' -v
 ```
 
 Tests cover image checksums/preservation, FAT extraction and cyclic chains,
-DTB changes, launch isolation, destination protection, editor state, and real
-QEMU watchdog MMIO/virtual-clock behavior. Local build and boot evidence is in
+DTB changes, launch isolation, destination protection, agent task/context
+contracts, clipboard behavior, and real QEMU watchdog and PMIC MMIO behavior.
+Local build and boot evidence is in
 `build/emulator/`; see `emulator-validation.md` for observed results.
 
 Full-device implementation still needs the DSI/VC4 and panel/backlight models,
-AXP221 power/battery model, STM32/USB composite firmware path, SIM7600 model,
+AXP221 battery/charging extensions, STM32/USB composite firmware path, SIM7600 model,
 audio and wireless coverage. Add each model against documented register or USB
 contracts with driver-level tests and comparison captures from the physical CM4.
 Do not turn missing hardware into permanently successful fake responses.

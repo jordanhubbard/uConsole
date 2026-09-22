@@ -41,6 +41,19 @@ class WorkbenchTests(unittest.TestCase):
                 self.app.control('stop')
             monitor.assert_not_called()
 
+    def test_console_selection_and_agent_context_reach_system_clipboard(self):
+        self.app.console.configure(state='normal')
+        self.app.console.insert('1.0', 'boot message\n')
+        self.app.console.tag_add('sel', '1.0', '1.4')
+        self.app.console.configure(state='disabled')
+        self.app.console.focus_set()
+        self.app.copy_selection()
+        self.assertEqual(self.root.clipboard_get(), 'boot')
+        config = Path(self.temporary.name) / 'machine.json'
+        config.write_text('{"machine":"raspi4b","coverage":"partial-cm4"}')
+        self.app.copy_context()
+        self.assertIn('uConsole CM4 agent context', self.root.clipboard_get())
+
 
 if __name__ == '__main__':
     unittest.main()

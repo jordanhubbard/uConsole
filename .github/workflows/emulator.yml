@@ -1,9 +1,9 @@
 name: Emulator host tools
 on:
   push:
-    paths: ['tools/*emulator*.py', 'tools/uconsole_workbench.py', 'tests/test_emulator*.py', '.github/workflows/emulator.yml']
+    paths: ['tools/*emulator*.py', 'tools/uconsole_*.py', 'uconsole-tasks.json', 'tests/test_emulator*.py', '.github/workflows/emulator.yml']
   pull_request:
-    paths: ['tools/*emulator*.py', 'tools/uconsole_workbench.py', 'tests/test_emulator*.py', '.github/workflows/emulator.yml']
+    paths: ['tools/*emulator*.py', 'tools/uconsole_*.py', 'uconsole-tasks.json', 'tests/test_emulator*.py', '.github/workflows/emulator.yml']
 permissions:
   contents: read
 jobs:
