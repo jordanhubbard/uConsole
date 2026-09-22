@@ -1,5 +1,12 @@
 # uConsole
 
+## CM4 emulator and development workbench
+
+The [emulator guide](docs/emulator.md) provides a local QEMU build, official-image
+boot, serial console, writable image overlays, file transfer and image export,
+plus a Python/Tk source editor and emulator workbench. This is **partial CM4
+emulation**; the guide records missing uConsole devices and platform validation.
+
 ## Building source
 
 Install the [keyboard firmware toolchain](Code/uconsole_keyboard/README.md)

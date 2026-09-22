@@ -41,3 +41,14 @@ install-modem-updater:
 
 clean:
 	rm -rf -- '$(BUILD_DIR)'
+
+.PHONY: emulator-build emulator-workbench check-emulator
+emulator-build:
+	python3 tools/build_emulator_qemu.py
+
+emulator-workbench:
+	python3 tools/uconsole_workbench.py
+
+check-emulator:
+	python3 -m unittest discover -s tests -p 'test_emulator.py' -v
+	python3 tools/test_emulator_watchdog.py
