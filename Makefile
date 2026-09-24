@@ -3,8 +3,28 @@ FQBN ?= stm32duino:STM32F1:genericSTM32F103R:device_variant=STM32F103RB,upload_m
 BUILD_DIR ?= $(CURDIR)/build
 CFLAGS ?= -O2 -Wall -Wextra
 
-.PHONY: all firmware flash-tool flash-bundle modem-flash-tool install-modem-updater check check-gui clean
+.PHONY: all deps build run install package release firmware flash-tool flash-bundle modem-flash-tool install-modem-updater check check-gui clean
 all: firmware flash-tool modem-flash-tool
+
+# Stable, platform-aware entry points for IDE integrations and releases.
+deps:
+	./scripts/platform.sh deps
+
+build:
+	./scripts/platform.sh build
+
+run:
+	./scripts/platform.sh run
+
+install:
+	./scripts/platform.sh install
+
+package:
+	./scripts/platform.sh package
+
+RELEASE ?= patch
+release:
+	./scripts/release.sh '$(RELEASE)'
 
 firmware:
 	$(ARDUINO_CLI) compile --fqbn '$(FQBN)' --output-dir '$(BUILD_DIR)/firmware' Code/uconsole_keyboard
@@ -24,7 +44,7 @@ modem-flash-tool:
 
 check:
 	python3 -m unittest discover -s tests -v
-	shellcheck Code/scripts/uconsole-4g-cm5 Bin/uconsole_keyboard_flash/maple_upload Bin/uconsole_keyboard_flash/flash.sh
+	shellcheck Code/scripts/uconsole-4g-cm5 Bin/uconsole_keyboard_flash/maple_upload Bin/uconsole_keyboard_flash/flash.sh scripts/platform.sh scripts/release.sh
 
 check-gui:
 	xvfb-run -a /usr/bin/python3 -m unittest discover -s tests -p 'test_modem_gui.py' -v

@@ -8,25 +8,39 @@ import tarfile
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def helper_target(header):
+    """Return the release OS/architecture encoded in a native helper."""
+    if len(header) >= 20 and header[:4] == b'\x7fELF' and header[5] == 1:
+        machine = struct.unpack_from('<H', header, 18)[0]
+        architectures = {62: 'x86_64', 183: 'aarch64', 40: 'armhf', 243: 'riscv64'}
+        if machine not in architectures:
+            raise ValueError(f'unsupported ELF machine: {machine}')
+        return 'linux', architectures[machine]
+
+    # 64-bit, little-endian Mach-O. GitHub's standard macOS runner is arm64,
+    # but recognizing x86_64 keeps local Intel packaging deterministic too.
+    if len(header) >= 8 and header[:4] == b'\xcf\xfa\xed\xfe':
+        cpu_type = struct.unpack_from('<I', header, 4)[0]
+        architectures = {0x01000007: 'x86_64', 0x0100000C: 'arm64'}
+        if cpu_type not in architectures:
+            raise ValueError(f'unsupported Mach-O CPU type: {cpu_type}')
+        return 'macos', architectures[cpu_type]
+
+    raise ValueError('reset helper must be a 64-bit little-endian ELF or Mach-O binary')
+
+
 def package(build_dir):
     helper = build_dir / 'upload-reset.elf'
     firmware = build_dir / 'firmware/uconsole_keyboard.ino.bin'
     header = helper.read_bytes()[:20]
-    if len(header) < 20 or header[:4] != b'\x7fELF' or header[5] != 1:
-        raise ValueError('reset helper must be a little-endian Linux ELF binary')
-    machine = struct.unpack_from('<H', header, 18)[0]
-    architectures = {62: 'amd64', 183: 'aarch64', 40: 'armhf', 243: 'riscv64'}
-    if machine not in architectures:
-        raise ValueError(f'unsupported reset helper ELF machine: {machine}')
-    architecture = architectures[machine]
+    operating_system, architecture = helper_target(header)
     if firmware.stat().st_size == 0:
         raise ValueError('firmware is empty')
     bundled = ROOT / 'Bin/uconsole_keyboard_flash'
     files = [(bundled / name, name) for name in ('flash.sh', 'maple_upload', 'README.md')]
     files += [(firmware, 'uconsole_keyboard.ino.bin')]
-    reset_path = 'upload-reset.elf' if architecture == 'amd64' else f'deb_packages/{architecture}/upload-reset.elf'
-    files += [(helper, reset_path)]
-    output = build_dir / f'uconsole_keyboard_flash-{architecture}.tar.gz'
+    files += [(helper, 'upload-reset')]
+    output = build_dir / f'uconsole_keyboard_flash-{operating_system}-{architecture}.tar.gz'
     # Write atomically so an interrupted package step cannot replace a good bundle.
     temporary = output.with_suffix('.tmp')
     try:

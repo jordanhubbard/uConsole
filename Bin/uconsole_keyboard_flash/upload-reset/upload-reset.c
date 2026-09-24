@@ -36,6 +36,11 @@
 #include <errno.h>
 #include <time.h>
 
+/* macOS spells the combined hardware-flow-control flags separately. */
+#ifndef CRTSCTS
+#define CRTSCTS (CCTS_OFLOW | CRTS_IFLOW)
+#endif
+
 /* Function prototypes (belong in a seperate header file) */
 int   openserial(char *devicename);
 void  closeserial(void);

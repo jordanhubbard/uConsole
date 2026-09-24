@@ -2,6 +2,7 @@
 """Build an isolated, pinned QEMU on a POSIX host; never replace system QEMU."""
 import argparse
 import hashlib
+import os
 from pathlib import Path
 import subprocess
 import tarfile
@@ -9,7 +10,10 @@ import urllib.request
 
 VERSION = '10.2.4'
 SHA256 = '821b545b92f165e57dddccac5077d76d4d436a226595b8813ad59306bbfd0746'
-ROOT = Path(__file__).resolve().parent.parent / 'build/emulator'
+SOURCE_ROOT = Path(__file__).resolve().parent.parent
+RESOURCE_ROOT = Path(os.environ.get('UCONSOLE_ROOT', SOURCE_ROOT)).resolve()
+BUILD_ROOT = Path(os.environ.get('UCONSOLE_BUILD_DIR', RESOURCE_ROOT / 'build')).expanduser().resolve()
+ROOT = BUILD_ROOT / 'emulator'
 
 
 def main():
@@ -34,7 +38,7 @@ def main():
             tar.extractall(ROOT, filter='data')
     for name in ['bcm2835-watchdog-timer.patch', 'raspi4-upper-memory.patch',
                  'uconsole-axp221-pmic.patch']:
-        patch = ROOT.parent.parent / 'Code/patch/qemu' / name
+        patch = RESOURCE_ROOT / 'Code/patch/qemu' / name
         check = subprocess.run(['patch', '--dry-run', '--forward', '-p1', '-i', str(patch)],
                                cwd=source, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         if check.returncode == 0:

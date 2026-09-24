@@ -3,9 +3,13 @@ import json
 import os
 from pathlib import Path
 import shutil
+import struct
 import subprocess
+import tarfile
 import tempfile
 import unittest
+
+from tools.package_flash import package
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / 'Bin/uconsole_keyboard_flash'
@@ -138,6 +142,38 @@ class NativeResetTest(unittest.TestCase):
                                         capture_output=True, text=True, timeout=2)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertTrue(result.stderr)
+
+
+class PackageTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.build = Path(self.tmp.name)
+        (self.build / 'firmware').mkdir()
+        (self.build / 'firmware/uconsole_keyboard.ino.bin').write_bytes(b'firmware')
+
+    def write_helper(self, header):
+        helper = self.build / 'upload-reset.elf'
+        helper.write_bytes(header + b'native helper')
+        helper.chmod(0o755)
+
+    def test_linux_aarch64_release_bundle(self):
+        header = bytearray(20)
+        header[:6] = b'\x7fELF\x02\x01'
+        struct.pack_into('<H', header, 18, 183)
+        self.write_helper(header)
+        output = package(self.build)
+        self.assertEqual(output.name, 'uconsole_keyboard_flash-linux-aarch64.tar.gz')
+        with tarfile.open(output) as archive:
+            self.assertIn('uconsole_keyboard_flash/upload-reset', archive.getnames())
+
+    def test_macos_arm64_release_bundle(self):
+        header = bytearray(20)
+        header[:4] = b'\xcf\xfa\xed\xfe'
+        struct.pack_into('<I', header, 4, 0x0100000C)
+        self.write_helper(header)
+        output = package(self.build)
+        self.assertEqual(output.name, 'uconsole_keyboard_flash-macos-arm64.tar.gz')
 
 
 if __name__ == '__main__':

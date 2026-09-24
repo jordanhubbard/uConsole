@@ -12,11 +12,11 @@ toolchain described in `Code/uconsole_keyboard/README.md`. This builds a native
 reset helper without replacing the bundled binaries for other architectures.
 
 `make flash-bundle` packages the current scripts, newly compiled firmware,
-and native reset helper into `build/uconsole_keyboard_flash-<architecture>.tar.gz`.
-The archive targets the helper's architecture (detected from its ELF header);
-extract it on that architecture and run its `flash.sh`. Other architectures'
-precompiled reset helpers are not included. The tracked legacy tarball is
-not overwritten by this build.
+and native reset helper into
+`build/uconsole_keyboard_flash-<os>-<architecture>.tar.gz`. The archive target
+is detected from the helper's ELF or Mach-O header; extract it on that target
+and run its `flash.sh`. Other architectures' precompiled reset helpers are not
+included. The tracked legacy tarball is not overwritten by this build.
 
 When ready to flash a connected keyboard, run from the repository root:
 
@@ -26,9 +26,12 @@ sudo env UPLOAD_RESET="$PWD/build/upload-reset.elf" \
   "$PWD/build/firmware/uconsole_keyboard.ino.bin"
 ```
 
-Install `dfu-util` first. If it is outside `/usr/bin`, set `DFU_UTIL` to its
-absolute path in the same `env` command. Check which serial port belongs to
-your keyboard and replace `ttyACM0` if necessary; `/dev/ttyACM0` also works.
+Install `dfu-util` first (`apt install dfu-util` on Debian/Ubuntu or
+`brew install dfu-util` on macOS). If it is not on `PATH`, set `DFU_UTIL` to
+its absolute path in the same `env` command. Check which serial port belongs
+to your keyboard and replace `ttyACM0` if necessary; `/dev/ttyACM0` also works.
+On macOS, `flash.sh` selects the first `/dev/cu.usbmodem*` device or requires
+the device path as its second argument when none can be detected.
 
 For the prebuilt bundle, `flash.sh` works from any current directory and
 accepts optional firmware and serial-port arguments:

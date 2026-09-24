@@ -19,26 +19,32 @@ if [[ ! -f "$binfile" || ! -r "$binfile" || ! -s "$binfile" ]]; then
     exit 2
 fi
 
-# Prefer userspace architecture: a 64-bit kernel may run a 32-bit OS.
+# A release bundle always carries its native helper at the root. Fall back to
+# the legacy Debian layout so existing checked-out/prebuilt bundles keep working.
 architecture=$(uname -m)
 if command -v dpkg >/dev/null 2>&1; then
     architecture=$(dpkg --print-architecture) || architecture=$(uname -m)
 fi
-case "$architecture" in
-    amd64|x86_64) reset_default=$DIR/upload-reset.elf ;;
-    arm64|aarch64) reset_default=$DIR/deb_packages/aarch64/upload-reset.elf ;;
-    armhf|arm|armv6l|armv7l) reset_default=$DIR/deb_packages/armhf/upload-reset.elf ;;
-    riscv64) reset_default=$DIR/deb_packages/riscv64/upload-reset.elf ;;
-    *)
-        if [[ -z ${UPLOAD_RESET:-} ]]; then
-            echo "Unsupported architecture: $architecture; set UPLOAD_RESET to a native helper." >&2
-            exit 2
-        fi
-        reset_default=$UPLOAD_RESET
-        ;;
-esac
+if [[ -x $DIR/upload-reset ]]; then
+    reset_default=$DIR/upload-reset
+else
+    case "$architecture" in
+        amd64|x86_64) reset_default=$DIR/upload-reset.elf ;;
+        arm64|aarch64) reset_default=$DIR/deb_packages/aarch64/upload-reset.elf ;;
+        armhf|arm|armv6l|armv7l) reset_default=$DIR/deb_packages/armhf/upload-reset.elf ;;
+        riscv64) reset_default=$DIR/deb_packages/riscv64/upload-reset.elf ;;
+        *)
+            if [[ -z ${UPLOAD_RESET:-} ]]; then
+                echo "Unsupported architecture: $architecture; set UPLOAD_RESET to a native helper." >&2
+                exit 2
+            fi
+            reset_default=$UPLOAD_RESET
+            ;;
+    esac
+fi
 reset_tool=${UPLOAD_RESET:-$reset_default}
-dfu_tool=${DFU_UTIL:-/usr/bin/dfu-util}
+dfu_default=$(command -v dfu-util 2>/dev/null || true)
+dfu_tool=${DFU_UTIL:-${dfu_default:-/usr/bin/dfu-util}}
 for tool in "$reset_tool" "$dfu_tool"; do
     if [[ ! -x "$tool" ]]; then
         echo "Required executable not found: $tool" >&2

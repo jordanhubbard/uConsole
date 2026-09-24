@@ -1,0 +1,90 @@
+name: Release packages
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: read
+
+jobs:
+  firmware:
+    name: Build keyboard firmware
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-arduino-cli@v2
+      - name: Install STM32F1 core
+        run: |
+          arduino-cli config init
+          arduino-cli config add board_manager.additional_urls https://dan.drown.org/stm32duino/package_STM32duino_index.json
+          arduino-cli core update-index
+          arduino-cli core install stm32duino:STM32F1@2021.2.22
+      - name: Build firmware
+        run: make firmware
+      - uses: actions/upload-artifact@v4
+        with:
+          name: keyboard-firmware
+          path: build/firmware/uconsole_keyboard.ino.bin
+          if-no-files-found: error
+
+  packages:
+    name: Package ${{ matrix.target }}
+    needs: firmware
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x86_64
+            runner: ubuntu-24.04
+          - target: linux-aarch64
+            runner: ubuntu-24.04-arm
+          - target: macos-arm64
+            runner: macos-15
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: keyboard-firmware
+          path: build/firmware
+      - name: Build and package uConsole Workbench
+        run: |
+          make package
+      - name: Test native helper and IDE package
+        run: |
+          if build/upload-reset.elf >/dev/null 2>&1; then
+            echo 'upload-reset unexpectedly accepted missing arguments' >&2
+            exit 1
+          fi
+          python3 -m unittest tests.test_keyboard_flash -v
+          test "$(find build -maxdepth 1 -name 'uconsole-workbench-*.tar.gz' | wc -l | tr -d ' ')" = 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: uconsole-workbench-${{ matrix.target }}
+          path: build/uconsole-workbench-*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release
+    needs: packages
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: uconsole-workbench-*
+          path: dist
+          merge-multiple: true
+      - name: Create checksums
+        working-directory: dist
+        run: sha256sum uconsole-workbench-*.tar.gz > SHA256SUMS
+      - name: Publish release and assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create '${{ github.ref_name }}' dist/* --repo '${{ github.repository }}' --verify-tag --generate-notes --title '${{ github.ref_name }}'

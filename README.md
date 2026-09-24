@@ -1,5 +1,41 @@
 # uConsole
 
+## uConsole Workbench IDE
+
+The uConsole Workbench is the primary packaged application in this repository:
+a desktop source editor, CM4 emulator console, image/file-transfer tools, and
+agent task interface. The release package also includes the keyboard firmware
+flasher built for the host operating system and CPU architecture.
+
+The same Make targets work on supported macOS and Debian/Ubuntu Linux hosts
+(`x86_64` and `aarch64` on Linux; Apple silicon and Intel on macOS):
+
+```sh
+make deps       # install build and runtime dependencies
+make build      # build the native IDE distribution tree
+make run        # launch the IDE from this checkout
+make package    # create build/uconsole-workbench-OS-ARCH.tar.gz
+sudo make install
+```
+
+`make deps` uses Homebrew on macOS and `apt-get` on Linux. Installing the
+legacy STM32F1 Arduino core can require the manual architecture-specific setup
+in [the keyboard firmware guide](Code/uconsole_keyboard/README.md). Override
+`PREFIX` and `DESTDIR` for staged or non-default installations. Installed IDE
+state and emulator images live below
+`${XDG_DATA_HOME:-$HOME/.local/share}/uconsole-workbench`, outside the install
+tree.
+
+Releases are built by GitHub Actions for Linux x86_64, Linux AArch64, and macOS
+Apple silicon. Each archive contains the IDE, its supporting tools and docs,
+and a native keyboard-flashing bundle. `SHA256SUMS` is published alongside the
+archives. Maintainers can validate without tagging or create a release with:
+
+```sh
+./scripts/release.sh --dry-run 1.0.0
+make release RELEASE=1.0.0
+```
+
 ## CM4 emulator and development workbench
 
 The [emulator guide](docs/emulator.md) provides a local QEMU build, official-image
@@ -9,8 +45,9 @@ emulation**; the guide records missing uConsole devices and platform validation.
 
 ## Building source
 
-Install the [keyboard firmware toolchain](Code/uconsole_keyboard/README.md)
-and a native C compiler, Make, Python 3, `patch`, `tar`, and ShellCheck. Then:
+Run `make deps`, or install the
+[keyboard firmware toolchain](Code/uconsole_keyboard/README.md) and a native C
+compiler, Make, Python 3, `patch`, `tar`, and ShellCheck. Then:
 
 ```sh
 make all check
@@ -67,15 +104,16 @@ If you want to use the 4G extension, you can find helpful tips on how to use it 
 
 ## uConsole Keyboard Firmware
 Build the current firmware and upload tools with `make flash-bundle`; the
-result is `build/uconsole_keyboard_flash-ARCH.tar.gz`, where `ARCH` is the
-native reset helper's architecture. Use a bundle built for the machine that
-will perform the upload. The [flashing guide](Bin/uconsole_keyboard_flash/README.md)
-describes requirements and error handling.
+result is `build/uconsole_keyboard_flash-OS-ARCH.tar.gz`. Use a bundle built
+for the machine that will perform the upload. Release users normally receive
+this flasher inside the larger Workbench archive. The
+[flashing guide](Bin/uconsole_keyboard_flash/README.md) describes requirements
+and error handling.
 
 Here's how you can flash the firmware on uConsole(A06 or CM4) or a PC running Ubuntu 22.04:
 
 1. Build or obtain the current flashing bundle for the upload machine.
-2. Extract the archive, substituting its architecture: `tar xzf uconsole_keyboard_flash-ARCH.tar.gz`.
+2. Extract the archive, substituting its target: `tar xzf uconsole_keyboard_flash-OS-ARCH.tar.gz`.
 3. Install the required package using the following command: `sudo apt install -y dfu-util`.
 4. Navigate to the extracted directory: `cd uconsole_keyboard_flash`.
 5. Execute the flash script with root privileges: `sudo ./flash.sh`.

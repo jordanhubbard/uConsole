@@ -19,8 +19,10 @@ import uuid
 from emulator_image import BootPartition
 from emulator_dtb import patch_strings
 
-ROOT = Path(__file__).resolve().parent.parent
-DEFAULT = ROOT / 'build/emulator/workspace'
+SOURCE_ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(os.environ.get('UCONSOLE_ROOT', SOURCE_ROOT)).resolve()
+BUILD_ROOT = Path(os.environ.get('UCONSOLE_BUILD_DIR', ROOT / 'build')).expanduser().resolve()
+DEFAULT = BUILD_ROOT / 'emulator/workspace'
 IMAGE_SHA256 = 'ef95242cdb0125e8ed08157400a26d4665acddd083481ec2314acd6e073b74ab'
 
 
@@ -31,7 +33,7 @@ def digest(path):
 
 def executable(name):
     suffix = '.exe' if os.name == 'nt' else ''
-    local = ROOT / 'build/emulator/qemu-build' / (name + suffix)
+    local = BUILD_ROOT / 'emulator/qemu-build' / (name + suffix)
     return str(local) if local.is_file() else (shutil.which(name) or name)
 
 
