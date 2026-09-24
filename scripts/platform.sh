@@ -94,7 +94,7 @@ EOF
 }
 
 build_ide() {
-    local -a cppflags cflags ldflags ldlibs
+    local -a compile
     command -v python3 >/dev/null 2>&1 || fail 'python3 is required; run make deps'
     command -v cc >/dev/null 2>&1 || fail 'a C compiler is required; run make deps'
     python3 -m compileall -q "$root/tools"
@@ -107,13 +107,23 @@ build_ide() {
     cp "$root"/Code/patch/qemu/*.patch "$stage/libexec/uconsole-workbench/Code/patch/qemu/"
     cp "$root/uconsole-tasks.json" "$stage/libexec/uconsole-workbench/"
     cp "$root/docs/emulator.md" "$root/README.md" "$stage/share/doc/uconsole-workbench/"
-    read -r -a cppflags <<< "${CPPFLAGS:-}"
-    read -r -a cflags <<< "${CFLAGS:--O2 -Wall -Wextra}"
-    read -r -a ldflags <<< "${LDFLAGS:-}"
-    read -r -a ldlibs <<< "${LDLIBS:-}"
-    cc "${cppflags[@]}" "${cflags[@]}" \
-        "$root/Bin/uconsole_keyboard_flash/upload-reset/upload-reset.c" \
-        "${ldflags[@]}" "${ldlibs[@]}" -o "$build_dir/upload-reset.elf"
+    compile=(cc)
+    if [[ -n ${CPPFLAGS:-} ]]; then
+        read -r -a flags <<< "$CPPFLAGS"
+        compile+=("${flags[@]}")
+    fi
+    read -r -a flags <<< "${CFLAGS:--O2 -Wall -Wextra}"
+    compile+=("${flags[@]}" "$root/Bin/uconsole_keyboard_flash/upload-reset/upload-reset.c")
+    if [[ -n ${LDFLAGS:-} ]]; then
+        read -r -a flags <<< "$LDFLAGS"
+        compile+=("${flags[@]}")
+    fi
+    if [[ -n ${LDLIBS:-} ]]; then
+        read -r -a flags <<< "$LDLIBS"
+        compile+=("${flags[@]}")
+    fi
+    compile+=(-o "$build_dir/upload-reset.elf")
+    "${compile[@]}"
     write_launcher
     printf 'Built uConsole Workbench for %s in %s\n' "$target" "$stage"
 }
