@@ -117,7 +117,8 @@ sys.exit(int(os.environ['DFU_RESULT' if name == 'dfu-util' else 'RESET_RESULT'])
         self.firmware.rename(self.bundle / 'uconsole_keyboard.ino.bin')
         (self.bundle / 'maple_upload').write_text(
             '#!/bin/sh\n[ -s "$4" ] && [ "$1" = ttyACM0 ]\n')
-        result = subprocess.run(['bash', str(self.bundle / 'flash.sh')],
+        result = subprocess.run(['bash', str(self.bundle / 'flash.sh'),
+                                 str(self.bundle / 'uconsole_keyboard.ino.bin'), 'ttyACM0'],
                                 cwd=self.work, env=self.env, timeout=5)
         self.assertEqual(result.returncode, 0)
 
