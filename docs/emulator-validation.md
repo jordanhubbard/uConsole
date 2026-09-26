@@ -8,6 +8,71 @@ These results establish a usable development environment,
 
 ## Inputs
 
+### Live coding-agent image round trip through packaged MCP (2026-09-26)
+
+The coding agent in this session exercised the actual macOS archive from
+package run `36241101151`, revision `91f04b0`, SHA-256
+`69c825de4ed5af99bc3e2a0017c5148426aabfb63b49575b3bd6482f1a6b78bc`.
+It followed the forge skill, discovered the GUI owner's resources and grants,
+imported the public factory image, checkpointed it and booted maintenance mode.
+The agent wrote and uploaded a hardware-neutral `forge-system-report` utility
+and four application tests, then executed them through MCP. A read-only probe
+found no device-tree model path in this maintenance session; the application
+reports an unavailable model without changing native boot settings. That initial
+nonzero guest command remains in the transcript, separate from successful tests.
+
+All four application tests passed, and the stopped guest exported as SHA-256
+`1156f8b64c6b4b956c72dc13f3d8317b303439d5c08aef0c83a0719d1408ebe1`.
+A separate packaged MCP owner fully imported that export into a new workspace,
+verified the application/test hashes and reran all four tests successfully.
+Both guests stopped cleanly, both MCP clients exited zero, and independent
+checks verified unchanged bases/export, unchanged protected boot bytes and
+clean/checksummed primary root superblocks. These are not full fsck results.
+The app SHA-256 is `454da9feaca20de5a9ab50fec5711b4ef1c0438d9847174d77790069a2a794e3`.
+
+Retained evidence: `build/emulator/live-agent-mcp-20260926/`, including both
+stdio transcripts, application source/tests, `verified.json` and `review.json`.
+The remote fixture is `/private/tmp/uconsole-live-agent.BjMZzJ94`. Task decisions
+came from the live agent; the transport helpers did not implement a task script
+or invoke another coding agent. GUI history exposed the same completed job IDs.
+Window-only host capture was unavailable, so this is not a visual GUI usability
+claim. The idle GUI was terminated only after guest/job completion and client
+exit. This public fixture is separate from the private physical deployment and
+rollback image; no physical target was contacted and no private images published.
+
+### Release orchestration gates (2026-09-26)
+
+Publication now depends on both extracted native package qualification and the
+complete reusable host/GUI test workflow, rather than a separate unjoined CI run.
+The local tagging command also requires GUI tests, a current QEMU build and the
+full `check-emulator` device gate before packaging or tagging. It uses the same
+Tk-capable Python selector as Workbench; Linux requires Xvfb, while macOS uses
+native Tk. Six orchestration tests pass on Linux and native macOS, including
+failure of each gate before tag creation, missing Xvfb and interpreter probing.
+The mocked tests do not themselves qualify guest devices or publish anything.
+The actual Linux full suite passed 1,534 tests (one skip), followed by ShellCheck,
+using `/usr/bin/python3` under Xvfb. A fresh QEMU build and the complete
+`make check-emulator` gate also exited zero. Logs are retained as
+`build/emulator/full-tests-release-gates-tk-20260926.log`,
+`build/emulator/release-gate-emulator-build-20260926.log` and
+`build/emulator/release-gate-check-emulator-20260926.log`.
+An earlier run selected a Homebrew Python without Tk and failed; that log is
+retained, and prompted reuse of the launcher's interpreter selector.
+
+### x86 public desktop onboarding: partial, reboot gate failed (2026-09-26)
+
+Manual package run `36240936574` at `adc303d` completed account setup and
+reached the 1280x720 desktop. A reviewed frame at 1,084.917 seconds shows
+Terminal and the output of `echo desktop input verified`, establishing real
+mouse launch and keyboard input. After the requested reboot, the frame at
+1,319.924 seconds shows only a black screen and pointer. Serial login and `id`
+returned, but the requested boot UUID did not appear in the retained tail.
+The next pointer action timed out at 1,354.95 seconds; the driver failed and
+the recorder force-cleaned its owned disposable VM. QEMU's log has no diagnostic
+explaining the stall. This is not a successful reboot or shutdown qualification,
+and does not yet establish whether the failure is a guest or QMP/host problem.
+Evidence is retained in `build/emulator/x86-public-onboarding-36240936574/`.
+
 ### Native macOS guest desktop lifecycle (2026-09-26)
 
 The actual Workbench recorder on Puck, using the Cocoa fix at `015aa4d`, now

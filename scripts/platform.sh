@@ -188,6 +188,7 @@ install_ide() {
 
 case ${1:-} in
     target) printf '%s\n' "$target" ;;
+    python) find_tk_python || fail 'no Python 3.12+ interpreter with tkinter found; run make deps' ;;
     deps) install_deps ;;
     build) build_ide ;;
     run)
@@ -198,5 +199,5 @@ case ${1:-} in
         ;;
     install) install_ide ;;
     package) package_ide ;;
-    *) fail 'usage: scripts/platform.sh {target|deps|build|run|install|package}' ;;
+    *) fail 'usage: scripts/platform.sh {target|python|deps|build|run|install|package}' ;;
 esac
