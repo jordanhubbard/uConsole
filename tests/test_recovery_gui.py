@@ -661,6 +661,44 @@ class RecoveryPanelTests(unittest.TestCase):
         remote.assert_not_called()
         submit.assert_not_called()
 
+    def test_hold_draft_enters_review_without_installation_or_approval(self):
+        import test_hold_policy
+        fixture = test_hold_policy.HoldPolicyTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        with patch.object(RecoveryProbe, '_observe') as remote:
+            self.panel.prepare_hold(fixture.source, fixture.reviewed(), fixture.output)
+            self.owner.jobs[self.panel.job][2].result(timeout=5)
+        remote.assert_not_called()
+        self.panel.poll()
+        self.assertIsNotNone(self.panel.pending)
+        self.assertIsNone(self.owner.recovery_jobs)
+        self.assertEqual(self.owner.grants, frozenset())
+        self.assertIn('install-hold', self.panel.details.get('1.0', 'end'))
+        self.assertNotIn('release-hold', self.panel.details.get('1.0', 'end'))
+        self.assertIn('No hold installed', self.panel.status.get())
+        self.assertFalse((fixture.output/'hold/commit-attempt').exists())
+        with self.assertRaises(ValueError): self.owner.call('prepare_recovery_hold', {'workspace': 'gui'})
+
+    def test_declined_hold_draft_does_not_submit_or_contact_target(self):
+        import test_hold_policy
+        fixture = test_hold_policy.HoldPolicyTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        self.panel.enrollment_ready = ((fixture.source.directory, fixture.source.probe.key,
+                                       fixture.source.probe.known_hosts), fixture.enrollment.accepted)
+        self.panel.refresh()
+        reviewed = fixture.reviewed()
+        with patch('forge_recovery_gui.filedialog.askdirectory', return_value=str(fixture.root)), \
+                patch('forge_recovery_gui.simpledialog.askstring', side_effect=['a'*64, 'backup', 'b'*64]), \
+                patch('forge_hold_policy.inputs', return_value=reviewed), \
+                patch('forge_recovery_gui.messagebox.askyesno', return_value=False), \
+                patch.object(RecoveryProbe, '_observe') as remote, \
+                patch.object(self.owner, 'prepare_recovery_hold') as submit:
+            self.panel.hold_button.invoke()
+        remote.assert_not_called()
+        submit.assert_not_called()
+
     def test_declined_backup_draft_has_no_target_contact(self):
         import test_backup_policy
         fixture = test_backup_policy.BackupPolicyTests()

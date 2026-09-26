@@ -328,6 +328,18 @@ class Controller:
                                'enrollment_sha256': source.acceptance_pin,
                                'session_sha256': source.session_pin, 'policy_approved': False})
 
+    def prepare_recovery_hold(self, name, source, reviewed, output):
+        """Owner-only offline install-hold drafting; never applies or approves it."""
+        import copy
+        from uconsole_emulator import require_private_image_host
+        require_private_image_host()
+        from forge_hold_policy import prepare
+        frozen = copy.deepcopy(reviewed)
+        return self.submit(name, 'recovery_prepare_hold_policy', lambda: prepare(output, source, frozen, name),
+                           target_identity=source.machine_id, context={
+                               'session_sha256': source.session_pin, 'staging_sha256': frozen['staging_sha256'],
+                               'source_manifest_sha256': frozen['manifest_sha256'], 'policy_approved': False})
+
     def prepare_backup_source(self, name, reviewed, output):
         """Owner-only offline preparation; never acquires recovery authority."""
         import copy

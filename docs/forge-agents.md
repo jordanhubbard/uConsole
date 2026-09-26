@@ -218,6 +218,26 @@ changed card/boot, a busy session or an unresolved renewal prevents drafting;
 the authoring action cannot generate write or release operations and is absent
 from MCP. Existing authorized recovery clients can run the owner-approved ID.
 
+**Prepare recovery hold…** compiles an install-hold plan and unapproved job
+policy entirely offline. Select the sealed staging directory from enrollment,
+the completed current-card hash receipt and pin, and an explicitly chosen
+original-backup or verified-export source manifest and pin. The root guard comes
+from that independent source, never from blindly accepting the observed card.
+Workbench checks staging/session identity and the exact boot, revalidates the
+selected records after queueing, and refuses a busy or uncertain session.
+It also requires the original rollback archive to remain present, private and
+identical to the selected source's recorded fingerprint; a manifest alone is
+not sufficient to prepare this draft. Keep the archive through deployment and
+restoration; the later root-transfer worker rechecks its source independently.
+Review the resulting `install-hold` policy, approve it separately, then run it
+only after reviewing the persistent-recovery selector warning. Preparation does
+not contact the device, renew its lease, install the hold, reboot, grant root
+writes, or prepare a normal-boot release. Execution uses the existing guarded
+selector worker and must independently confirm current file and root preimages.
+Retain uncertain attempts and reconcile them; never redispatch an attempted
+hold. This owner-only authoring route is absent from MCP; existing authorized
+recovery clients may execute only the separately approved job ID.
+
 For a completed retained backup, **Prepare retained backup source…** is an
 owner-only, host-only action. Select the private backup directory and its
 owner-recorded canonical `acceptance.json` SHA-256, then review the card size,

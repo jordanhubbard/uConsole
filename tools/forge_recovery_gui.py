@@ -110,6 +110,10 @@ class RecoveryPanel:
         self.hash_button = ttk.Button(exports, text='Prepare current-card hash…',
                                       command=lambda: self.backup_dialog(hash_only=True))
         self.hash_button.pack(side='left', padx=4)
+        transitions = ttk.Frame(self.window)
+        transitions.pack(padx=12, pady=4)
+        self.hold_button = ttk.Button(transitions, text='Prepare recovery hold…', command=self.hold_dialog)
+        self.hold_button.pack(side='left')
         self.choice = ttk.Combobox(self.window, textvariable=self.selected, state='readonly', width=50)
         self.choice.pack(padx=12, pady=4)
         self.choice.bind('<<ComboboxSelected>>', lambda event: self.review())
@@ -144,6 +148,7 @@ class RecoveryPanel:
         self.enroll_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.backup_button.state(['!disabled'] if self.enrollment_ready and not self.job and not self.pending else ['disabled'])
         self.hash_button.state(['!disabled'] if self.enrollment_ready and not self.job and not self.pending else ['disabled'])
+        self.hold_button.state(['!disabled'] if self.enrollment_ready and not self.job and not self.pending else ['disabled'])
         self.approve_button.state(['!disabled'] if self.pending and not self.job else ['disabled'])
         self.recheck_button.state(['!disabled'] if self.job else ['disabled'])
         self.discover_build_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
@@ -589,6 +594,59 @@ class RecoveryPanel:
                         '-only policy. No lease, full-card hashes or backup yet.')
         self.timer = self.window.after(100, self.poll)
 
+    def hold_dialog(self):
+        if self.job or self.pending or not self.enrollment_ready:
+            return
+        try:
+            from forge_backup_policy import inputs as enrolled
+            from forge_hold_policy import inputs
+            from forge_recovery_bootplan import digest
+            from forge_recovery_source_contract import BACKUP, DERIVATIVE
+            (directory, key, known), accepted = self.enrollment_ready
+            source = enrolled(directory, digest(accepted), key, known)
+            staging = filedialog.askdirectory(parent=self.window, title='Sealed staging directory used for this enrollment')
+            if not staging: return
+            hashes = filedialog.askdirectory(parent=self.window, title='Completed current-card hash evidence directory')
+            if not hashes: return
+            hashes_pin = simpledialog.askstring('Current-card hash pin', 'Canonical SHA-256 of the hash acceptance.json:',
+                                               parent=self.window)
+            if not hashes_pin: return
+            kind = simpledialog.askstring('Current root guard', 'Use an original backup or verified export? Enter backup or export:',
+                                         initialvalue='backup', parent=self.window)
+            if not kind: return
+            kinds = {'backup': BACKUP, 'export': DERIVATIVE}
+            if kind.strip() not in kinds: raise ValueError('Select backup or export explicitly')
+            manifest = filedialog.askdirectory(parent=self.window, title='Selected root source directory (contains manifest.json)')
+            if not manifest: return
+            pin = simpledialog.askstring('Root source pin', 'Owner-recorded canonical SHA-256 of manifest.json:', parent=self.window)
+            if not pin: return
+            reviewed = inputs(source, staging, accepted['staging_sha256'], hashes, hashes_pin.strip(),
+                              manifest, pin.strip(), kinds[kind.strip()])
+            parent = filedialog.askdirectory(parent=self.window, title='Storage parent for hold plan and unapproved policy')
+            if not parent: return
+            if not messagebox.askyesno('Prepare install-hold draft only',
+                    f"Boot: {source.boot_id}\nStaging: {reviewed['staging_sha256']}\n"
+                    f"Root: {reviewed['source_manifest']['root']['sha256']}\n\n"
+                    'Compile a selector-only install-hold plan and unapproved job policy. No target contact, '
+                    'lease renewal, boot change, reboot or root write occurs now. Later approval and execution '
+                    'will persist recovery boot selection; this draft does not release it or authorize deployment.',
+                    parent=self.window):
+                return
+            import uuid
+            self.prepare_hold(source, reviewed, Path(parent)/('recovery-hold-'+uuid.uuid4().hex))
+        except Exception as exc:
+            self.status.set('Hold draft not submitted: ' + str(exc))
+
+    def prepare_hold(self, source, reviewed, output):
+        if self.job or self.pending:
+            raise ValueError('Finish the current job or review before preparing a hold')
+        submitted = self.controller.prepare_recovery_hold(self.workspace, source, reviewed, output)
+        self.job, self.job_kind = submitted['job_id'], 'prepare-hold'
+        self.preparation_output = Path(output)
+        self.refresh()
+        self.status.set('Compiling pinned hold evidence offline. No target contact, lease renewal or policy approval.')
+        self.timer = self.window.after(100, self.poll)
+
     def source_dialog(self, *, health=False):
         if self.job or self.pending:
             return
@@ -811,6 +869,7 @@ class RecoveryPanel:
                 self.enrollment_ready = (self.enrollment_candidate, result['result']['enrollment'])
                 self.backup_button.state(['!disabled'])
                 self.hash_button.state(['!disabled'])
+                self.hold_button.state(['!disabled'])
             self.status.set(result['status'] + f': recovery boot evidence at {self.preparation_output}. '
                             'No lease held or root writes authorized. After successful enrollment, prepare/approve/run the backup promptly. '
                             'Unleased recovery can expire; retain any failed attempt and never automatically reboot again.')
@@ -850,12 +909,13 @@ class RecoveryPanel:
                 self.enrollment_ready = (self.enrollment_candidate, result['result'])
                 self.backup_button.state(['!disabled'])
                 self.hash_button.state(['!disabled'])
+                self.hold_button.state(['!disabled'])
             self.status.set(result['status'] + f': enrollment evidence at {self.preparation_output}. '
                             'Only enrolled-not-leased is a completed binding; use its session directory and pin '
                             'in a separately reviewed job policy, or choose Prepare backup job. No lease, reboot or grant was acquired.')
             return
-        if self.job_kind in ('prepare-backup', 'prepare-hash'):
-            kind = 'Hash' if self.job_kind == 'prepare-hash' else 'Backup'
+        if self.job_kind in ('prepare-backup', 'prepare-hash', 'prepare-hold'):
+            kind = {'prepare-backup': 'Backup', 'prepare-hash': 'Hash', 'prepare-hold': 'Hold'}[self.job_kind]
             if result['status'] == 'completed':
                 try:
                     filename = self.preparation_output/'policy.json'
@@ -863,7 +923,8 @@ class RecoveryPanel:
                         raise ValueError(kind + ' draft changed after preparation')
                     self.load_policy(filename)
                     self.status.set(kind + '-only draft ready for review. Approve separately, then run the selected job. '
-                                    + ('No backup exists yet.' if kind == 'Backup' else 'No full-card hashes captured yet.'))
+                                    + {'Backup': 'No backup exists yet.', 'Hash': 'No full-card hashes captured yet.',
+                                       'Hold': 'No hold installed, lease renewed or deployment approved.'}[kind])
                 except Exception as exc:
                     self.status.set(kind + ' draft review failed: ' + str(exc))
             else:
