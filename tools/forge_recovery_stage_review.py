@@ -100,7 +100,7 @@ def load(directory, acceptance_pin):
     if (review != expected_review or records['planned-staged.json'] != staged or
             records['hold-review.json'] != hold or digest(hold) != accepted['hold_review_sha256']):
         raise ValueError('Staging review differs from independently compiled transitions')
-    return dict(acceptance=accepted, request=request, review=review, plans=plans)
+    return dict(acceptance=accepted, request=request, review=review, plans=plans, original_boot=boot)
 
 
 def main():

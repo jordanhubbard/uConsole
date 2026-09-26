@@ -3,6 +3,36 @@ import json
 import re
 import shlex
 import subprocess
+from pathlib import Path
+
+
+def read_boot():
+    """Read local physical boot identity without invoking a subprocess."""
+    chosen = Path('/proc/device-tree/chosen/bootloader')
+    def cell(name):
+        value = (chosen/name).read_bytes()
+        if len(value) != 4:
+            raise ValueError('Expected one device-tree cell')
+        return int.from_bytes(value, 'big')
+    return dict(machine_id=Path('/etc/machine-id').read_text().strip(),
+                boot_id=Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
+                cmdline=Path('/proc/cmdline').read_text().strip(),
+                tryboot=cell('tryboot'), partition=cell('partition'))
+
+
+def normal_boot(value, machine):
+    fields = {'machine_id', 'boot_id', 'cmdline', 'tryboot', 'partition'}
+    if (not isinstance(value, dict) or set(value) != fields or value['machine_id'] != machine or
+            not isinstance(value['boot_id'], str) or not re.fullmatch('[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}', value['boot_id']) or
+            type(value['tryboot']) is not int or value['tryboot'] != 0 or
+            type(value['partition']) is not int or value['partition'] != 1 or not isinstance(value['cmdline'], str)):
+        raise ValueError('Expected the publication target on its normal physical boot')
+    tokens = value['cmdline'].split()
+    roots = [token for token in tokens if token.startswith('root=')]
+    if (len(roots) != 1 or roots[0] in ('root=', 'root=/dev/ram0') or
+            any(token.startswith(('uconsole.forge_trial=', 'uconsole.recovery', 'uconsole.emulator=')) for token in tokens)):
+        raise ValueError('Normal boot contains a recovery/emulator/trial root or marker')
+    return value
 
 READER = '''import json
 from pathlib import Path

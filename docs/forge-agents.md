@@ -108,7 +108,35 @@ The verifier recompiles all four transitions and checks every guarded preimage,
 output, phase order and journal location. It rejects unsealed older drafts;
 prepare them again rather than upgrading their evidence. Verification neither
 contacts the target nor grants staging authority, and its output omits private
-payloads and the lease owner. Guarded staging execution remains a separate gate.
+payloads and the lease owner. Verification alone does not authorize execution.
+
+The checkout also provides explicit, single-phase guarded staging. This is not
+yet registered as a Workbench/MCP transaction. Each command requires the sealed
+preparation pin and the exact normal boot UUID being approved:
+
+```sh
+python3 tools/forge_recovery_stage_dispatch.py apply \
+  --directory /private/new-staging-draft \
+  --acceptance-sha256 APPROVED_ACCEPTANCE_SHA256 \
+  --phase firmware-start --approve-boot-id APPROVED_NORMAL_BOOT_UUID
+```
+
+Apply phases in the reviewed order: `firmware-start`, `firmware-fixup`, `command`,
+`selector`. Restore with `restore` in reverse order, approving the current normal
+boot UUID. Every worker checks the bound boot, private physical boot mount and
+all nine guarded paths under the target lock. Apply additionally requires the
+acknowledged, unchanged private recovery image. Each phase changes only its
+selected alternate boot file, with per-boot attempt records under `/run`; native
+firmware, normal `config.txt`, root images and reboot state are not changed.
+
+A failed command is **not permission to repeat it**. Use `reconcile-apply` or
+`reconcile-restore` with the same directory, pin and phase (no `--approve-boot-id`).
+Reconciliation fences a delayed worker and inspects files without retrying a
+write. An incomplete target attempt blocks further staging until a separately
+reviewed normal reboot and another explicit reconciliation. Old-boot workers
+then refuse to execute. Conflicts remain blocked, and any scratch files are
+reported and preserved, not silently deleted. No command automatically reboots,
+enters RAM recovery, releases a hold, qualifies fallback, or deploys a root image.
 
 `recovery_jobs` lists approved IDs, operations and pins, without credential or
 backup paths. `recovery_job` accepts only `workspace` and `job`; poll the returned

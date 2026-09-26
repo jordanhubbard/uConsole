@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 import uuid
 
-from forge_boot_observation import capture as capture_boot
+from forge_boot_observation import capture as capture_boot, normal_boot
 from forge_recovery_bootplan import digest
 from forge_recovery_hold import compile_hold
 from forge_recovery_journal import history_checked, inspect_operation, validate as validate_publication
@@ -61,21 +61,6 @@ def published(value):
             observed.get('files', {}).get('scratch', {}).get('state') != 'absent'):
         raise ValueError('Private recovery image or boot policy is not intact')
     return observed
-
-
-def normal_boot(value, machine):
-    fields = {'machine_id', 'boot_id', 'cmdline', 'tryboot', 'partition'}
-    if (not isinstance(value, dict) or set(value) != fields or value['machine_id'] != machine or
-            not isinstance(value['boot_id'], str) or not re.fullmatch('[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}', value['boot_id']) or
-            type(value['tryboot']) is not int or value['tryboot'] != 0 or
-            type(value['partition']) is not int or value['partition'] != 1 or not isinstance(value['cmdline'], str)):
-        raise ValueError('Expected the publication target on its normal physical boot')
-    tokens = value['cmdline'].split()
-    roots = [token for token in tokens if token.startswith('root=')]
-    if (len(roots) != 1 or roots[0] in ('root=', 'root=/dev/ram0') or
-            any(token.startswith(('uconsole.forge_trial=', 'uconsole.recovery', 'uconsole.emulator=')) for token in tokens)):
-        raise ValueError('Normal boot contains a recovery/emulator/trial root or marker')
-    return value
 
 
 def prepare(output, frozen):
