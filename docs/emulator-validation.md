@@ -72,6 +72,12 @@ the recorder force-cleaned its owned disposable VM. QEMU's log has no diagnostic
 explaining the stall. This is not a successful reboot or shutdown qualification,
 and does not yet establish whether the failure is a guest or QMP/host problem.
 Evidence is retained in `build/emulator/x86-public-onboarding-36240936574/`.
+The follow-up recorder captures a read-only owned-process thread snapshot and
+a separate `query-status` observation before cleanup. QMP timeout messages now
+identify connection, greeting, capability negotiation or operation send/reply;
+no failed input is replayed and neither command arguments nor process
+environments are recorded. This instrumentation is diagnostic, not a fix or a
+relaxation of the failed acceptance gate.
 
 ### Native macOS guest desktop lifecycle (2026-09-26)
 

@@ -9,6 +9,37 @@ import uconsole_emulator as emulator
 
 
 class QMPGreetingTests(unittest.TestCase):
+    def test_timeout_identifies_stage_without_retry_or_arguments(self):
+        greeting = {'QMP': {'version': {}, 'capabilities': []}}
+        for phase, received, writes in (
+                ('greeting', [], 0),
+                ('qmp_capabilities reply', [greeting], 1),
+                ('device_del reply', [greeting, {'return': {}, 'id': 0}], 2)):
+            with self.subTest(phase=phase):
+                sock, stream = self.connection(received)
+                stream.readline.side_effect = [
+                    (json.dumps(item) + '\n').encode() for item in received
+                ] + [TimeoutError('timed out')]
+                with patch.object(emulator, 'control_connection', return_value=sock) as connect:
+                    with self.assertRaises(TimeoutError) as caught:
+                        emulator.qmp('owned', 'device_del', {'id': 'private-argument'})
+                self.assertIn('QMP device_del: timeout during ' + phase, str(caught.exception))
+                self.assertNotIn('private-argument', str(caught.exception))
+                self.assertEqual(stream.write.call_count, writes)
+                connect.assert_called_once_with('owned')
+
+    def test_connect_and_send_timeouts_are_not_retried(self):
+        with patch.object(emulator, 'control_connection', side_effect=TimeoutError) as connect:
+            with self.assertRaisesRegex(TimeoutError, 'during connect; not retried'):
+                emulator.qmp('owned', 'query-status')
+        connect.assert_called_once()
+        sock, stream = self.connection([{'QMP': {}}])
+        stream.write.side_effect = TimeoutError()
+        with patch.object(emulator, 'control_connection', return_value=sock):
+            with self.assertRaisesRegex(TimeoutError, 'during qmp_capabilities send; not retried'):
+                emulator.qmp('owned', 'query-status')
+        stream.write.assert_called_once()
+
     def connection(self, messages):
         sock = MagicMock()
         sock.__enter__.return_value = sock

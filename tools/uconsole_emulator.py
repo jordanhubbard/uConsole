@@ -515,8 +515,16 @@ def control_connection(endpoint):
         raise
 
 
+def _qmp_io(operation, phase, callback, *args):
+    """Identify an uncertain exchange without logging arguments or replaying it."""
+    try:
+        return callback(*args)
+    except TimeoutError as exc:
+        raise TimeoutError(f'QMP {operation}: timeout during {phase}; not retried') from exc
+
+
 def qmp(port, operation, arguments=None):
-    with control_connection(port) as sock:
+    with _qmp_io(operation, 'connect', control_connection, port) as sock:
         with sock.makefile('rwb', buffering=0) as stream:
             # QEMU can flush a queued asynchronous event on reconnect before
             # its new greeting. Consume events only: never accept a response
@@ -528,7 +536,7 @@ def qmp(port, operation, arguments=None):
                 if remaining <= 0:
                     raise TimeoutError('QMP greeting deadline')
                 sock.settimeout(remaining)
-                line = stream.readline()
+                line = _qmp_io(operation, 'greeting', stream.readline)
                 if not line:
                     raise ConnectionError('QMP closed before greeting')
                 greeting = json.loads(line)
@@ -542,9 +550,10 @@ def qmp(port, operation, arguments=None):
                 raise ValueError('Too many QMP events before greeting')
             sock.settimeout(5)
             for index, (name, params) in enumerate([('qmp_capabilities', {}), (operation, arguments or {})]):
-                stream.write((json.dumps({'execute': name, 'arguments': params, 'id': index}) + '\n').encode())
+                _qmp_io(operation, name + ' send', stream.write,
+                        (json.dumps({'execute': name, 'arguments': params, 'id': index}) + '\n').encode())
                 while True:
-                    line = stream.readline()
+                    line = _qmp_io(operation, name + ' reply', stream.readline)
                     if not line:
                         raise ConnectionError('QMP closed before replying')
                     response = json.loads(line)

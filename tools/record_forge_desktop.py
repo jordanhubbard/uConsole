@@ -61,6 +61,41 @@ def load_secret(path):
     return value
 
 
+def failure_observation(runtime, proc_root=Path('/proc')):
+    """Read only the owned VM's bounded diagnostics, before fixture cleanup.
+
+    Never capture command lines, environments, guest RAM or unrelated processes.
+    A status probe is not a retry of the failed input operation.
+    """
+    result = {}
+    process = runtime.process if runtime else None
+    if process is None:
+        return {'process': 'absent'}
+    result.update(pid=process.pid, returncode=process.poll())
+    if result['returncode'] is not None:
+        return result
+    try:
+        task_root = proc_root / str(process.pid) / 'task'
+        threads = sorted(task_root.iterdir(), key=lambda path: path.name)[:64]
+        result['threads'] = []
+        for task in threads:
+            item = {'tid': task.name}
+            for name in ('stat', 'wchan', 'schedstat'):
+                try:
+                    with (task / name).open() as source:
+                        item[name] = source.read(4096)
+                except OSError as exc:
+                    item[name + '_error'] = type(exc).__name__
+            result['threads'].append(item)
+    except OSError as exc:
+        result['proc_error'] = type(exc).__name__
+    try:
+        result['qmp_status'] = runtime.control('query-status')
+    except Exception as exc:
+        result['qmp_error'] = str(exc)
+    return result
+
+
 def main():
     cli = argparse.ArgumentParser(description=__doc__)
     cli.add_argument('--workspace', type=Path, required=True)
@@ -86,6 +121,10 @@ def main():
         event['elapsed_seconds'] = round(time.monotonic() - started, 3)
         events.append(event)
         print(json.dumps(event), flush=True)
+
+    def report_error(action, exc):
+        respond({'action': action, 'error': str(exc),
+                 'failure_observation': failure_observation(app.runtime)})
 
     def read_commands():
         while True:
@@ -125,7 +164,7 @@ def main():
                 respond({'action': action, 'completed': True, 'characters': len(keys)})
             except Exception as exc:
                 typing = False
-                respond({'action': action, 'error': str(exc)})
+                report_error(action, exc)
         next_key()
 
     def dispatch(request):
@@ -183,7 +222,7 @@ def main():
                         {'type': 'btn', 'data': {'button': button, 'down': False}}]})
                     respond({'action': action, 'button': button})
                 except Exception as exc:
-                    respond({'action': action, 'error': str(exc)})
+                    report_error(action, exc)
                 finally:
                     typing = False
             root.after(80, release_button)
@@ -220,7 +259,7 @@ def main():
             try:
                 dispatch(request)
             except Exception as exc:
-                respond({'action': request.get('action'), 'error': str(exc)})
+                report_error(request.get('action'), exc)
         root.after(50, poll)
 
     app.mode.set('desktop')
