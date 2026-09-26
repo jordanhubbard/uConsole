@@ -1,12 +1,49 @@
 # Local CM4 emulator validation
 
-This cumulative record covers Linux ARM64 (`sparky`) validation using QEMU
+This cumulative record primarily covers Linux ARM64 (`sparky`) validation using QEMU
 10.2.4 and the evolving repository patch stack. Individual sections identify
 their coverage and retained evidence; older results do not qualify later changes.
 These results establish a usable development environment,
 **not complete uConsole hardware equivalence**. See [coverage](emulator.md).
 
 ## Inputs
+
+### Recovery and agent integration checkpoint (2026-09-26)
+
+The qualification branch at `7da7984` passes all host and package CI jobs.
+Extracted package checks cover Linux x86_64/ARM64 and macOS ARM64 GUI startup,
+editable firmware source, firmware provenance, and QEMU builds/device tests.
+Those package checks do **not** establish the full x86_64 guest desktop loop.
+Local Linux and native macOS suites each run 1,519 tests successfully, with one
+and 80 platform-specific skips respectively, plus ShellCheck. The separate
+Linux root-owned temporary-filesystem staging roundtrip also passes.
+
+`physical-restore-stream-20260925/acceptance.json` now records a completed
+physical unchanged-source stream, independent root verification, persistent
+RAM hold/release, normal native return, and restoration of all nine boot-file
+preimages. All 7,481 root chunks were acknowledged; zero root bytes needed
+writing. Consequently this is **not** physical modified-root write or
+filesystem-repair qualification. The normal return boot was independently
+observed as `99ada76e-7490-40a1-89a6-280a687f2794`, kernel `6.12.62-v8+`.
+
+The fresh sealed draft at `physical-owner-staging-20260926/` has acceptance pin
+`29f2c1d57a2ebf6bdba3fb353e37f6a2549be69e67e87ce251b5a67a7ae65d56`.
+Its `mcp-staging-acceptance.json` records real stdio JSON-RPC invocation of all
+four owner-approved staging phases and an independent nine-file readback.
+Staging changed only the selected alternate boot files; it did not reboot or
+write the root image. The MCP server exited successfully. Owner approval is
+separate from execution, binds an exact normal boot, and does not expand an
+existing read-only client's grant. Reconciliation fences and observes a retained
+attempt instead of repeating its write.
+
+Enhanced native-root qualification is in progress in
+`physical-enhanced-trial-20260926/`, using a frozen copy of that qualified owner
+revision and a fresh offline whole-card backup. No enhanced-image, rollback or
+final reimport pass is inferred from starting that job. Original compressed
+backups, enhanced exports and validation evidence remain private, not release
+assets. The redundant old `forge-enhanced-source-20260926/image.img` was removed
+only after its SHA-256 matched the retained backup and no active readers were
+found; its original compressed archive and final enhanced export remain.
 
 ### Live SSH application deploy/run/restore
 
