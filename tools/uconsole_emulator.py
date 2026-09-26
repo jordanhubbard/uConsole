@@ -49,7 +49,15 @@ def read_config(workspace):
     return json.loads((workspace / 'machine.json').read_text())
 
 
+def require_private_image_host():
+    # chmod's Windows read-only bit is not a private-file ACL. Do not silently
+    # weaken image confidentiality or create a partial file before refusing.
+    if not callable(getattr(os, 'fchmod', None)):
+        raise RuntimeError('Private image import/export requires POSIX file permissions (Linux/macOS)')
+
+
 def prepare(args):
+    require_private_image_host()
     source = args.image.resolve()
     workspace = args.workspace.resolve()
     if workspace.exists():
@@ -544,6 +552,7 @@ def qmp(port, operation, arguments=None):
 
 
 def export(args):
+    require_private_image_host()
     with WorkspaceLock(args.workspace):
         return _export_locked(args)
 

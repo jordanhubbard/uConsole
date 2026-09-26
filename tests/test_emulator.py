@@ -287,6 +287,7 @@ class EmulatorTests(unittest.TestCase):
                 decoded[tokens[-1]] += base64.b64decode(tokens[tokens.index('printf') + 2])
         self.assertEqual(decoded, {path: content.encode() for path, content in emulator.desktop_setup_files().items()})
 
+    @unittest.skipUnless(os.name == 'posix', 'executes POSIX guest session adapter')
     def test_session_adapter_scopes_polkit_override_and_preserves_user_choice(self):
         files = emulator.desktop_setup_files()
         source = files['/usr/local/libexec/uconsole-emulator-session']
@@ -356,6 +357,7 @@ class EmulatorTests(unittest.TestCase):
             personal.write_text('malformed config without section\n')
             self.assertEqual(run('uconsole.emulator=1'), '')
 
+    @unittest.skipUnless(os.name == 'posix' and Path('/bin/sh').exists(), 'executes POSIX guest Xsession hook')
     def test_xsession_hook_only_exports_on_exact_emulator_marker(self):
         source = emulator.desktop_setup_files()['/etc/X11/Xsession.d/90uconsole-emulator']
         for marker, expected in [('console=tty1', '/custom'),
@@ -477,6 +479,15 @@ class EmulatorTests(unittest.TestCase):
         self.assertIn('Known fidelity limits', text)
         self.assertNotIn('\x1b', agent.clean(text))
 
+    def test_private_images_reject_missing_permissions_before_workspace_access(self):
+        with patch.object(emulator.os, 'fchmod', None, create=True), \
+             patch.object(emulator, 'WorkspaceLock') as lock:
+            for operation in (emulator.prepare, emulator.export):
+                with self.assertRaisesRegex(RuntimeError, 'POSIX file permissions'):
+                    operation(None)
+            lock.assert_not_called()
+
+    @unittest.skipUnless(callable(getattr(os, 'fchmod', None)), 'private image export requires POSIX permissions')
     def test_export_flush_failure_never_publishes_image(self):
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)

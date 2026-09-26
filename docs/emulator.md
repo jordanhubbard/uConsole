@@ -530,7 +530,7 @@ pending until this machine has an authenticated SSH route to the booted unit.
 | Linux ARM64 (this machine) | QEMU built and CM4 maintenance boot exercised; Tk tested under Xvfb |
 | Linux x86-64 | Same TCG design; not locally boot-tested |
 | macOS ARM64 | Native patched QEMU build and packaged GUI-owned maintenance boot/duplex audio exercised; broader release gates remain in the device plan |
-| Windows | Portable Python/Tk tools and `.exe` selection; patched QEMU must be supplied; source bootstrap is POSIX-only; not boot-tested |
+| Windows | Portable Python/Tk helpers and `.exe` selection only; not a supported forge package host. Private image import/export requires POSIX permissions and refuses before creating files; source bootstrap is POSIX-only; not boot-tested |
 
 The CLI accepts global `--qemu`, `--qemu-img`, and `--workspace` arguments before
 the subcommand. Host-tool CI runs on Linux/macOS/Windows; that is not a substitute

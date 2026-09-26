@@ -1834,6 +1834,25 @@ tests in 110.334 seconds (`full-tests-deploy-interruption-20260926.log`). The
 recovery-VM trial is running in `recovery-derived-root-interruption-20260926/`;
 these unit results do not establish its completion or physical deployment.
 
+The corrected lost-completion recovery-VM roundtrip subsequently passed
+(`recovery-derived-root-roundtrip-r2-20260926/acceptance.json`, terminal exit 0).
+It deployed a clean derivative, recovered the exact durable receipt after the
+injected lost reply without retrying deployment, independently matched the
+derived whole card, then restored the original card byte-for-byte. Exactly one
+4 MiB chunk was written in each direction; protected ranges remained unchanged.
+Hold release and modeled watchdog exit also passed, with no forced cleanup.
+This is emulator worker/protocol evidence, not physical deployment, native
+application boot, or production host-dispatch qualification.
+
+The interrupted derivative VM trial also passed
+(`recovery-derived-root-interruption-20260926/acceptance.json`, terminal exit 0).
+Its healthy derivative changed seven source chunks. SIGKILL followed the first
+4 MiB chunk's durable write/readback, leaving an independently verified partial
+root and an uncertain host attempt. Same-boot re-entry and an old-boot worker
+were rejected; a fresh recovery boot preserved the exact partial bytes, then
+restored the original whole card. Hold release and modeled watchdog exit passed
+without forced cleanup. The physical worker and image were not touched.
+
 Release packaging now also supports manual and pull-request qualification runs.
 Publication is restricted to a version-tag push, so a final branch revision can
 exercise all three native package jobs before tagging. Local YAML/dependency,
@@ -1853,6 +1872,17 @@ plus shellcheck in `macos-full-native-ci-20260926.log`, with 89 recorded skips.
 Those include Linux-target/procfs/peer-credential/ALSA tests and two unavailable
 optional Mac filesystem-tool fixtures; they are not counted as Mac passes.
 Workflow syntax checks pass, but hosted execution remains a separate gate.
+
+Draft qualification PR #1 now carries commit `83d966d` and starts hosted
+pre-publication testing. Host CI run `36229753630` passed its complete Linux and
+Mac jobs, but failed Windows portability: two tests executed POSIX guest-session
+code, and private image export reached an unavailable `fchmod`. Private image
+import/export now refuses a host without the required permission primitive
+before workspace/file access; it does not substitute ineffective Windows chmod
+bits for a private ACL. The POSIX execution tests are explicitly scoped, while
+portable helper checks and refusal coverage remain on Windows. Windows is not
+an advertised forge package host. Fresh CI for this correction is still needed;
+the original failed run is retained, not counted as a pass.
 
 The fresh physical stream trial has now verified its complete 31,914,983,424-byte
 backup, compressed to 6,159,787,989 bytes, card SHA256
