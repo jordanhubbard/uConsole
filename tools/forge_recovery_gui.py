@@ -50,6 +50,7 @@ class RecoveryPanel:
         self.job_kind = 'recovery'
         self.preparation_output = None
         self.enrollment_candidate = self.enrollment_ready = None
+        self.normal_return_source = None
         self.build_host = self.build_candidate = None
         self.window = tk.Toplevel(parent)
         self.window.title('Physical recovery — prepared jobs')
@@ -128,6 +129,13 @@ class RecoveryPanel:
         self.restore_prepare_button.pack(side='left', padx=4)
         self.release_prepare_button = ttk.Button(transfers, text='Prepare normal-boot release…', command=self.release_dialog)
         self.release_prepare_button.pack(side='left', padx=4)
+        normal = ttk.Frame(self.window)
+        normal.pack(padx=12, pady=4)
+        self.normal_reboot_button = ttk.Button(normal, text='Reboot to normal system…',
+                                              command=lambda: self.normal_return_dialog(reboot=True))
+        self.normal_reboot_button.pack(side='left')
+        self.normal_verify_button = ttk.Button(normal, text='Verify normal return…', command=self.normal_return_dialog)
+        self.normal_verify_button.pack(side='left', padx=4)
         self.choice = ttk.Combobox(self.window, textvariable=self.selected, state='readonly', width=50)
         self.choice.pack(padx=12, pady=4)
         self.choice.bind('<<ComboboxSelected>>', lambda event: self.review())
@@ -178,6 +186,8 @@ class RecoveryPanel:
         self.privacy_reboot_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.privacy_verify_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.tryboot_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
+        for button in (self.normal_reboot_button, self.normal_verify_button):
+            button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.source_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.health_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.derivative_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
@@ -868,6 +878,64 @@ class RecoveryPanel:
         self.status.set('Preparing normal-selector draft from independent root evidence. No lease renewal, selector write or reboot.')
         self.timer = self.window.after(100, self.poll)
 
+    def normal_return_dialog(self, *, reboot=False):
+        if self.job or self.pending:
+            return
+        try:
+            from forge_backup_policy import inputs as enrolled
+            from forge_recovery_bootplan import digest
+            from forge_normal_return import inputs
+            if self.enrollment_ready:
+                (directory, key, known), accepted = self.enrollment_ready
+                source = enrolled(directory, digest(accepted), key, known)
+            elif self.normal_return_source:
+                source = self.normal_return_source
+            else:
+                directory = filedialog.askdirectory(parent=self.window, title='Retained recovery enrollment directory')
+                if not directory: return
+                pin = simpledialog.askstring('Enrollment pin', 'Canonical SHA-256 of enrollment acceptance.json:', parent=self.window)
+                if not pin: return
+                key = filedialog.askopenfilename(parent=self.window, title='Private recovery key')
+                if not key: return
+                known = filedialog.askopenfilename(parent=self.window, title='Pinned recovery known_hosts')
+                if not known: return
+                source = enrolled(directory, pin.strip(), key, known)
+            from forge_root_policy import record
+            staging_pin = record(source.directory, 'acceptance.json')['staging_sha256']
+            staging = filedialog.askdirectory(parent=self.window, title='Original sealed staging directory')
+            if not staging: return
+            release = filedialog.askdirectory(parent=self.window, title='Acknowledged release-hold plan journal')
+            if not release: return
+            pin = simpledialog.askstring('Selector release pin', 'Canonical SHA-256 of release plan.json:', parent=self.window)
+            if not pin: return
+            reviewed = inputs(source, staging, staging_pin, release, pin.strip())
+            parent = filedialog.askdirectory(parent=self.window, title='Parent for new normal-return evidence')
+            if not parent: return
+            question = (f"Reboot {source.probe.host} once, then verify native return at {reviewed['normal_host']}?\n\n"
+                'The current lease is renewed; the released boot files and private image are checked read-only and '
+                'unmounted before reboot. A timeout never permits a second reboot. Keep physical recovery access available. '
+                if reboot else f"Read-only verification of native return at {reviewed['normal_host']}?\n\n"
+                'No reboot, lease renewal, target write or replay will occur. ')
+            question += ('A fresh boot, normal root, machine identity, kernel and serial must match. '
+                         'This does not prove application behavior or filesystem health, and does not clean up boot artifacts.')
+            if not messagebox.askyesno('Normal return', question, parent=self.window): return
+            import uuid
+            self.return_normal(source, reviewed, Path(parent)/('normal-return-'+uuid.uuid4().hex), reboot=reboot)
+        except Exception as exc:
+            self.status.set('Normal return not submitted: ' + str(exc))
+
+    def return_normal(self, source, reviewed, output, *, reboot=False):
+        if self.job or self.pending:
+            raise ValueError('Finish the current job or review before normal return')
+        submitted = self.controller.return_recovery_to_normal(self.workspace, source, reviewed, output, reboot=reboot)
+        self.job, self.job_kind = submitted['job_id'], 'normal-return'
+        self.preparation_output = Path(output)
+        self.normal_return_source = source
+        if reboot: self.enrollment_ready = None
+        self.refresh()
+        self.status.set('Verifying normal return. No automatic reboot retry; retain private boot artifacts until ordered cleanup.')
+        self.timer = self.window.after(100, self.poll)
+
     def source_dialog(self, *, health=False):
         if self.job or self.pending:
             return
@@ -1061,6 +1129,15 @@ class RecoveryPanel:
         self.job = None
         self.refresh()
         self.show(result)
+        if self.job_kind == 'normal-return':
+            if result['status'] == 'completed' and result['result'].get('status') == 'verified-normal-return':
+                self.enrollment_ready = None
+                self.refresh()
+            self.status.set(result['status'] + f': native-return evidence at {self.preparation_output}. '
+                            'No application, filesystem-health or cleanup qualification is implied. '
+                            'After uncertain reboot, use Verify normal return; never repeat the reboot. '
+                            'Keep private mount policy until staged and credential-bearing artifacts are removed.')
+            return
         if self.job_kind == 'check-export-health':
             checked = result.get('result') or {}
             outcome = ('Root filesystem check passed.' if checked.get('root_filesystem_consistency_qualified') is True else

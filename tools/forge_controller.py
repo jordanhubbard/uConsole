@@ -390,6 +390,19 @@ class Controller:
                                'session_sha256': source.session_pin, 'root_plan_sha256': frozen['plan_sha256'],
                                'policy_approved': False})
 
+    def return_recovery_to_normal(self, name, source, reviewed, output, *, reboot=False):
+        """Owner-only normal-return action; read-only verification never retries reboot."""
+        import copy
+        from uconsole_emulator import require_private_image_host
+        require_private_image_host()
+        from forge_normal_return import return_to_normal
+        frozen = copy.deepcopy(reviewed)
+        return self.submit(name, 'recovery_normal_return',
+                           lambda: return_to_normal(output, source, frozen, reboot=reboot),
+                           target_identity=source.machine_id, context={
+                               'plan_sha256': frozen['plan_sha256'], 'reboot_requested': reboot,
+                               'root_write_authorized': False})
+
     def prepare_backup_source(self, name, reviewed, output):
         """Owner-only offline preparation; never acquires recovery authority."""
         import copy

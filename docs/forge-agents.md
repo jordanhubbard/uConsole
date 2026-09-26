@@ -305,6 +305,20 @@ agent authority. Review/approval and selector execution remain separate. Normal
 return and cleanup are subsequent actions; keep the private boot mount until
 all credential-bearing boot artifacts have been removed through their journals.
 
+After an acknowledged selector release, **Reboot to normal system…** binds the
+enrolled RAM session, release plan and original sealed staging. The target
+worker takes writer-exclusion locks, verifies all released boot files and the
+private recovery image with a read-only mount, unmounts it and rechecks the live
+lease before one fixed reboot. A durable claim prevents a second submission,
+even after an SSH timeout. **Verify normal return…** performs only observations:
+it neither renews the old lease nor repeats a reboot, and can use the retained
+enrollment after a panel restart. A verified return requires a new normal boot
+UUID, the original native root selection and machine identity, the expected
+kernel and hardware serial, and stable boot bookends. These controls are
+owner-only, not MCP methods. Successful return disables stale RAM-session
+controls; it does not claim application behavior, filesystem health or cleanup.
+Keep failed evidence and the private boot mount; cleanup follows verified return.
+
 For a completed retained backup, **Prepare retained backup source…** is an
 owner-only, host-only action. Select the private backup directory and its
 owner-recorded canonical `acceptance.json` SHA-256, then review the card size,

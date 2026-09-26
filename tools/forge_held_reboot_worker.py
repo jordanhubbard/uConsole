@@ -10,11 +10,17 @@ from forge_target_ssh import target_lock
 
 
 def run(request):
+    reboot(request, 'install-hold')
+
+
+def reboot(request, operation):
+    if operation not in ('install-hold', 'release-hold'):
+        raise ValueError('Unsupported owner reboot transition')
     plan = validate(request['plan'], request['pin'])
     owner, accepted = request['owner'], request['lease']
-    if (os.geteuid() != 0 or plan['operation'] != 'install-hold' or
+    if (os.geteuid() != 0 or plan['operation'] != operation or
             plan['binding']['mode'] != 'physical' or plan['binding'].get('lease_owner') != owner):
-        raise ValueError('Held reboot requires the physical install-hold owner')
+        raise ValueError('Reboot requires the exact physical selector-transition owner')
     layout(plan)
     ensure_lock_directory()
     with target_lock('/run/lock/uconsole-forge-target.lock'):
@@ -24,7 +30,7 @@ def run(request):
                     raise ValueError('Insufficient held reboot lease budget')
                 with mounted_boot(plan['binding']['device']+'p1', request['query'], read_only=True) as point:
                     if inspect_files(plan, point)['status'] != 'after':
-                        raise ValueError('Persistent recovery boot files or image differ')
+                        raise ValueError('Approved boot files or recovery image differ')
                 # The read-only boot mount must be gone before the fixed reboot.
                 # Keep both writer-exclusion locks until the reboot is dispatched.
                 layout(plan)

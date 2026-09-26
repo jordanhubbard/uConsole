@@ -866,6 +866,41 @@ class RecoveryPanelTests(unittest.TestCase):
         self.assertEqual(confirm.call_args.args[0], 'Normal boot retains original filesystem errors')
         self.assertEqual(confirm.call_args.kwargs['default'], 'no')
 
+    def test_normal_return_clears_stale_ram_controls_without_grants(self):
+        import test_normal_return
+        f = test_normal_return.NormalReturnTests()
+        f.setUp()
+        self.addCleanup(f.doCleanups)
+        self.panel.enrollment_ready = ((f.source.directory, f.source.probe.key, f.source.probe.known_hosts), {})
+        with patch('forge_normal_return.return_to_normal', return_value=dict(status='verified-normal-return')) as returned:
+            self.panel.return_normal(f.source, f.frozen, f.output, reboot=True)
+            self.assertFalse(self.panel.close())
+            self.assertIsNone(self.panel.enrollment_ready)
+            self.owner.jobs[self.panel.job][2].result(timeout=5)
+            self.panel.poll()
+            returned.assert_called_once_with(f.output, f.source, f.frozen, reboot=True)
+        self.assertIs(self.panel.normal_return_source, f.source)
+        self.assertIn('disabled', self.panel.deploy_prepare_button.state())
+        self.assertNotIn('disabled', self.panel.normal_verify_button.state())
+        self.assertIn('No application, filesystem-health or cleanup qualification', self.panel.status.get())
+        self.assertEqual(self.owner.grants, frozenset())
+        with self.assertRaises(ValueError): self.owner.call('return_recovery_to_normal', {'workspace': 'gui'})
+
+    def test_declined_normal_reboot_does_not_submit(self):
+        import test_normal_return
+        f = test_normal_return.NormalReturnTests()
+        f.setUp()
+        self.addCleanup(f.doCleanups)
+        self.panel.normal_return_source = f.source
+        with patch('forge_recovery_gui.filedialog.askdirectory', side_effect=[str(f.f.value.staging),
+                   str(f.directory), str(f.root)]), \
+                patch('forge_recovery_gui.simpledialog.askstring', return_value=f.pin), \
+                patch('forge_recovery_gui.messagebox.askyesno', return_value=False), \
+                patch.object(RecoveryProbe, '_observe') as remote, patch.object(self.owner, 'return_recovery_to_normal') as submit:
+            self.panel.normal_return_dialog(reboot=True)
+        remote.assert_not_called()
+        submit.assert_not_called()
+
     def test_declined_backup_draft_has_no_target_contact(self):
         import test_backup_policy
         fixture = test_backup_policy.BackupPolicyTests()
