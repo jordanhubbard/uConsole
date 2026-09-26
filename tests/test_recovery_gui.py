@@ -913,6 +913,34 @@ class RecoveryPanelTests(unittest.TestCase):
             self.panel.cleanup_button.invoke()
         submit.assert_not_called()
 
+    def test_original_privacy_restoration_is_owner_only_without_reboot(self):
+        import test_boot_privacy_restore
+        f = test_boot_privacy_restore.PrivacyRestoreTests()
+        f.setUp()
+        self.addCleanup(f.doCleanups)
+        with patch('forge_boot_privacy_restore.restore', return_value=dict(status='original-fstab-restored-awaiting-fresh-mount')) as restored:
+            self.panel.restore_privacy(f.frozen)
+            self.assertFalse(self.panel.close())
+            self.owner.jobs[self.panel.job][2].result(timeout=5)
+            self.panel.poll()
+            restored.assert_called_once_with(f.frozen)
+        self.assertIn('need fresh-mount verification', self.panel.status.get())
+        self.assertEqual(self.owner.grants, frozenset())
+        with self.assertRaises(ValueError): self.owner.call('restore_boot_privacy', {'workspace': 'gui'})
+
+    def test_declined_privacy_restoration_never_contacts_target(self):
+        import test_boot_privacy_restore
+        f = test_boot_privacy_restore.PrivacyRestoreTests()
+        f.setUp()
+        self.addCleanup(f.doCleanups)
+        with patch('forge_recovery_gui.filedialog.askdirectory', side_effect=[f.clean['staging'], str(f.journal)]), \
+                patch('forge_recovery_gui.simpledialog.askstring', side_effect=[f.clean['staging_sha256'], f.boot, f.pin]), \
+                patch('forge_recovery_gui.messagebox.askyesno', return_value=False) as confirm, \
+                patch.object(self.owner, 'restore_boot_privacy') as submit:
+            self.panel.privacy_restore_button.invoke()
+        submit.assert_not_called()
+        self.assertEqual(confirm.call_args.kwargs['default'], 'no')
+
     def test_declined_normal_reboot_does_not_submit(self):
         import test_normal_return
         f = test_normal_return.NormalReturnTests()

@@ -415,6 +415,17 @@ class Controller:
                                'staging_sha256': frozen['staging_sha256'],
                                'public_permissions_authorized': False})
 
+    def restore_boot_privacy(self, name, reviewed):
+        """Owner-only original fstab restoration after guarded artifact cleanup."""
+        import copy
+        from uconsole_emulator import require_private_image_host
+        require_private_image_host()
+        from forge_boot_privacy_restore import restore
+        frozen = copy.deepcopy(reviewed)
+        return self.submit(name, 'recovery_restore_boot_privacy', lambda: restore(frozen),
+                           target_identity=frozen['cleanup']['machine_id'], context={
+                               'plan_sha256': frozen['plan_sha256'], 'reboot_requested': False})
+
     def prepare_backup_source(self, name, reviewed, output):
         """Owner-only offline preparation; never acquires recovery authority."""
         import copy

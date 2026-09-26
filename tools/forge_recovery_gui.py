@@ -138,6 +138,11 @@ class RecoveryPanel:
         self.normal_verify_button.pack(side='left', padx=4)
         self.cleanup_button = ttk.Button(normal, text='Clean up recovery artifacts…', command=self.cleanup_dialog)
         self.cleanup_button.pack(side='left', padx=4)
+        restoration = ttk.Frame(self.window)
+        restoration.pack(padx=12, pady=4)
+        self.privacy_restore_button = ttk.Button(restoration, text='Restore original boot-mount policy…',
+                                                 command=self.privacy_restore_dialog)
+        self.privacy_restore_button.pack(side='left')
         self.choice = ttk.Combobox(self.window, textvariable=self.selected, state='readonly', width=50)
         self.choice.pack(padx=12, pady=4)
         self.choice.bind('<<ComboboxSelected>>', lambda event: self.review())
@@ -188,7 +193,7 @@ class RecoveryPanel:
         self.privacy_reboot_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.privacy_verify_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.tryboot_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
-        for button in (self.normal_reboot_button, self.normal_verify_button, self.cleanup_button):
+        for button in (self.normal_reboot_button, self.normal_verify_button, self.cleanup_button, self.privacy_restore_button):
             button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.source_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.health_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
@@ -973,6 +978,42 @@ class RecoveryPanel:
         self.status.set('Restoring staging, then removing the owned private image. Boot permissions remain private.')
         self.timer = self.window.after(100, self.poll)
 
+    def privacy_restore_dialog(self):
+        if self.job or self.pending: return
+        try:
+            from forge_boot_privacy_restore import inputs
+            staging = filedialog.askdirectory(parent=self.window, title='Original sealed staging directory')
+            if not staging: return
+            stage_pin = simpledialog.askstring('Staging pin', 'Canonical SHA-256 of staging acceptance.json:', parent=self.window)
+            if not stage_pin: return
+            boot = simpledialog.askstring('Verified normal boot', 'Boot UUID from completed cleanup:', parent=self.window)
+            if not boot: return
+            journal = filedialog.askdirectory(parent=self.window, title='Original privacy transaction directory (contains plan.json)')
+            if not journal: return
+            pin = simpledialog.askstring('Original privacy plan pin', 'Canonical SHA-256 of original privacy plan.json:', parent=self.window)
+            if not pin: return
+            reviewed = inputs(staging, stage_pin.strip(), boot.strip(), journal, pin.strip())
+            if not messagebox.askyesno('Restore original boot policy',
+                    f"Restore the original /etc/fstab on {reviewed['plan']['host']}?\n\n"
+                    'The original journals must confirm all staging restores and image removal. '
+                    'The target checks boot preimages and inventories the private boot filesystem before and after this change. '
+                    'Forge/recovery-named artifacts, links and renamed copies of the known credential image stop restoration. '
+                    'This is not a general secret scan of unrelated user files. No files are deleted and no reboot or remount '
+                    'occurs. Current permissions remain private until a subsequent fresh mount is verified. '
+                    'Uncertain restoration must be inspected, never replayed.', parent=self.window, default='no'): return
+            self.restore_privacy(reviewed)
+        except Exception as exc:
+            self.status.set('Original boot policy restoration not submitted: '+str(exc))
+
+    def restore_privacy(self, reviewed):
+        if self.job or self.pending: raise ValueError('Finish the current job or review before privacy restoration')
+        submitted = self.controller.restore_boot_privacy(self.workspace, reviewed)
+        self.job, self.job_kind = submitted['job_id'], 'restore-privacy'
+        self.preparation_output = Path(reviewed['journal'])
+        self.refresh()
+        self.status.set('Checking boot artifacts and restoring original fstab. No reboot or remount.')
+        self.timer = self.window.after(100, self.poll)
+
     def source_dialog(self, *, health=False):
         if self.job or self.pending:
             return
@@ -1166,6 +1207,11 @@ class RecoveryPanel:
         self.job = None
         self.refresh()
         self.show(result)
+        if self.job_kind == 'restore-privacy':
+            self.status.set(result['status'] + f': original-policy evidence at {self.preparation_output}. '
+                            'Current mount remains private; original permissions need fresh-mount verification. '
+                            'Never replay an uncertain restoration.')
+            return
         if self.job_kind == 'recovery-cleanup':
             self.status.set(result['status'] + f': cleanup evidence at {self.preparation_output}. '
                             'Boot-mount permissions remain private. Uncertain operations require reconciliation, not retry.')

@@ -33,7 +33,7 @@ def target_lock(lock_path):
         os.close(fd)
 
 
-def perform(plan, direction, nonce, *, lock_path='/run/lock/uconsole-forge-target.lock'):
+def perform(plan, direction, nonce, *, lock_path='/run/lock/uconsole-forge-target.lock', guard=None):
     journal.validate_plan(plan)
     if direction not in ('apply', 'restore'):
         raise ValueError('Invalid transition direction')
@@ -41,11 +41,13 @@ def perform(plan, direction, nonce, *, lock_path='/run/lock/uconsole-forge-targe
     if identity != plan['before']['machine_id']:
         raise ValueError('SSH target machine identity differs from backup')
     with target_lock(lock_path):
+        if guard is not None: guard()
         before, after = plan['before']['files'], plan['after']['files']
         if direction == 'restore':
             before, after = after, before
         results = [apply_file(old, new, stage_token=token) for old, new, token in
                    zip(before, after, plan['stage_tokens'][direction])]
+        if guard is not None: guard()
         return {'nonce': nonce, 'direction': direction, 'machine_id': identity, 'files': results}
 
 

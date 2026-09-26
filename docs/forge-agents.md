@@ -331,6 +331,20 @@ agent authority, reboot, write root bytes or restore public FAT permissions.
 The private mount remains in place: restoring its original policy requires a
 separate credential-artifact inventory and subsequent mount verification.
 
+**Restore original boot-mount policy…** uses the pinned original fstab transaction
+(the `transaction` directory, including for older retained preparations), sealed
+staging and the cleanup boot UUID. It requires acknowledged original application,
+completed reverse staging and journaled image removal. Under the target lock it
+checks the normal boot, all nine preimages and effective private mount, inventories
+the boot tree, restores only the original fstab, then repeats the guards. The
+bounded no-follow inventory refuses Forge/recovery names, special files, links,
+nested mounts and byte-identical aliases of the known credential image. It neither
+deletes unexpected files nor claims to scan unrelated user files for all secrets.
+A durable attempt prevents repeat submission even after transport uncertainty.
+This owner-only action does not remount or reboot: current permissions stay
+private, and original effective permissions are not qualified until a subsequent
+fresh mount is independently verified.
+
 For a completed retained backup, **Prepare retained backup source…** is an
 owner-only, host-only action. Select the private backup directory and its
 owner-recorded canonical `acceptance.json` SHA-256, then review the card size,
