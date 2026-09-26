@@ -207,6 +207,17 @@ output overlapping the enrolled session. Retain failure evidence; do not reset
 the lease journal. Policy authoring is owner-only and absent from MCP. This
 step does not provide a complete deploy/restore wizard.
 
+After enrollment, **Prepare current-card hash…** uses the same guarded SD
+identity inventory to draft only a `hash-card` job. Review its target, exact
+boot, card identity and evidence destination, then separately approve and run
+it. Preparation reads identity/geometry twice but neither renews a lease nor
+hashes the card. Execution later captures independent current-card/range hashes
+under the existing recovery session. These observations are inputs to hold and
+deployment planning, not a backup or permission to write/release the card. A
+changed card/boot, a busy session or an unresolved renewal prevents drafting;
+the authoring action cannot generate write or release operations and is absent
+from MCP. Existing authorized recovery clients can run the owner-approved ID.
+
 For a completed retained backup, **Prepare retained backup source…** is an
 owner-only, host-only action. Select the private backup directory and its
 owner-recorded canonical `acceptance.json` SHA-256, then review the card size,

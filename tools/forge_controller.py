@@ -317,6 +317,17 @@ class Controller:
                                'enrollment_sha256': source.acceptance_pin,
                                'session_sha256': source.session_pin, 'policy_approved': False})
 
+    def prepare_recovery_hash(self, name, source, output):
+        """Owner-only current-card hash policy; approval and execution are separate."""
+        from uconsole_emulator import require_private_image_host
+        require_private_image_host()
+        from forge_backup_policy import prepare
+        return self.submit(name, 'recovery_prepare_hash_policy',
+                           lambda: prepare(output, source, name, operation='hash-card'),
+                           target_identity=source.machine_id, context={
+                               'enrollment_sha256': source.acceptance_pin,
+                               'session_sha256': source.session_pin, 'policy_approved': False})
+
     def prepare_backup_source(self, name, reviewed, output):
         """Owner-only offline preparation; never acquires recovery authority."""
         import copy

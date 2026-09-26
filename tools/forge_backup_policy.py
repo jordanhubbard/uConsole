@@ -1,4 +1,4 @@
-"""Draft a backup-only owner policy from enrollment and read-only SD inventory."""
+"""Draft backup-only or hash-only policies from enrollment and read-only inventory."""
 import base64
 from dataclasses import dataclass
 import os
@@ -51,7 +51,10 @@ def inputs(directory, pin, key, known_hosts):
                         saved['owner'], accepted['machine_id'])
 
 
-def prepare(output, source, workspace):
+def prepare(output, source, workspace, *, operation='backup-card'):
+    if operation not in ('backup-card', 'hash-card'):
+        raise ValueError('Inventory policy permits only backup-card or hash-card')
+    job_name, destination = ('backup', 'card-backup') if operation == 'backup-card' else ('hash', 'card-hashes')
     if not isinstance(workspace, str) or not re.fullmatch('[A-Za-z0-9_-]{1,64}', workspace):
         raise ValueError('Backup policy requires a registered workspace name')
     current = inputs(source.directory, source.acceptance_pin, source.probe.key, source.probe.known_hosts)
@@ -85,20 +88,21 @@ def prepare(output, source, workspace):
             write_record(fd, 'checked-storage.json', checked)
             if checked['layout'] != observed or checked['extent'] != extent:
                 raise ValueError('Card identity or geometry changed during backup preparation')
-            policy = dict(schema=1, jobs=dict(backup=dict(workspace=workspace, machine_id=source.machine_id,
+            policy = dict(schema=1, jobs={job_name: dict(workspace=workspace, machine_id=source.machine_id,
                 session=str(source.directory/'session'), session_sha256=source.session_pin,
-                key=str(source.probe.key), known_hosts=str(source.probe.known_hosts), operation='backup-card',
+                key=str(source.probe.key), known_hosts=str(source.probe.known_hosts), operation=operation,
                 arguments=dict(cid=extent['cid'], disk_id=disk_id, device='/dev/mmcblk0',
-                               destination=str(output/'card-backup')))))
+                               destination=str(output/destination)))})
             pin = write_record(fd, 'policy.json', policy)
             # Exercise the same parser used by subsequent owner approval.
             registry = RecoveryJobs(output/'policy.json', pin, {workspace: output})
-            if registry.get('backup', workspace).operation != 'backup-card':
-                raise ValueError('Draft is not backup-only')
-            result = dict(status='prepared-backup-policy-not-approved', policy_sha256=pin,
+            if registry.get(job_name, workspace).operation != operation:
+                raise ValueError('Draft differs from requested read-only card operation')
+            result = dict(status=f'prepared-{job_name}-policy-not-approved', policy_sha256=pin,
                           enrollment_sha256=source.acceptance_pin, session_sha256=source.session_pin,
                           target_written=False, lease_acquired=False, policy_approved=False,
                           backup_created=False, root_write_authorized=False)
+            if operation == 'hash-card': result['hashes_captured'] = False
             write_record(fd, 'acceptance.json', result)
             return result
         except BaseException as exc:

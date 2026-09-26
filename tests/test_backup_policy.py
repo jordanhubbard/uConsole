@@ -59,6 +59,32 @@ class BackupPolicyTests(unittest.TestCase):
         self.assertNotIn(self.source.owner, json.dumps(result))
         for path in self.output.rglob('*'): self.assertEqual(path.stat().st_mode & 0o077, 0)
 
+    def test_hash_draft_is_consumable_hash_only_without_capture_or_lease(self):
+        with self.observe() as remote, patch.object(Session, 'renew') as renew:
+            result = prepare(self.output, self.source, 'fixture', operation='hash-card')
+        renew.assert_not_called()
+        self.assertEqual(remote.call_count, 5)
+        self.assertEqual(result['status'], 'prepared-hash-policy-not-approved')
+        registry = RecoveryJobs(self.output/'policy.json', result['policy_sha256'], {'fixture': self.root/'workspace'})
+        self.assertEqual(set(registry.jobs), {'hash'})
+        job = registry.get('hash', 'fixture')
+        self.assertEqual(job.operation, 'hash-card')
+        self.assertEqual(job.arguments['destination'], str(self.output.resolve()/'card-hashes'))
+        self.assertEqual(job.boot_id, self.source.boot_id)
+        self.assertEqual(job.arguments['cid'], self.layout['cid'])
+        for key in ('target_written', 'lease_acquired', 'policy_approved', 'backup_created',
+                    'hashes_captured', 'root_write_authorized'):
+            self.assertIs(result[key], False)
+        self.assertFalse((self.output/'card-hashes').exists())
+        self.assertEqual([p.name for p in (self.source.directory/'session').iterdir()], ['binding.json'])
+
+    def test_other_operations_cannot_gain_a_policy_from_inventory(self):
+        for operation in ('deploy-root', 'restore-root', 'release-hold', 'retry-lease', '', None):
+            with self.subTest(operation=operation), patch.object(RecoveryProbe, '_observe') as remote:
+                with self.assertRaises(ValueError): prepare(self.output, self.source, 'fixture', operation=operation)
+                remote.assert_not_called()
+                self.assertFalse(self.output.exists())
+
     def test_changed_card_preserves_failure_without_policy(self):
         self.records[3]['cid'] = 'b'*32
         with self.observe():
