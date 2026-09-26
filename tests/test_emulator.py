@@ -83,7 +83,8 @@ class EmulatorTests(unittest.TestCase):
             image.write_bytes(b'not the expected image')
             workspace = Path(directory) / 'workspace'
             args = emulator.parser().parse_args(['--workspace', str(workspace), 'prepare', str(image)])
-            with self.assertRaisesRegex(ValueError, 'checksum'):
+            # Isolate byte validation from the separately tested host gate.
+            with patch.object(emulator, 'require_private_image_host'), self.assertRaisesRegex(ValueError, 'checksum'):
                 emulator.prepare(args)
             self.assertFalse(workspace.exists())
 
@@ -465,7 +466,8 @@ class EmulatorTests(unittest.TestCase):
             target = workspace / 'base.img'
             target.write_bytes(b'preserve')
             args = emulator.parser().parse_args(['--workspace', directory, 'export', str(target)])
-            with self.assertRaisesRegex(ValueError, 'already exists'):
+            # Exercise overwrite refusal even on hosts whose image API is gated.
+            with patch.object(emulator, 'require_private_image_host'), self.assertRaisesRegex(ValueError, 'already exists'):
                 emulator.export(args)
             self.assertEqual(target.read_bytes(), b'preserve')
 
