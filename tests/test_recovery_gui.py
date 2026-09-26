@@ -969,6 +969,61 @@ class RecoveryPanelTests(unittest.TestCase):
         submit.assert_not_called()
         self.assertEqual(confirm.call_args.kwargs['default'], 'no')
 
+    def retained_fixture(self):
+        import test_backup_policy
+        f = test_backup_policy.BackupPolicyTests()
+        f.setUp()
+        self.addCleanup(f.doCleanups)
+        return f.source
+
+    def test_open_retained_enrollment_is_offline_and_adds_no_grants(self):
+        source = self.retained_fixture()
+        from forge_recovery_session import Session
+        before = {p.name: p.read_bytes() for p in (source.directory/'session').iterdir()}
+        with patch.object(RecoveryProbe, '_observe') as remote, patch.object(Session, 'renew') as renew:
+            self.panel.open_enrollment(source.directory, source.acceptance_pin, source.probe.key, source.probe.known_hosts)
+        remote.assert_not_called(); renew.assert_not_called()
+        self.assertEqual(before, {p.name: p.read_bytes() for p in (source.directory/'session').iterdir()})
+        self.assertNotIn('disabled', self.panel.backup_button.state())
+        self.assertNotIn('disabled', self.panel.reconcile_prepare_button.state())
+        self.assertEqual(self.owner.grants, frozenset())
+        self.assertEqual(self.owner.jobs, {})
+        self.assertIn('target state is not verified', self.panel.status.get())
+
+    def test_retained_enrollment_busy_or_wrong_pin_keeps_existing_selection(self):
+        source = self.retained_fixture()
+        from forge_recovery_session import Session
+        with Session(source.directory/'session', source.session_pin, source.probe, source.boot_id, source.owner):
+            with self.assertRaises(BlockingIOError):
+                self.panel.open_enrollment(source.directory, source.acceptance_pin, source.probe.key, source.probe.known_hosts)
+        with self.assertRaises(ValueError):
+            self.panel.open_enrollment(source.directory, 'f'*64, source.probe.key, source.probe.known_hosts)
+        self.assertIsNone(self.panel.enrollment_ready)
+
+    def test_retained_pending_renewal_is_never_reset_or_retried(self):
+        source = self.retained_fixture()
+        from forge_recovery_session import Session
+        from forge_target_journal import write_record
+        with Session(source.directory/'session', source.session_pin, source.probe, source.boot_id, source.owner) as session:
+            write_record(session.fd, Session.names(1)[0], session.request(1, 300))
+        before = {p.name: p.read_bytes() for p in (source.directory/'session').iterdir()}
+        with patch.object(RecoveryProbe, '_observe') as remote:
+            self.panel.open_enrollment(source.directory, source.acceptance_pin, source.probe.key, source.probe.known_hosts)
+        remote.assert_not_called()
+        self.assertIn('Pending renewal remains unresolved', self.panel.status.get())
+        self.assertEqual(before, {p.name: p.read_bytes() for p in (source.directory/'session').iterdir()})
+
+    def test_declined_retained_enrollment_keeps_panel_unconfigured(self):
+        source = self.retained_fixture()
+        with patch('forge_recovery_gui.filedialog.askdirectory', return_value=str(source.directory)), \
+                patch('forge_recovery_gui.simpledialog.askstring', return_value=source.acceptance_pin), \
+                patch('forge_recovery_gui.filedialog.askopenfilename', side_effect=[str(source.probe.key), str(source.probe.known_hosts)]), \
+                patch('forge_recovery_gui.messagebox.askyesno', return_value=False), \
+                patch.object(RecoveryProbe, '_observe') as remote:
+            self.panel.open_enrollment_button.invoke()
+        remote.assert_not_called()
+        self.assertIsNone(self.panel.enrollment_ready)
+
     def test_declined_normal_reboot_does_not_submit(self):
         import test_normal_return
         f = test_normal_return.NormalReturnTests()

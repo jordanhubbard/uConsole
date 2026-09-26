@@ -359,6 +359,16 @@ accounted for explicitly. These controls are owner-only and grant no MCP access;
 successful mount verification does not imply filesystem health or native
 application qualification.
 
+After reopening Workbench, **Open retained enrollment…** loads the original
+enrollment receipt pin, key and pinned host-key file for subsequent plan
+preparation. It validates the complete local lease journal under its nonblocking
+owner lock; a session held by another process is refused. This operation is
+offline and does not renew or adopt a target lease, reset sequence numbers,
+retry a pending request, approve policy or grant agent permissions. Pending
+renewals remain pending and require the separately reviewed `retry-lease` path.
+The UI does not claim the target boot or lease is still live; subsequent jobs
+must validate them against the target before acting.
+
 For a completed retained backup, **Prepare retained backup source…** is an
 owner-only, host-only action. Select the private backup directory and its
 owner-recorded canonical `acceptance.json` SHA-256, then review the card size,

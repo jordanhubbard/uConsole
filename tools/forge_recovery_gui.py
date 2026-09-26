@@ -119,6 +119,8 @@ class RecoveryPanel:
         self.held_reboot_button.pack(side='left', padx=4)
         self.reconcile_prepare_button = ttk.Button(transitions, text='Prepare reconciliation…', command=self.reconcile_dialog)
         self.reconcile_prepare_button.pack(side='left', padx=4)
+        self.open_enrollment_button = ttk.Button(transitions, text='Open retained enrollment…', command=self.open_enrollment_dialog)
+        self.open_enrollment_button.pack(side='left', padx=4)
         transfers = ttk.Frame(self.window)
         transfers.pack(padx=12, pady=4)
         self.deploy_prepare_button = ttk.Button(transfers, text='Prepare enhanced-root deployment…',
@@ -181,6 +183,7 @@ class RecoveryPanel:
         self.load_button.state(['disabled'] if self.job else ['!disabled'])
         self.prepare_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.enroll_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
+        self.open_enrollment_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.backup_button.state(['!disabled'] if self.enrollment_ready and not self.job and not self.pending else ['disabled'])
         self.hash_button.state(['!disabled'] if self.enrollment_ready and not self.job and not self.pending else ['disabled'])
         self.hold_button.state(['!disabled'] if self.enrollment_ready and not self.job and not self.pending else ['disabled'])
@@ -573,6 +576,45 @@ class RecoveryPanel:
                 self.enroll_session(value, output)
         except Exception as exc:
             self.status.set('Enrollment not submitted: ' + str(exc))
+
+    def open_enrollment_dialog(self):
+        if self.job or self.pending: return
+        try:
+            directory = filedialog.askdirectory(parent=self.window, title='Retained recovery enrollment directory')
+            if not directory: return
+            pin = simpledialog.askstring('Enrollment pin', 'Canonical SHA-256 of enrollment acceptance.json:', parent=self.window)
+            if not pin: return
+            key = filedialog.askopenfilename(parent=self.window, title='Original private recovery key')
+            if not key: return
+            known = filedialog.askopenfilename(parent=self.window, title='Original pinned recovery known_hosts')
+            if not known: return
+            if not messagebox.askyesno('Open retained enrollment',
+                    'Load this exact enrollment and its existing lease history for further plan preparation?\n\n'
+                    'This is offline: no target contact, renewal, sequence reset, pending-request retry or permission grant. '
+                    'A session held by another live owner cannot be opened. The target boot and lease may have expired; '
+                    'later jobs must revalidate them. A pending renewal stays pending.', parent=self.window): return
+            self.open_enrollment(directory, pin.strip(), key, known)
+        except Exception as exc:
+            self.status.set('Retained enrollment not opened: '+str(exc))
+
+    def open_enrollment(self, directory, pin, key, known):
+        if self.job or self.pending: raise ValueError('Finish the current job or policy review before opening enrollment')
+        from forge_backup_policy import inputs
+        from forge_recovery_stage_prepare import pinned_record
+        from forge_recovery_session import Session
+        source = inputs(directory, pin, key, known)
+        with Session(source.directory/'session', source.session_pin, source.probe, source.boot_id, source.owner) as session:
+            accepted = pinned_record(source.directory/'acceptance.json', pin)
+            summary = dict(host=source.probe.host, boot_id=source.boot_id,
+                last_acknowledged_sequence=session.accepted['sequence'] if session.accepted else 0,
+                pending_renewal=session.unresolved, target_contacted=False, lease_renewed=False,
+                target_boot_verified=False, policy_approved=False)
+        self.enrollment_ready = ((source.directory, source.probe.key, source.probe.known_hosts), accepted)
+        self.refresh()
+        self.show(summary)
+        self.status.set('Retained enrollment loaded offline. No lease renewed or grants added; target state is not verified. '
+                        + ('Pending renewal remains unresolved; use an explicitly reviewed retry-lease job.' if summary['pending_renewal'] else
+                           'Later jobs recheck the pinned boot and existing lease.'))
 
     def enroll_session(self, value, output):
         if self.job or self.pending:
