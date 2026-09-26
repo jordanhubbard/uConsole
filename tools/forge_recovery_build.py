@@ -50,7 +50,7 @@ def discover(host):
     command = argv(host, '/usr/bin/uname -r')
     before = capture(host)
     normal_boot(before, before['machine_id'])
-    kernel = subprocess.run(command, capture_output=True, text=True, timeout=20, check=True).stdout.strip()
+    kernel = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=20, check=True).stdout.strip()
     if not re.fullmatch('[A-Za-z0-9][A-Za-z0-9.+_-]{0,127}', kernel) or capture(host) != before:
         raise ValueError('Kernel or normal boot changed during discovery')
     return dict(host=host, boot=before, kernel=kernel)

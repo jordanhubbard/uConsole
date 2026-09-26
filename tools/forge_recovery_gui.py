@@ -82,6 +82,12 @@ class RecoveryPanel:
         self.publication_button.pack(side='left', padx=4)
         self.publish_button = ttk.Button(builder, text='Publish reviewed image…', command=self.publish_dialog)
         self.publish_button.pack(side='left', padx=4)
+        privacy = ttk.Frame(self.window)
+        privacy.pack(padx=12, pady=4)
+        self.privacy_prepare_button = ttk.Button(privacy, text='Prepare private boot mount…', command=self.privacy_prepare_dialog)
+        self.privacy_prepare_button.pack(side='left')
+        self.privacy_apply_button = ttk.Button(privacy, text='Apply private mount policy…', command=self.privacy_apply_dialog)
+        self.privacy_apply_button.pack(side='left', padx=4)
         self.choice = ttk.Combobox(self.window, textvariable=self.selected, state='readonly', width=50)
         self.choice.pack(padx=12, pady=4)
         self.choice.bind('<<ComboboxSelected>>', lambda event: self.review())
@@ -121,6 +127,8 @@ class RecoveryPanel:
         self.build_button.state(['!disabled'] if self.build_candidate and not self.job and not self.pending else ['disabled'])
         self.publication_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.publish_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
+        self.privacy_prepare_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
+        self.privacy_apply_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         if not self.pending:
             self.review()
 
@@ -214,6 +222,73 @@ class RecoveryPanel:
             self.publish_image(frozen)
         except Exception as exc:
             self.status.set('Publication not submitted: ' + str(exc))
+
+    def privacy_prepare_dialog(self):
+        if self.job or self.pending:
+            return
+        host = simpledialog.askstring('Private boot mount setup', 'Normal SSH target (user@hostname):', parent=self.window)
+        if not host:
+            return
+        parent = filedialog.askdirectory(parent=self.window, title='Parent directory for original fstab backup and private-policy draft')
+        if not parent:
+            return
+        if not messagebox.askyesno('Prepare private boot mount',
+                f'Read {host} boot/mount identity and back up /etc/fstab?\n\n'
+                'The candidate parser uses temporary /run scratch. This does not apply the policy, remount, reboot or publish credentials.',
+                parent=self.window):
+            return
+        try:
+            import uuid
+            self.prepare_privacy(host, Path(parent)/('boot-privacy-'+uuid.uuid4().hex))
+        except Exception as exc:
+            self.status.set('Privacy preparation not submitted: ' + str(exc))
+
+    def prepare_privacy(self, host, output):
+        if self.job or self.pending:
+            raise ValueError('Finish the current job or review before privacy preparation')
+        submitted = self.controller.prepare_boot_privacy(self.workspace, host, output)
+        self.job, self.job_kind = submitted['job_id'], 'prepare-privacy'
+        self.preparation_output = Path(output)
+        self.refresh()
+        self.status.set('Backing up fstab and preparing a private mount draft. Keep Workbench open.')
+        self.timer = self.window.after(100, self.poll)
+
+    def privacy_apply_dialog(self):
+        if self.job or self.pending:
+            return
+        directory = filedialog.askdirectory(parent=self.window, title='Completed private boot mount preparation')
+        if not directory:
+            return
+        try:
+            import base64
+            from forge_boot_privacy_setup import inputs
+            pin = policy_pin(Path(directory)/'acceptance.json')
+            frozen = inputs(directory, pin)
+            plan = frozen['plan']
+            self.show(dict(host=plan['host'], boot=frozen['boot'], preparation_sha256=pin,
+                before=base64.b64decode(plan['before']['files'][0]['data']).decode(),
+                after=base64.b64decode(plan['after']['files'][0]['data']).decode()))
+            if not messagebox.askyesno('Apply private boot mount policy',
+                    f'Apply the displayed fstab-only change on {plan["host"]}?\n\n'
+                    'The original fstab is retained for restoration. This does not remount or reboot, and it does not '
+                    'make a currently public mount private. A separate reboot and effective permission check are required '
+                    'before publication. Retain uncertain attempts; do not automatically retry.', parent=self.window):
+                return
+            if inputs(directory, pin) != frozen:
+                raise ValueError('Privacy plan changed during confirmation')
+            self.apply_privacy(frozen)
+        except Exception as exc:
+            self.status.set('Privacy application not submitted: ' + str(exc))
+
+    def apply_privacy(self, frozen):
+        if self.job or self.pending:
+            raise ValueError('Finish the current job or review before applying privacy')
+        submitted = self.controller.apply_boot_privacy(self.workspace, frozen)
+        self.job, self.job_kind = submitted['job_id'], 'apply-privacy'
+        self.preparation_output = Path(frozen['directory'])/'apply-attempt'
+        self.refresh()
+        self.status.set('Applying the fstab-only policy. Keep Workbench open; no reboot or publication authorized.')
+        self.timer = self.window.after(100, self.poll)
 
     def publish_image(self, frozen):
         if self.job or self.pending:
@@ -487,6 +562,11 @@ class RecoveryPanel:
         self.job = None
         self.refresh()
         self.show(result)
+        if self.job_kind in ('prepare-privacy', 'apply-privacy'):
+            self.status.set(result['status'] + f': privacy evidence at {self.preparation_output}. '
+                            'No remount, reboot or publication performed. Applied policy is not proof of effective private permissions; '
+                            'retain the original fstab and verify a later fresh mount before publishing credentials.')
+            return
         if self.job_kind == 'discover-builder':
             if result['status'] == 'completed':
                 self.build_candidate = dict(result['result'], host=self.build_host)

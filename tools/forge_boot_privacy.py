@@ -60,7 +60,7 @@ def observe_mount(host):
         raise ValueError('Invalid SSH target')
     result = subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', host,
                              'sudo -n python3 -c ' + shlex.quote(MOUNT_CHECK)],
-                            capture_output=True, text=True, timeout=25, check=True)
+                            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=25, check=True)
     return json.loads(result.stdout)
 
 

@@ -65,6 +65,10 @@ existing clients' grants. Select a job, review it, then explicitly confirm
 **Run selected job…**. Keep Workbench open until the result is known. If status
 retrieval fails, use **Recheck job status**, not another submission. The result
 panel retains failures and makes no implicit rollback or boot-release claim.
+Read-only SSH probes disconnect child stdin from the owner's protocol stream;
+operations that intentionally send a request over stdin retain their explicit
+pipe. This prevents an SSH observation child from consuming MCP input. Accepted
+jobs still require their own terminal evidence after any transport failure.
 
 **Discover build target…** reads a normal SSH target's boot identity and kernel
 without changing the target. Review that identity, then choose **Build private
@@ -87,6 +91,21 @@ These owner controls are deliberately absent from MCP. The build backend and
 GUI have fixture coverage; physical native-build qualification of this workflow
 is still pending. Private-mount provisioning, boot orchestration and guided
 deploy/restore remain separate unfinished steps.
+
+**Prepare private boot mount…** backs up the target's `/etc/fstab`, observes its
+normal boot and current public FAT mount, and drafts only the boot mount's
+root-only permission options. It checks the candidate with `findmnt` using
+temporary target `/run` scratch, then rechecks the unchanged fstab, boot and mount.
+**Apply private mount policy…** displays the original and proposed fstab text
+before separate confirmation. It applies only that pinned file transaction,
+retains the original metadata/content for restoration, and checks the resulting
+file. An `apply-attempt/` journal prevents replay after any attempted application.
+Neither action remounts, reboots, publishes an image or grants agent permission.
+`applied-awaiting-private-mount` does **not** mean effective privacy: a later
+fresh mount and non-root read-denial check are still required. Publication keeps
+refusing a public mount. Never restore public permissions while private images
+remain on the boot filesystem. Guided reboot/verification and cleanup are still
+separate integration work, not implied by the policy acknowledgement.
 
 **Prepare publication…** accepts a completed private build journal and the
 SHA-256 of its `acceptance.json`. After owner review it verifies the retained

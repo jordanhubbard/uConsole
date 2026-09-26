@@ -246,6 +246,26 @@ class Controller:
                            target_identity=frozen['plan']['machine_id'], context={
                                'plan_sha256': digest(frozen['plan']), 'reboot_authorized': False})
 
+    def prepare_boot_privacy(self, name, host, output):
+        """Owner-only fstab backup and draft; no live policy application."""
+        from uconsole_emulator import require_private_image_host
+        require_private_image_host()
+        from forge_boot_privacy_setup import prepare
+        return self.submit(name, 'recovery_prepare_boot_privacy', lambda: prepare(output, host),
+                           context={'target_write_authorized': False})
+
+    def apply_boot_privacy(self, name, reviewed):
+        """Owner-only fstab transition; effective mount verification is separate."""
+        from uconsole_emulator import require_private_image_host
+        require_private_image_host()
+        import copy
+        from forge_boot_privacy_setup import apply
+        from forge_recovery_bootplan import digest
+        frozen = copy.deepcopy(reviewed)
+        return self.submit(name, 'recovery_apply_boot_privacy', lambda: apply(frozen),
+                           target_identity=frozen['boot']['machine_id'], context={
+                               'plan_sha256': digest(frozen['plan']), 'reboot_authorized': False})
+
     def approve_recovery_policy(self, path, digest):
         """Local owner action only; clients cannot approve or replace policy."""
         approved = self.load_recovery_policy(path, digest)

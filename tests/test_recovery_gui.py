@@ -145,7 +145,8 @@ class RecoveryPanelTests(unittest.TestCase):
             with self.assertRaises(ValueError): self.panel.discover_builder('fixture')
             submit.assert_not_called()
         client = ClientSession(self.owner, ['gui'])
-        for name in ('discover_recovery_builder', 'build_recovery_image', 'prepare_recovery_publication', 'publish_recovery_image'):
+        for name in ('discover_recovery_builder', 'build_recovery_image', 'prepare_recovery_publication', 'publish_recovery_image',
+                     'prepare_boot_privacy', 'apply_boot_privacy'):
             with self.assertRaises((ValueError, PermissionError)):
                 client.call(name, {'workspace': 'gui'})
 
@@ -218,6 +219,50 @@ class RecoveryPanelTests(unittest.TestCase):
             self.panel.publish_dialog()
             submit.assert_not_called()
         self.assertIn('not submitted', self.panel.status.get())
+
+    def test_privacy_preparation_and_apply_are_owner_jobs_without_reboot_grant(self):
+        import test_boot_privacy_setup
+        fixture = test_boot_privacy_setup.PrivacySetupTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        accepted = fixture.prepare()
+        with patch('forge_boot_privacy_setup.prepare', return_value=accepted) as prepare:
+            self.panel.prepare_privacy('fixture', fixture.output)
+            self.assertFalse(self.panel.close())
+            self.owner.jobs[self.panel.job][2].result(timeout=5)
+            self.panel.poll()
+            prepare.assert_called_once_with(fixture.output, 'fixture')
+        with patch('forge_boot_privacy_setup.apply', return_value=dict(status='applied-awaiting-private-mount')) as apply:
+            self.panel.apply_privacy(fixture.frozen)
+            self.assertFalse(self.panel.close())
+            self.owner.jobs[self.panel.job][2].result(timeout=5)
+            self.panel.poll()
+            apply.assert_called_once_with(fixture.frozen)
+        self.assertEqual(self.owner.grants, frozenset())
+        self.assertIn('not proof of effective private permissions', self.panel.status.get())
+
+    def test_declined_privacy_preparation_does_not_submit(self):
+        with patch('forge_recovery_gui.simpledialog.askstring', return_value='fixture'), \
+                patch('forge_recovery_gui.filedialog.askdirectory', return_value=str(self.path)), \
+                patch('forge_recovery_gui.messagebox.askyesno', return_value=False), \
+                patch.object(self.owner, 'prepare_boot_privacy') as submit:
+            self.panel.privacy_prepare_dialog()
+            submit.assert_not_called()
+
+    def test_declined_privacy_application_displays_plain_text_and_does_not_submit(self):
+        import test_boot_privacy_setup
+        fixture = test_boot_privacy_setup.PrivacySetupTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        fixture.prepare()
+        with patch('forge_recovery_gui.filedialog.askdirectory', return_value=str(fixture.output)), \
+                patch('forge_recovery_gui.messagebox.askyesno', return_value=False), \
+                patch.object(self.owner, 'apply_boot_privacy') as submit:
+            self.panel.privacy_apply_dialog()
+            submit.assert_not_called()
+        displayed = self.panel.details.get('1.0', 'end')
+        self.assertIn('fmask=0077', displayed)
+        self.assertIn('PARTUUID=21965b0c-01', displayed)
 
     def test_review_is_local_and_never_displays_credential_contents(self):
         with patch.object(RecoveryProbe, '_observe', side_effect=AssertionError('unexpected SSH')):

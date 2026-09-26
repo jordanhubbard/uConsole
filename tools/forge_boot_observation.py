@@ -55,7 +55,7 @@ def capture(host):
         raise ValueError('Invalid SSH host')
     result = subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10',
                              host, 'python3 -c ' + shlex.quote(READER)],
-                            capture_output=True, text=True, timeout=20, check=True)
+                            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=20, check=True)
     return json.loads(result.stdout)
 
 

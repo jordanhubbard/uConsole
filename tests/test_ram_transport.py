@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 import subprocess
 import tempfile
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -38,6 +39,22 @@ class RamTransportTests(unittest.TestCase):
         self.assertEqual(argv[1:3], ['-F', '/dev/null'])
         self.assertEqual(argv[-2], 'root@clockworkpi.local')
         self.assertFalse(result['verification']['mutation_authorized'])
+        self.assertEqual(run.call_args.kwargs['stdin'], subprocess.DEVNULL)
+
+    def test_real_probe_child_cannot_consume_owner_protocol_stdin(self):
+        child = 'import json,sys; print(json.dumps(dict(consumed=sys.stdin.read())))'
+        source = '''import json,sys
+sys.path.insert(0,sys.argv[2])
+from unittest.mock import patch
+from forge_ram_transport import RecoveryProbe
+probe=object.__new__(RecoveryProbe)
+with patch.object(RecoveryProbe, '_argv', return_value=[sys.executable,'-c',sys.argv[1]]):
+    observed=probe._observe('fixture')
+print(json.dumps(dict(observed=observed,remaining=sys.stdin.read())))
+'''
+        result = subprocess.run([sys.executable, '-c', source, child, str(Path(__file__).resolve().parents[1]/'tools')], input='OWNER_PROTOCOL_CANARY\n',
+                                text=True, capture_output=True, timeout=10, check=True)
+        self.assertEqual(json.loads(result.stdout), dict(observed=dict(consumed=''), remaining='OWNER_PROTOCOL_CANARY\n'))
 
     def test_changed_key_or_trust_file_never_contacts_target(self):
         for path in (self.key, self.known):

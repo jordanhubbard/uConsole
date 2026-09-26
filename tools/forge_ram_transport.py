@@ -69,7 +69,8 @@ class RecoveryProbe:
                 '-o', 'ControlMaster=no', '-o', 'ControlPath=none', '-o', 'ClearAllForwardings=yes',
                 '-o', 'RequestTTY=no', 'root@' + self.host, fixed_command]
     def _observe(self, fixed_command):
-        result = subprocess.run(self._argv(fixed_command), capture_output=True, text=True, timeout=20)
+        result = subprocess.run(self._argv(fixed_command), stdin=subprocess.DEVNULL,
+                                capture_output=True, text=True, timeout=20)
         if result.returncode:
             raise RuntimeError('Pinned recovery SSH probe failed; no retry was performed')
         if len(result.stdout) > 2*1024*1024:
