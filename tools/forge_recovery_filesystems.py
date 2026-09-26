@@ -9,11 +9,35 @@ import shutil
 import stat
 import struct
 import subprocess
+import sys
 import time
 
 from forge_recovery_archive import RESERVE_BYTES, fingerprint
 from forge_recovery_layout import root_extent
 from forge_target_journal import private_directory, read_record, write_record
+
+
+def descriptor_directory():
+    """Use inherited descriptors, never substitute a reopenable image pathname."""
+    directory = '/proc/self/fd' if sys.platform.startswith('linux') else '/dev/fd' if sys.platform == 'darwin' else None
+    if directory is None or not Path(directory).is_dir():
+        raise RuntimeError('Offline filesystem checks require Linux or macOS descriptor paths')
+    return directory
+
+
+def filesystem_tool(name):
+    """Resolve fixed checker/fixture tools, including keg-only Homebrew ext4 tools."""
+    if name not in ('e2fsck', 'fsck.fat', 'mkfs.ext4', 'mke2fs', 'mkfs.fat'):
+        raise ValueError('Unsupported filesystem tool')
+    found = shutil.which(name)
+    if found or sys.platform != 'darwin':
+        return found
+    for prefix in ('/opt/homebrew', '/usr/local'):
+        for folder in ('opt/e2fsprogs/sbin', 'sbin'):
+            candidate = Path(prefix)/folder/name
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                return str(candidate)
+    return None
 
 
 def partition_ranges(header, size, plan):
@@ -46,7 +70,7 @@ def run_check(argv, fd, *, timeout=600, maximum=2*1024*1024, heartbeat=None):
         heartbeat()
     output = bytearray()
     deadline = time.monotonic() + timeout
-    process = subprocess.Popen(argv + ['/proc/self/fd/' + str(fd)], pass_fds=(fd,),
+    process = subprocess.Popen(argv + [descriptor_directory() + '/' + str(fd)], pass_fds=(fd,),
                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT, env=dict(os.environ, LC_ALL='C'))
     try:
@@ -94,9 +118,10 @@ def inspect_filesystems(materialized_directory, backup_directory, destination, *
     """
     if heartbeat is not None and not callable(heartbeat):
         raise ValueError('Expected heartbeat callable')
-    commands = {name: shutil.which(tool) for name, tool in (('boot', 'fsck.fat'), ('root', 'e2fsck'))}
-    if not Path('/proc/self/fd').is_dir() or not all(commands.values()):
-        raise RuntimeError('Offline filesystem checks require Linux, fsck.fat and e2fsck')
+    descriptor_directory()
+    commands = {name: filesystem_tool(tool) for name, tool in (('boot', 'fsck.fat'), ('root', 'e2fsck'))}
+    if not all(commands.values()):
+        raise RuntimeError('Offline filesystem checks require fsck.fat and e2fsck; run make deps')
     with contextlib.ExitStack() as stack:
         image_dir = private_directory(materialized_directory)
         stack.callback(os.close, image_dir)

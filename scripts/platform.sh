@@ -32,7 +32,7 @@ install_deps() {
         sudo apt-get install -y \
             build-essential ca-certificates curl dfu-util libcap-ng-dev libglib2.0-dev \
             libgtk-3-dev libpixman-1-dev libslirp-dev ninja-build patch pkg-config \
-            python3 python3-tk qemu-system-arm qemu-utils shellcheck tar unzip xvfb xz-utils
+            python3 python3-tk qemu-system-arm qemu-utils shellcheck tar unzip xvfb xz-utils dosfstools e2fsprogs
         if ! command -v arduino-cli >/dev/null 2>&1; then
             temp=$(mktemp -d)
             trap 'rm -rf -- "$temp"' EXIT
@@ -42,7 +42,7 @@ install_deps() {
         fi
     else
         command -v brew >/dev/null 2>&1 || fail 'Homebrew is required; install it from https://brew.sh/'
-        brew install arduino-cli dfu-util ninja pkg-config python-tk qemu shellcheck
+        brew install arduino-cli dfu-util ninja pkg-config python-tk qemu shellcheck dosfstools e2fsprogs
     fi
 
     # The legacy STM32 core is needed for firmware builds. Some ARM hosts need

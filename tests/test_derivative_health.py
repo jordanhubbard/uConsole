@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 from forge_recovery_derivative_health import check_health, inspect_root, read_health
 from forge_recovery_derivative import load, prepare
 from forge_recovery_restore_source import digest
+from forge_recovery_filesystems import filesystem_tool
 import test_recovery_derivative
 
 
@@ -164,15 +165,15 @@ class DerivativeHealthTests(unittest.TestCase):
                 read_health(self.destination, digest(value), manifest, self.pin)
             path.write_text(json.dumps(original))
 
-    @unittest.skipUnless(sys.platform.startswith('linux') and shutil.which('mkfs.ext4') and
-                         shutil.which('e2fsck'), 'Linux ext4 utilities required')
+    @unittest.skipUnless((sys.platform.startswith('linux') or sys.platform == 'darwin') and
+                         filesystem_tool('mkfs.ext4') and filesystem_tool('e2fsck'), 'Ext4 utilities required')
     def test_real_readonly_ext4_check_of_qualified_derivative(self):
         self.which.stop()
         self.proc.stop()
         root = self.fixture.fixture.root/'ext4.img'
         with root.open('xb') as output:
             output.truncate(self.fixture.original['root']['bytes'])
-        subprocess.run(['mkfs.ext4', '-q', '-F', str(root)], check=True, capture_output=True)
+        subprocess.run([filesystem_tool('mkfs.ext4'), '-q', '-F', str(root)], check=True, capture_output=True)
         self.fixture.change(512, root.read_bytes())
         self.fixture.output = self.fixture.fixture.root/'ext4-derivative'
         result = prepare(self.fixture.fixture.source, self.fixture.original,

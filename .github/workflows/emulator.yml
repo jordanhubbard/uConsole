@@ -30,7 +30,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install native test dependencies
-        run: brew install shellcheck python-tk@3.12 qemu
+        run: brew install shellcheck python-tk@3.12 qemu dosfstools e2fsprogs
       - name: Run complete tests and shell checks
         run: make check PYTHON="$(brew --prefix)/bin/python3.12"
 

@@ -11,21 +11,43 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from forge_recovery_filesystems import inspect_filesystems, partition_ranges, run_check
+from forge_recovery_filesystems import descriptor_directory, filesystem_tool, inspect_filesystems, partition_ranges, run_check
 from forge_recovery_layout import root_extent
 
 
-LINUX_CHECKERS = sys.platform.startswith('linux') and shutil.which('fsck.fat') and shutil.which('e2fsck')
+DESCRIPTOR_HOST = sys.platform.startswith('linux') or sys.platform == 'darwin'
+HOST_CHECKERS = DESCRIPTOR_HOST and filesystem_tool('fsck.fat') and filesystem_tool('e2fsck')
 
 
 class RecoveryFilesystemTests(unittest.TestCase):
+    def test_descriptor_host_selection_and_unsupported_host_refusal(self):
+        with patch('forge_recovery_filesystems.Path.is_dir', return_value=True):
+            for platform, expected in (('linux', '/proc/self/fd'), ('darwin', '/dev/fd')):
+                with patch('forge_recovery_filesystems.sys.platform', platform):
+                    self.assertEqual(descriptor_directory(), expected)
+            with patch('forge_recovery_filesystems.sys.platform', 'win32'):
+                with self.assertRaises(RuntimeError): descriptor_directory()
+        with patch('forge_recovery_filesystems.Path.is_dir', return_value=False):
+            with self.assertRaises(RuntimeError): descriptor_directory()
+
+    def test_homebrew_lookup_is_fixed_and_path_has_priority(self):
+        with patch('forge_recovery_filesystems.sys.platform', 'darwin'), \
+                patch('forge_recovery_filesystems.shutil.which', return_value='/owner/e2fsck'):
+            self.assertEqual(filesystem_tool('e2fsck'), '/owner/e2fsck')
+        with patch('forge_recovery_filesystems.sys.platform', 'darwin'), \
+                patch('forge_recovery_filesystems.shutil.which', return_value=None), \
+                patch('forge_recovery_filesystems.Path.is_file', return_value=True), \
+                patch('forge_recovery_filesystems.os.access', return_value=True):
+            self.assertEqual(filesystem_tool('e2fsck'), '/opt/homebrew/opt/e2fsprogs/sbin/e2fsck')
+            with self.assertRaises(ValueError): filesystem_tool('../../unapproved')
+
     def test_invalid_heartbeat_rejected_before_access(self):
         with self.assertRaisesRegex(ValueError, 'heartbeat'):
             inspect_filesystems('/missing-image', '/missing-backup', '/missing-output', heartbeat=True)
         with self.assertRaisesRegex(ValueError, 'heartbeat'):
             run_check([], -1, heartbeat=True)
 
-    @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux descriptor path required')
+    @unittest.skipUnless(DESCRIPTOR_HOST, 'Linux or macOS descriptor path required')
     def test_heartbeat_failure_reaps_quiet_checker_even_after_stdout_eof(self):
         original = subprocess.Popen
         for closed in (False, True):
@@ -50,7 +72,7 @@ class RecoveryFilesystemTests(unittest.TestCase):
                 self.assertIsNotNone(children[0].poll())
                 self.assertTrue(children[0].stdout.closed)
 
-    @unittest.skipUnless(LINUX_CHECKERS, 'Linux filesystem checkers required')
+    @unittest.skipUnless(HOST_CHECKERS, 'Filesystem checkers required')
     def test_copy_and_checker_share_heartbeat_and_failure_retains_evidence(self):
         with tempfile.TemporaryDirectory() as directory:
             image, backup, _, _, _ = self.fixture(directory)
@@ -70,7 +92,7 @@ class RecoveryFilesystemTests(unittest.TestCase):
             self.assertEqual(result['status'], 'incomplete')
             self.assertFalse(result['restore_authorized'])
 
-    @unittest.skipUnless(LINUX_CHECKERS, 'Linux filesystem checkers required')
+    @unittest.skipUnless(HOST_CHECKERS, 'Filesystem checkers required')
     def test_copy_heartbeat_failure_prevents_checkers(self):
         with tempfile.TemporaryDirectory() as directory:
             image, backup, _, _, _ = self.fixture(directory)
@@ -83,7 +105,7 @@ class RecoveryFilesystemTests(unittest.TestCase):
                 check.assert_not_called()
             self.assertEqual(json.loads((destination/'acceptance.json').read_text())['status'], 'incomplete')
 
-    @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux descriptor path required')
+    @unittest.skipUnless(DESCRIPTOR_HOST, 'Linux or macOS descriptor path required')
     def test_heartbeat_time_does_not_extend_checker_deadline(self):
         clock, calls = [0.0], []
         def heartbeat():
@@ -118,7 +140,8 @@ class RecoveryFilesystemTests(unittest.TestCase):
             stream.write(header)
             stream.truncate(size)
             if real:
-                for part, command in zip(parts, (['mkfs.fat', '-F', '32'], ['mke2fs', '-q', '-t', 'ext4', '-F'])):
+                for part, command in zip(parts, ([filesystem_tool('mkfs.fat'), '-F', '32'],
+                                                 [filesystem_tool('mke2fs'), '-q', '-t', 'ext4', '-F'])):
                     temp = directory / ('partition-'+str(part['number']))
                     with temp.open('xb') as output:
                         output.truncate(part['sectors']*512)
@@ -158,7 +181,7 @@ class RecoveryFilesystemTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'differs'):
                 partition_ranges(header, size, plan)
 
-    @unittest.skipUnless(LINUX_CHECKERS, 'Linux filesystem checkers required')
+    @unittest.skipUnless(HOST_CHECKERS, 'Filesystem checkers required')
     def test_nonzero_check_is_not_qualification_or_restore_permission(self):
         with tempfile.TemporaryDirectory() as directory:
             image, backup, _, _, _ = self.fixture(directory)
@@ -179,7 +202,7 @@ class RecoveryFilesystemTests(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 inspect_filesystems(image, backup, destination)
 
-    @unittest.skipUnless(LINUX_CHECKERS, 'Linux filesystem checkers required')
+    @unittest.skipUnless(HOST_CHECKERS, 'Filesystem checkers required')
     def test_source_hash_failure_prevents_any_checker(self):
         with tempfile.TemporaryDirectory() as directory:
             image, backup, _, _, _ = self.fixture(directory)
@@ -193,7 +216,7 @@ class RecoveryFilesystemTests(unittest.TestCase):
                 check.assert_not_called()
             self.assertEqual(json.loads((destination/'acceptance.json').read_text())['status'], 'incomplete')
 
-    @unittest.skipUnless(LINUX_CHECKERS, 'Linux filesystem checkers required')
+    @unittest.skipUnless(HOST_CHECKERS, 'Filesystem checkers required')
     def test_actual_invalid_filesystems_are_not_qualified(self):
         with tempfile.TemporaryDirectory() as directory:
             image, backup, _, _, _ = self.fixture(directory)
@@ -204,7 +227,7 @@ class RecoveryFilesystemTests(unittest.TestCase):
             self.assertTrue((destination/'root-check.json').is_file())
             self.assertTrue((destination/'boot-check.json').is_file())
 
-    @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux descriptor path required')
+    @unittest.skipUnless(DESCRIPTOR_HOST, 'Linux or macOS descriptor path required')
     def test_checker_diagnostics_and_deadline_are_bounded(self):
         with tempfile.TemporaryFile() as source:
             fd = source.fileno()
@@ -216,8 +239,8 @@ class RecoveryFilesystemTests(unittest.TestCase):
             with self.assertRaises(TimeoutError):
                 run_check([sys.executable, '-c', 'import time; time.sleep(10)'], fd, timeout=0.1)
 
-    @unittest.skipUnless(LINUX_CHECKERS and shutil.which('mkfs.fat') and shutil.which('mke2fs'),
-                         'Linux filesystem creation and checking tools required')
+    @unittest.skipUnless(HOST_CHECKERS and filesystem_tool('mkfs.fat') and filesystem_tool('mke2fs'),
+                         'Filesystem creation and checking tools required')
     def test_actual_clean_fat32_and_ext4_check_without_mount_or_root(self):
         with tempfile.TemporaryDirectory() as directory:
             image, backup, _, _, _ = self.fixture(directory, real=True)

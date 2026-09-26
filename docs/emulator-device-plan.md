@@ -31,6 +31,33 @@ Boot-affecting changes require a recovery path that still works if SSH cannot
 return; file/service rollback alone does not satisfy that requirement. Never
 overwrite the target's mounted system card to simulate live image deployment.
 
+Prepared recovery controls (2026-09-26): Workbench and MCP now share the
+`target-recovery` permission and owner-pinned job policies, with a local review,
+approval and execution panel. This is separate from ordinary `target-write`;
+read-only clients never inherit either grant. Foreground jobs retain the durable
+lease owner, serialize by workspace and physical machine, and cannot be
+cancelled while running. A status-query failure retains the accepted job rather
+than resubmitting it. Linux's full suite passes 1,463 tests plus shell checks;
+native macOS passes all nine panel tests and all 44 Workbench GUI tests. Logs:
+`build/emulator/full-tests-recovery-panel-20260926.log`,
+`macos-recovery-panel-tests-20260926.log`, and
+`macos-workbench-recovery-panel-tests-20260926.log`.
+
+Offline health portability (2026-09-26): private backup/derivative copies can be
+checked through inherited descriptors on Linux and macOS, without mounts or
+repairs. Native FAT32/ext4 fixtures and all 26 focused tests pass on both hosts;
+retained logs are `filesystem-portability-tests-20260926.log`,
+`macos-filesystem-portability-tests-20260926.log`, and
+`macos-filesystem-fd-probe-20260926.log` under `build/emulator/`. This closes the
+Linux-only descriptor-path gap, not physical image deployment qualification.
+The complete suites pass 1,465 tests plus shell checks on Linux and macOS
+(79 explicit platform/tool skips on macOS), retained in
+`full-tests-filesystem-portability-20260926.log` and
+`macos-full-filesystem-portability-20260926.log` under `build/emulator/`.
+Firmware staging, recovery-plan preparation and safe boot release still need
+integration into the guided host/target flow. The physical enhanced-image
+deploy/verify/rollback loop and final release-wide evidence remain required.
+
 Build-upgrade qualification (2026-09-25): the QEMU builder now isolates source
 and build trees by frozen patch contents and recipe, retaining the previous
 public build until both new binaries pass version checks. Legacy build

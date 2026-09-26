@@ -103,6 +103,15 @@ release. A pending lease renewal blocks other actions: only an explicitly approv
 deadline. Host journals and the original backup remain authoritative evidence;
 historical job success does not establish current boot identity or lease validity.
 
+Offline backup and derivative filesystem checks support Linux and macOS. Run
+`make deps` to install `dosfstools` and `e2fsprogs`. On macOS the checker resolver
+also recognizes Homebrew's keg-only ext4 tools, without changing your shell's
+PATH or replacing native system utilities. Checks run on private verified host
+copies through inherited read-only descriptors (`/proc/self/fd` on Linux,
+`/dev/fd` on macOS), with `-n`, bounded diagnostics and a deadline. No mounts,
+repairs or target writes occur. A clean filesystem result is not physical boot
+qualification or permission to deploy; a failed check remains retained evidence.
+
 Disconnect waits for accepted jobs, attempts clean maintenance shutdown, then
 may force-stop owned VMs under the explicit `force-stop` grant. Normal/desktop
 guests should be shut down inside the guest first. A forced stop can leave an

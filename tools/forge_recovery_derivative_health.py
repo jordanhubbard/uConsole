@@ -8,7 +8,7 @@ from forge_recovery_archive import RESERVE_BYTES, fingerprint
 from forge_recovery_derivative import load, stream, validate
 from forge_recovery_commit_protocol import exact
 from forge_recovery_restore_source import digest, sha
-from forge_recovery_filesystems import run_check
+from forge_recovery_filesystems import descriptor_directory, filesystem_tool, run_check
 from forge_target_journal import private_directory, read_record, write_record
 
 
@@ -78,9 +78,10 @@ def inspect_root(directory, pin, destination, *, heartbeat=None):
     """
     if heartbeat is not None and not callable(heartbeat):
         raise ValueError('Expected heartbeat callable')
-    checker = shutil.which('e2fsck')
-    if not Path('/proc/self/fd').is_dir() or not checker:
-        raise RuntimeError('Derivative root checks require Linux and e2fsck')
+    descriptor_directory()
+    checker = filesystem_tool('e2fsck')
+    if not checker:
+        raise RuntimeError('Derivative root checks require e2fsck; run make deps')
     manifest, _ = load(directory, pin)
     destination = Path(destination).absolute()
     if shutil.disk_usage(destination.parent).free < manifest['root']['bytes'] + RESERVE_BYTES:
