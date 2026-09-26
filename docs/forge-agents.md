@@ -250,6 +250,16 @@ action has no MCP deployment grant, target contact or lease renewal. A verified
 derivative is not proof of filesystem health or native boot; those and explicit
 deployment approval remain separate gates.
 
+**Check exported root filesystem…** consumes the verified `derivative/` directory
+and its owner-recorded manifest pin. It rechecks the full export and rollback
+lineage, retains a verified private root copy, and runs `e2fsck -f -n` through a
+read-only descriptor. Review the displayed storage requirement before starting.
+The displayed health pin refers to the resulting `acceptance.json`; source-stream
+and checker records stay alongside it for later deployment review. A nonzero
+checker result is explicitly **NOT qualified**, even though the check job
+completed. The boot filesystem is not checked, and nothing is mounted, repaired,
+deployed or rebooted. No lease is renewed or deployment authority granted.
+
 The same owner preparation is available from a checkout:
 
 ```sh

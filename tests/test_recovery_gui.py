@@ -136,6 +136,29 @@ class RecoveryPanelTests(unittest.TestCase):
             self.panel.derivative_dialog()
             submit.assert_not_called()
 
+    def test_export_health_uses_distinct_root_health_flag(self):
+        for qualified in (False, True):
+            with self.subTest(qualified=qualified), patch('forge_recovery_derivative.load'), \
+                    patch('forge_recovery_derivative_health.inspect_root', return_value=dict(
+                        status='checked-derivative-root', root_filesystem_consistency_qualified=qualified)) as worker:
+                self.panel.check_export_health(self.path/'derivative', 'a'*64, self.path/'health')
+                self.owner.jobs[self.panel.job][2].result(timeout=5)
+                self.panel.poll()
+                worker.assert_called_once()
+                self.assertIn('check passed' if qualified else 'NOT qualified', self.panel.status.get())
+                self.assertIn('No boot-filesystem check', self.panel.status.get())
+        self.assertEqual(self.owner.grants, frozenset())
+
+    def test_declined_export_health_does_not_submit(self):
+        manifest = dict(root=dict(bytes=4096, sha256='b'*64))
+        with patch('forge_recovery_gui.filedialog.askdirectory', return_value=str(self.path)), \
+                patch('forge_recovery_gui.simpledialog.askstring', return_value='c'*64), \
+                patch('forge_recovery_derivative.load', return_value=(manifest, {})), \
+                patch('forge_recovery_gui.messagebox.askyesno', return_value=False), \
+                patch.object(self.owner, 'check_export_root') as submit:
+            self.panel.export_health_dialog()
+            submit.assert_not_called()
+
     def discover_builder(self):
         self.discovery = dict(host='fixture', kernel='6.12.62-v8+', boot=dict(
             machine_id='c'*32, boot_id='11111111-2222-3333-4444-555555555555',

@@ -350,6 +350,22 @@ class Controller:
                            context={'original_manifest_sha256': frozen['source_sha256'],
                                     'target_contacted': False})
 
+    def check_export_root(self, name, directory, pin, output):
+        """Owner-only read-only derivative check with separately pinned evidence."""
+        from uconsole_emulator import require_private_image_host
+        require_private_image_host()
+        from forge_recovery_derivative import load
+        from forge_recovery_derivative_health import inspect_root
+        from forge_recovery_restore_source import digest
+        directory, output = Path(directory).absolute(), Path(output).absolute()
+        load(directory, pin)
+        def check():
+            result = inspect_root(directory, pin, output)
+            return dict(result, health_sha256=digest(result), target_contacted=False, lease_acquired=False)
+        return self.submit(name, 'recovery_check_export_root', check,
+                           context={'derivative_manifest_sha256': pin, 'target_contacted': False,
+                                    'repair_authorized': False})
+
     def submit_recovery(self, name, job):
         self.require('target-recovery')
         registry = self.recovery_jobs

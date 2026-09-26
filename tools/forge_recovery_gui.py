@@ -101,8 +101,12 @@ class RecoveryPanel:
         self.health_button = ttk.Button(offline, text='Check retained backup filesystems…',
                                        command=lambda: self.source_dialog(health=True))
         self.health_button.pack(side='left', padx=4)
-        self.derivative_button = ttk.Button(offline, text='Verify exported image lineage…', command=self.derivative_dialog)
-        self.derivative_button.pack(side='left', padx=4)
+        exports = ttk.Frame(self.window)
+        exports.pack(padx=12, pady=4)
+        self.derivative_button = ttk.Button(exports, text='Verify exported image lineage…', command=self.derivative_dialog)
+        self.derivative_button.pack(side='left')
+        self.export_health_button = ttk.Button(exports, text='Check exported root filesystem…', command=self.export_health_dialog)
+        self.export_health_button.pack(side='left', padx=4)
         self.choice = ttk.Combobox(self.window, textvariable=self.selected, state='readonly', width=50)
         self.choice.pack(padx=12, pady=4)
         self.choice.bind('<<ComboboxSelected>>', lambda event: self.review())
@@ -150,6 +154,7 @@ class RecoveryPanel:
         self.source_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.health_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.derivative_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
+        self.export_health_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         if not self.pending:
             self.review()
 
@@ -661,6 +666,44 @@ class RecoveryPanel:
         self.status.set('Verifying export lineage against retained rollback bytes. No target contact or lease renewal.')
         self.timer = self.window.after(100, self.poll)
 
+    def export_health_dialog(self):
+        if self.job or self.pending:
+            return
+        try:
+            from forge_recovery_derivative import load
+            from forge_recovery_archive import RESERVE_BYTES
+            directory = filedialog.askdirectory(parent=self.window, title='Verified derivative directory (contains manifest.json)')
+            if not directory: return
+            pin = simpledialog.askstring('Derivative pin', 'Owner-recorded canonical SHA-256 of manifest.json:',
+                                         parent=self.window)
+            if not pin: return
+            pin = pin.strip()
+            manifest, _ = load(directory, pin)
+            parent = filedialog.askdirectory(parent=self.window, title='Storage parent for retained root copy and checker evidence')
+            if not parent: return
+            if not messagebox.askyesno('Check exported root without repair',
+                    f"Derivative: {pin}\nRoot SHA-256: {manifest['root']['sha256']}\n"
+                    f"Required free bytes: {manifest['root']['bytes'] + RESERVE_BYTES:,}\n\n"
+                    'Reverify the export and rollback lineage, retain a private root copy, and run e2fsck '
+                    'read-only. No mount, repair, boot-filesystem check, target contact or lease renewal. '
+                    'Nonzero checker results remain unqualified. This grants no deployment authority.',
+                    parent=self.window):
+                return
+            import uuid
+            self.check_export_health(directory, pin, Path(parent)/('export-health-'+uuid.uuid4().hex))
+        except Exception as exc:
+            self.status.set('Export filesystem check not submitted: ' + str(exc))
+
+    def check_export_health(self, directory, pin, output):
+        if self.job or self.pending:
+            raise ValueError('Finish the current job or review before checking export health')
+        submitted = self.controller.check_export_root(self.workspace, directory, pin, output)
+        self.job, self.job_kind = submitted['job_id'], 'check-export-health'
+        self.preparation_output = Path(output)
+        self.refresh()
+        self.status.set('Reverifying export and checking its private root copy without repair or target contact.')
+        self.timer = self.window.after(100, self.poll)
+
     def load_policy(self, filename):
         if self.job:
             raise ValueError('Wait for the recovery job before reviewing another policy')
@@ -731,6 +774,13 @@ class RecoveryPanel:
         self.job = None
         self.refresh()
         self.show(result)
+        if self.job_kind == 'check-export-health':
+            checked = result.get('result') or {}
+            outcome = ('Root filesystem check passed.' if checked.get('root_filesystem_consistency_qualified') is True else
+                       'Root filesystem health is NOT qualified; inspect retained checker evidence.')
+            self.status.set(result['status'] + f': export-root evidence at {self.preparation_output}. '
+                            + outcome + ' No boot-filesystem check, repair, lease renewal or deployment approval occurred.')
+            return
         if self.job_kind == 'prepare-derivative':
             self.status.set(result['status'] + f': export-lineage evidence at {self.preparation_output}. '
                             'Only root-partition changes qualify. Filesystem health and physical boot remain unqualified; '
