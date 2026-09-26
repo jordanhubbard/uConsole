@@ -46,6 +46,7 @@ class Workbench:
         self.lifecycle_label = ''
         self.controller = None
         self.target_panel = None
+        self.recovery_panel = None
         self.audio_panel = None
         self.modem_panel = None
         self.target_policy, self.target_policy_sha256 = target_policy, target_policy_sha256
@@ -117,6 +118,7 @@ class Workbench:
         ttk.Button(jobsbar, text='Audio controls', command=lambda: self.guard(self.audio_controls)).pack(side='left', padx=2)
         profilebar = ttk.Frame(self.root)
         profilebar.pack(fill='x', padx=8, pady=2)
+        ttk.Button(profilebar, text='Recovery jobs', command=lambda: self.guard(self.recovery_controls)).pack(side='left', padx=4)
         ttk.Label(profilebar, text='ADC reference at next boot:').pack(side='left')
         ttk.Combobox(profilebar, textvariable=self.adc_reference, values=('fixed', 'missing'),
                      state='readonly', width=10).pack(side='left', padx=4)
@@ -715,6 +717,14 @@ class Workbench:
         self.status.set(f'{label} submitted • job {self.lifecycle}')
         self.append(f'{label} job {self.lifecycle}; durable history: {self.lifecycle_path}\n')
 
+    def recovery_controls(self):
+        if self.recovery_panel is not None and self.recovery_panel.window.winfo_exists():
+            self.recovery_panel.window.lift()
+            return self.recovery_panel
+        from forge_recovery_gui import RecoveryPanel
+        self.recovery_panel = RecoveryPanel(self.root, self.job_controller(), 'gui')
+        return self.recovery_panel
+
     def physical_target(self):
         if self.target_panel is not None and self.target_panel.window.winfo_exists():
             self.target_panel.window.lift()
@@ -1046,6 +1056,10 @@ class Workbench:
             self.runtime = None
 
     def close(self):
+        if self.recovery_panel is not None and self.recovery_panel.job is not None:
+            messagebox.showinfo('Recovery job in progress',
+                                'Keep Workbench open until the recovery job reaches a known terminal state.', parent=self.root)
+            return
         if self.modem_panel is not None and self.modem_panel.job is not None:
             self.status.set('Wait for the modem operation to finish before closing.')
             return

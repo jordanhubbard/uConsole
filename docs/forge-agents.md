@@ -57,6 +57,15 @@ Workbench attachment requires `--agent-allow target-recovery`. Attachment mode
 (`--connect`) cannot supply policies or increase grants. Policies are never
 auto-discovered from a guest or workspace.
 
+In Workbench, **Recovery jobs** opens the same prepared-job interface. Use
+**Review policy…** to display its complete local target identities, paths,
+operation effects and pins without contacting hardware. **Approve reviewed
+policy…** enables the exact reviewed bytes; it does not start a job or increase
+existing clients' grants. Select a job, review it, then explicitly confirm
+**Run selected job…**. Keep Workbench open until the result is known. If status
+retrieval fails, use **Recheck job status**, not another submission. The result
+panel retains failures and makes no implicit rollback or boot-release claim.
+
 `recovery_jobs` lists approved IDs, operations and pins, without credential or
 backup paths. `recovery_job` accepts only `workspace` and `job`; poll the returned
 job ID. Read-only clients do not inherit the owner's recovery permission.

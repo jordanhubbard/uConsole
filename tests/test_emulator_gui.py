@@ -66,6 +66,19 @@ class WorkbenchTests(unittest.TestCase):
         panel.job = None
         panel.close()
 
+    def test_recovery_panel_is_singleton_and_blocks_workbench_close_during_job(self):
+        panel = self.app.recovery_controls()
+        self.assertIs(self.app.recovery_controls(), panel)
+        self.assertIn('disabled', panel.run_button.state())
+        panel.job = 'accepted-recovery-job'
+        with patch('uconsole_workbench.messagebox.showinfo') as notice:
+            self.app.close()
+        notice.assert_called_once()
+        self.assertTrue(self.root.winfo_exists())
+        self.assertFalse(panel.close())
+        panel.job = None
+        self.assertTrue(panel.close())
+
     def test_attached_guest_job_releases_serial_and_guards_gui(self):
         from forge_client import ClientSession
         entered, finish = threading.Event(), threading.Event()
