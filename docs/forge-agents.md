@@ -88,6 +88,16 @@ GUI have fixture coverage; physical native-build qualification of this workflow
 is still pending. Publication/bootstrap and guided deploy/restore remain separate
 unfinished steps.
 
+**Prepare publication…** accepts a completed private build journal and the
+SHA-256 of its `acceptance.json`. After owner review it verifies the retained
+image and build provenance, reads the target's normal boot and fstab, then
+inspects the persistent private mount policy and proposed destination. It writes
+an exact publication draft under `publication/` and an owner review with its plan
+pin. This step refuses a public boot mount, existing destination, changed build
+or reboot. It never publishes, changes mount permissions, alters fstab or approves
+an operation. Private mount provisioning and publication execution are still
+separate owner steps; this is not a completed bootstrap wizard.
+
 **Prepare boot staging…** is an owner-only normal-SSH preparation step, not an
 agent permission or a staging action. Select an acknowledged private recovery
 image publication journal, its plan pin, a reviewed matched-firmware bundle and

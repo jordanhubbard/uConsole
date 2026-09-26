@@ -78,6 +78,8 @@ class RecoveryPanel:
         self.discover_build_button.pack(side='left')
         self.build_button = ttk.Button(builder, text='Build private recovery image…', command=self.build_dialog)
         self.build_button.pack(side='left', padx=4)
+        self.publication_button = ttk.Button(builder, text='Prepare publication…', command=self.publication_dialog)
+        self.publication_button.pack(side='left', padx=4)
         self.choice = ttk.Combobox(self.window, textvariable=self.selected, state='readonly', width=50)
         self.choice.pack(padx=12, pady=4)
         self.choice.bind('<<ComboboxSelected>>', lambda event: self.review())
@@ -115,6 +117,7 @@ class RecoveryPanel:
         self.recheck_button.state(['!disabled'] if self.job else ['disabled'])
         self.discover_build_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.build_button.state(['!disabled'] if self.build_candidate and not self.job and not self.pending else ['disabled'])
+        self.publication_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         if not self.pending:
             self.review()
 
@@ -152,6 +155,47 @@ class RecoveryPanel:
             self.discover_builder(host)
         except Exception as exc:
             self.status.set('Discovery not submitted: ' + str(exc))
+
+    def publication_dialog(self):
+        if self.job or self.pending:
+            return
+        directory = filedialog.askdirectory(parent=self.window, title='Completed private recovery build journal')
+        if not directory:
+            return
+        pin = simpledialog.askstring('Build approval', 'Approved build acceptance SHA-256:', parent=self.window)
+        if not pin:
+            return
+        parent = filedialog.askdirectory(parent=self.window, title='Parent directory for publication draft and observations')
+        if not parent:
+            return
+        try:
+            from forge_recovery_publication_prepare import inputs
+            frozen = inputs(directory, pin)
+            self.show(dict(host=frozen['request']['host'], machine_id=frozen['native']['boot']['machine_id'],
+                           image_sha256=frozen['native']['sha256'], image_size=frozen['native']['size'],
+                           build_acceptance_sha256=pin))
+            if not messagebox.askyesno('Prepare private image publication',
+                    'Read the displayed target boot identity, fstab, private mount policy and destination absence?\n\n'
+                    'This creates a publication draft only. The boot filesystem must already have a verified persistent '
+                    'private mount policy. It does not publish credentials, modify fstab, change mount permissions, reboot, '
+                    'or qualify fallback.', parent=self.window):
+                return
+            if inputs(directory, pin) != frozen:
+                raise ValueError('Build provenance changed during review')
+            import uuid
+            self.prepare_publication(directory, pin, Path(parent)/('recovery-publication-'+uuid.uuid4().hex))
+        except Exception as exc:
+            self.status.set('Publication preparation not submitted: ' + str(exc))
+
+    def prepare_publication(self, directory, pin, output):
+        if self.job or self.pending:
+            raise ValueError('Finish the current job or review before preparing publication')
+        submitted = self.controller.prepare_recovery_publication(self.workspace, directory, pin, output)
+        self.job, self.job_kind = submitted['job_id'], 'prepare-publication'
+        self.preparation_output = Path(output)
+        self.refresh()
+        self.status.set('Checking private publication prerequisites. No publication authorized; keep Workbench open.')
+        self.timer = self.window.after(100, self.poll)
 
     def discover_builder(self, host):
         if self.job or self.pending:
@@ -415,6 +459,10 @@ class RecoveryPanel:
         if self.job_kind == 'build-image':
             self.status.set(result['status'] + f': private build evidence at {self.preparation_output}. '
                             'Not published or boot-qualified. Retain failed host/target journals; do not automatically retry.')
+            return
+        if self.job_kind == 'prepare-publication':
+            self.status.set(result['status'] + f': publication draft/evidence at {self.preparation_output}. '
+                            'Not published or approved. Private mount provisioning and publication execution are separate owner steps.')
             return
         if self.job_kind == 'enroll-session':
             if result['status'] == 'completed' and result['result'].get('status') == 'enrolled-not-leased':

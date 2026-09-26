@@ -145,9 +145,38 @@ class RecoveryPanelTests(unittest.TestCase):
             with self.assertRaises(ValueError): self.panel.discover_builder('fixture')
             submit.assert_not_called()
         client = ClientSession(self.owner, ['gui'])
-        for name in ('discover_recovery_builder', 'build_recovery_image'):
+        for name in ('discover_recovery_builder', 'build_recovery_image', 'prepare_recovery_publication'):
             with self.assertRaises((ValueError, PermissionError)):
                 client.call(name, {'workspace': 'gui'})
+
+    def test_publication_preparation_is_separate_owner_draft_job(self):
+        import test_recovery_publication_prepare
+        fixture = test_recovery_publication_prepare.PublicationPreparationTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        with patch('forge_recovery_publication_prepare.prepare', return_value=dict(status='prepared-not-published')) as prepare:
+            self.panel.prepare_publication(fixture.build, fixture.pin, fixture.output)
+            job = self.panel.job
+            self.assertFalse(self.panel.close())
+            self.owner.jobs[job][2].result(timeout=5)
+            self.panel.poll()
+            prepare.assert_called_once_with(fixture.output, fixture.frozen)
+        self.assertEqual(self.owner.grants, frozenset())
+        self.assertIsNone(self.panel.pending)
+        self.assertIn('Not published or approved', self.panel.status.get())
+
+    def test_declined_publication_preparation_does_not_submit(self):
+        import test_recovery_publication_prepare
+        fixture = test_recovery_publication_prepare.PublicationPreparationTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        with patch('forge_recovery_gui.filedialog.askdirectory', side_effect=[str(fixture.build), str(fixture.output.parent)]), \
+                patch('forge_recovery_gui.simpledialog.askstring', return_value=fixture.pin), \
+                patch('forge_recovery_gui.messagebox.askyesno', return_value=False), \
+                patch.object(self.owner, 'prepare_recovery_publication') as submit:
+            self.panel.publication_dialog()
+            submit.assert_not_called()
+        self.assertEqual(self.owner.jobs, {})
 
     def test_review_is_local_and_never_displays_credential_contents(self):
         with patch.object(RecoveryProbe, '_observe', side_effect=AssertionError('unexpected SSH')):

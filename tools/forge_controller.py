@@ -224,6 +224,16 @@ class Controller:
                                'boot_id': frozen['boot']['boot_id'], 'publication_authorized': False,
                                'reboot_authorized': False})
 
+    def prepare_recovery_publication(self, name, build_directory, acceptance_pin, output):
+        """Owner-only draft for an already-private target; never publication."""
+        from uconsole_emulator import require_private_image_host
+        require_private_image_host()
+        from forge_recovery_publication_prepare import inputs, prepare
+        frozen = inputs(build_directory, acceptance_pin)
+        return self.submit(name, 'recovery_prepare_publication', lambda: prepare(output, frozen),
+                           target_identity=frozen['native']['boot']['machine_id'], context={
+                               'build_acceptance_sha256': acceptance_pin, 'publication_authorized': False})
+
     def approve_recovery_policy(self, path, digest):
         """Local owner action only; clients cannot approve or replace policy."""
         approved = self.load_recovery_policy(path, digest)
