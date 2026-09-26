@@ -266,6 +266,18 @@ class Controller:
                            target_identity=frozen['boot']['machine_id'], context={
                                'plan_sha256': digest(frozen['plan']), 'reboot_authorized': False})
 
+    def verify_boot_privacy(self, name, reviewed, *, reboot=False):
+        """Owner-only fresh-mount verification with a separately confirmed reboot."""
+        from uconsole_emulator import require_private_image_host
+        require_private_image_host()
+        import copy
+        from forge_boot_privacy_verify import verify
+        from forge_recovery_bootplan import digest
+        frozen = copy.deepcopy(reviewed)
+        return self.submit(name, 'recovery_verify_boot_privacy', lambda: verify(frozen, reboot=reboot),
+                           target_identity=frozen['boot']['machine_id'], context={
+                               'plan_sha256': digest(frozen['plan']), 'reboot_authorized': reboot})
+
     def approve_recovery_policy(self, path, digest):
         """Local owner action only; clients cannot approve or replace policy."""
         approved = self.load_recovery_policy(path, digest)

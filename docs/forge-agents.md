@@ -89,8 +89,8 @@ writes boot files, changes selectors, reboots, approves recovery policies, grant
 agents authority, or replaces whole-card backup and fallback qualification.
 These owner controls are deliberately absent from MCP. The build backend and
 GUI have fixture coverage; physical native-build qualification of this workflow
-is still pending. Private-mount provisioning, boot orchestration and guided
-deploy/restore remain separate unfinished steps.
+is still pending. Recovery boot orchestration and guided deploy/restore remain
+separate unfinished steps.
 
 **Prepare private boot mount…** backs up the target's `/etc/fstab`, observes its
 normal boot and current public FAT mount, and drafts only the boot mount's
@@ -104,8 +104,20 @@ Neither action remounts, reboots, publishes an image or grants agent permission.
 `applied-awaiting-private-mount` does **not** mean effective privacy: a later
 fresh mount and non-root read-denial check are still required. Publication keeps
 refusing a public mount. Never restore public permissions while private images
-remain on the boot filesystem. Guided reboot/verification and cleanup are still
-separate integration work, not implied by the policy acknowledgement.
+remain on the boot filesystem. Cleanup is separate from policy acknowledgement.
+
+**Reboot for private mount…** requires the exact acknowledged fstab transaction
+and separate confirmation that target applications will be interrupted. It sends
+one normal reboot request only after rechecking the old boot and applied file,
+then waits up to ten minutes for a different normal boot with the same native
+root, unchanged fstab, private FAT masks/ownership and non-root read denial.
+Transport timeout alone is neither failure nor proof of reboot; the subsequent
+observations determine verification. The retained `reboot-attempt/` prevents a
+second request. **Verify private mount…** performs those checks without rebooting
+after a manual reboot or an uncertain request. Each read-only recheck retains a
+new observation directory; it never resets the original attempt. A result of
+`verified-private-normal-boot` qualifies the mount policy, not recovery fallback
+or image deployment. Both controls remain owner-only and absent from MCP.
 
 **Prepare publication…** accepts a completed private build journal and the
 SHA-256 of its `acceptance.json`. After owner review it verifies the retained

@@ -88,6 +88,10 @@ class RecoveryPanel:
         self.privacy_prepare_button.pack(side='left')
         self.privacy_apply_button = ttk.Button(privacy, text='Apply private mount policy…', command=self.privacy_apply_dialog)
         self.privacy_apply_button.pack(side='left', padx=4)
+        self.privacy_reboot_button = ttk.Button(privacy, text='Reboot for private mount…', command=lambda: self.privacy_verify_dialog(reboot=True))
+        self.privacy_reboot_button.pack(side='left', padx=4)
+        self.privacy_verify_button = ttk.Button(privacy, text='Verify private mount…', command=self.privacy_verify_dialog)
+        self.privacy_verify_button.pack(side='left', padx=4)
         self.choice = ttk.Combobox(self.window, textvariable=self.selected, state='readonly', width=50)
         self.choice.pack(padx=12, pady=4)
         self.choice.bind('<<ComboboxSelected>>', lambda event: self.review())
@@ -129,6 +133,8 @@ class RecoveryPanel:
         self.publish_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.privacy_prepare_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.privacy_apply_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
+        self.privacy_reboot_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
+        self.privacy_verify_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         if not self.pending:
             self.review()
 
@@ -288,6 +294,42 @@ class RecoveryPanel:
         self.preparation_output = Path(frozen['directory'])/'apply-attempt'
         self.refresh()
         self.status.set('Applying the fstab-only policy. Keep Workbench open; no reboot or publication authorized.')
+        self.timer = self.window.after(100, self.poll)
+
+    def privacy_verify_dialog(self, *, reboot=False):
+        if self.job or self.pending:
+            return
+        directory = filedialog.askdirectory(parent=self.window, title='Acknowledged private mount policy preparation')
+        if not directory:
+            return
+        try:
+            from forge_boot_privacy_verify import inputs
+            pin = policy_pin(Path(directory)/'acceptance.json')
+            frozen = inputs(directory, pin)
+            self.show(dict(host=frozen['plan']['host'], previous_boot=frozen['boot'],
+                           preparation_sha256=pin, reboot_requested=reboot))
+            effect = ('Send one guarded normal reboot and wait up to ten minutes for fresh private-mount evidence? '
+                      'This interrupts running target applications. Save work first. The reboot request is never retried.'
+                      if reboot else 'Read the existing new normal boot and effective private mount? No reboot will be sent.')
+            if not messagebox.askyesno('Verify fresh private boot mount',
+                    f'Target: {frozen["plan"]["host"]}\n\n{effect}\n\n'
+                    'Both paths require unchanged applied fstab, a different normal boot, and verified non-root read denial. '
+                    'This does not publish an image or qualify recovery fallback.', parent=self.window):
+                return
+            if inputs(directory, pin) != frozen:
+                raise ValueError('Applied privacy evidence changed during confirmation')
+            self.verify_privacy(frozen, reboot=reboot)
+        except Exception as exc:
+            self.status.set('Private mount verification not submitted: ' + str(exc))
+
+    def verify_privacy(self, frozen, *, reboot=False):
+        if self.job or self.pending:
+            raise ValueError('Finish the current job or review before private mount verification')
+        submitted = self.controller.verify_boot_privacy(self.workspace, frozen, reboot=reboot)
+        self.job, self.job_kind = submitted['job_id'], 'verify-privacy'
+        self.preparation_output = Path(frozen['directory'])
+        self.refresh()
+        self.status.set('Verifying fresh private mount. Keep Workbench open; no automatic reboot retry.')
         self.timer = self.window.after(100, self.poll)
 
     def publish_image(self, frozen):
@@ -562,6 +604,11 @@ class RecoveryPanel:
         self.job = None
         self.refresh()
         self.show(result)
+        if self.job_kind == 'verify-privacy':
+            self.status.set(result['status'] + f': private-mount evidence at {self.preparation_output}. '
+                            'Only verified-private-normal-boot qualifies effective privacy, not recovery fallback. '
+                            'After uncertain reboot, use read-only Verify private mount; never resubmit the reboot.')
+            return
         if self.job_kind in ('prepare-privacy', 'apply-privacy'):
             self.status.set(result['status'] + f': privacy evidence at {self.preparation_output}. '
                             'No remount, reboot or publication performed. Applied policy is not proof of effective private permissions; '

@@ -72,18 +72,19 @@ def prepare(output, host):
         os.close(fd)
 
 
-def inputs(directory, pin):
+def inputs(directory, pin, *, applied=False):
     directory = Path(directory).absolute()
     fd = private_directory(directory)
     try:
-        if os.path.lexists(directory/'failure.json') or os.path.lexists(directory/'apply-attempt'):
+        if os.path.lexists(directory/'failure.json') or (not applied and os.path.lexists(directory/'apply-attempt')):
             raise ValueError('Failed or attempted privacy setup requires inspection; never replay')
         accepted, review = read_record(fd, 'acceptance.json'), read_record(fd, 'owner-review.json')
         request = read_record(fd, 'request.json')
         child = private_directory(directory/'transaction')
         try:
             plan = validate_plan(read_record(child, 'plan.json'))
-            if events(child):
+            history = events(child)
+            if history and not applied:
                 raise ValueError('Existing privacy transaction history requires inspection')
         finally:
             os.close(child)
@@ -108,6 +109,28 @@ def inputs(directory, pin):
             raise ValueError('Only the compiled private boot mount policy may be applied')
         if any(old[key] != new[key] for key in ('path', 'kind', 'mode', 'uid', 'gid', 'xattrs', 'atime_ns')):
             raise ValueError('Privacy setup cannot change fstab metadata')
+        if applied:
+            attempt = private_directory(directory/'apply-attempt')
+            try:
+                if os.path.lexists(directory/'apply-attempt/failure.json'):
+                    raise ValueError('Uncertain privacy application requires reconciliation')
+                result = read_record(attempt, 'acceptance.json')
+                ack = read_record(attempt, 'acknowledgement.json')
+                actual = read_record(attempt, 'after.json')
+            finally:
+                os.close(attempt)
+            if (result.get('status') != 'applied-awaiting-private-mount' or result.get('plan_sha256') != digest(plan)
+                    or result.get('target_written') is not True or result.get('reboot_performed') is not False
+                    or len(history) != 2 or history[0].get('state') != 'dispatch'
+                    or history[1].get('state') != 'acknowledged' or history[1].get('result') != ack
+                    or any(event.get('direction') != 'apply' or event.get('nonce') != ack.get('nonce') for event in history)
+                    or ack.get('machine_id') != boot['machine_id'] or ack.get('direction') != 'apply'
+                    or [item.get('path') for item in ack.get('files', [])] != ['/etc/fstab']
+                    or any(item.get('status') not in ('applied', 'already-applied') for item in ack['files'])):
+                raise ValueError('Require acknowledged exact privacy application history')
+            verify(actual, ['/etc/fstab'])
+            if actual['machine_id'] != boot['machine_id'] or not equivalent(actual['files'][0], new):
+                raise ValueError('Recorded applied fstab differs')
         return dict(directory=str(directory), acceptance_sha256=pin, plan=plan, boot=boot)
     finally:
         os.close(fd)

@@ -146,7 +146,7 @@ class RecoveryPanelTests(unittest.TestCase):
             submit.assert_not_called()
         client = ClientSession(self.owner, ['gui'])
         for name in ('discover_recovery_builder', 'build_recovery_image', 'prepare_recovery_publication', 'publish_recovery_image',
-                     'prepare_boot_privacy', 'apply_boot_privacy'):
+                     'prepare_boot_privacy', 'apply_boot_privacy', 'verify_boot_privacy'):
             with self.assertRaises((ValueError, PermissionError)):
                 client.call(name, {'workspace': 'gui'})
 
@@ -263,6 +263,45 @@ class RecoveryPanelTests(unittest.TestCase):
         displayed = self.panel.details.get('1.0', 'end')
         self.assertIn('fmask=0077', displayed)
         self.assertIn('PARTUUID=21965b0c-01', displayed)
+
+    def privacy_verification_fixture(self):
+        import test_boot_privacy_verify
+        fixture = test_boot_privacy_verify.PrivacyVerificationTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        return fixture
+
+    def test_private_mount_verification_keeps_reboot_explicit_and_owner_only(self):
+        fixture = self.privacy_verification_fixture()
+        for reboot in (False, True):
+            with patch('forge_boot_privacy_verify.verify', return_value=dict(status='verified-private-normal-boot')) as verify:
+                self.panel.verify_privacy(fixture.frozen, reboot=reboot)
+                self.assertFalse(self.panel.close())
+                self.owner.jobs[self.panel.job][2].result(timeout=5)
+                self.panel.poll()
+                verify.assert_called_once_with(fixture.frozen, reboot=reboot)
+        self.assertEqual(self.owner.grants, frozenset())
+        self.assertIn('never resubmit the reboot', self.panel.status.get())
+
+    def test_declined_private_mount_reboot_does_not_submit(self):
+        fixture = self.privacy_verification_fixture()
+        with patch('forge_recovery_gui.filedialog.askdirectory', return_value=str(fixture.directory)), \
+                patch('forge_recovery_gui.messagebox.askyesno', return_value=False), \
+                patch.object(self.owner, 'verify_boot_privacy') as submit:
+            self.panel.privacy_verify_dialog(reboot=True)
+            submit.assert_not_called()
+
+    def test_changed_privacy_history_during_reboot_confirmation_rejected(self):
+        fixture = self.privacy_verification_fixture()
+        def change(*args, **kwargs):
+            (fixture.directory/'apply-attempt/failure.json').write_text('{}')
+            return True
+        with patch('forge_recovery_gui.filedialog.askdirectory', return_value=str(fixture.directory)), \
+                patch('forge_recovery_gui.messagebox.askyesno', side_effect=change), \
+                patch.object(self.owner, 'verify_boot_privacy') as submit:
+            self.panel.privacy_verify_dialog(reboot=True)
+            submit.assert_not_called()
+        self.assertIn('not submitted', self.panel.status.get())
 
     def test_review_is_local_and_never_displays_credential_contents(self):
         with patch.object(RecoveryProbe, '_observe', side_effect=AssertionError('unexpected SSH')):
