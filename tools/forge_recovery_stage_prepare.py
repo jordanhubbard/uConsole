@@ -97,7 +97,8 @@ def prepare(output, frozen):
     finally: os.close(parent)
     fd = private_directory(output)
     nonce, owner = uuid.uuid4().hex, uuid.uuid4().hex + uuid.uuid4().hex
-    record = dict(status='incomplete', target_written=False, staging_performed=False,
+    record = dict(schema=1, kind='recovery-staging-preparation',
+                  status='incomplete', target_written=False, staging_performed=False,
                   reboot_performed=False, deployment_authorized=False, recovery_qualified=False,
                   whole_card_backup_required=True)
     try:
@@ -134,11 +135,17 @@ def prepare(output, frozen):
             raise ValueError('Normal target boot changed during preparation; draft is not ready')
         write_record(fd, 'normal-after.json', after)
         write_record(fd, 'publication-after.json', image_after)
+        seals = {name: digest(read_record(fd, name)) for name in (
+            'request.json', 'before.json', 'normal-before.json', 'normal-after.json',
+            'publication-before.json', 'publication-after.json', 'planned-staged.json',
+            'hold-review.json')}
+        seals['staging/review.json'] = digest(review)
         record.update(status='prepared-not-approved', machine_id=plan['machine_id'], boot_id=boot['boot_id'],
                       nonce=nonce, hold_review_sha256=hold_pin, publication_sha256=frozen['publication_sha256'],
                       firmware_sha256=frozen['firmware_sha256'], apply_order=review['apply_order'],
                       restore_order=review['restore_order'],
-                      staging_plan_pins=[phase['plan_sha256'] for phase in review['phases']])
+                      staging_plan_pins=[phase['plan_sha256'] for phase in review['phases']],
+                      record_pins=seals)
     except BaseException as exc:
         record['error'] = type(exc).__name__ + ': ' + str(exc)
         raise

@@ -94,6 +94,22 @@ The JSON pins use the canonical journal encoding (sorted keys, two-space indenta
 newline). A prepared draft is historical evidence, not authorization to execute
 its phases or proof that the target remains unchanged.
 
+New drafts seal the request, boot/publication bookends, preimages, compiled
+review and hold review in `acceptance.json`. With that file's owner-recorded
+canonical SHA-256, independently validate the complete draft offline:
+
+```sh
+python3 tools/forge_recovery_stage_review.py \
+  --directory /private/new-staging-draft \
+  --acceptance-sha256 APPROVED_ACCEPTANCE_SHA256
+```
+
+The verifier recompiles all four transitions and checks every guarded preimage,
+output, phase order and journal location. It rejects unsealed older drafts;
+prepare them again rather than upgrading their evidence. Verification neither
+contacts the target nor grants staging authority, and its output omits private
+payloads and the lease owner. Guarded staging execution remains a separate gate.
+
 `recovery_jobs` lists approved IDs, operations and pins, without credential or
 backup paths. `recovery_job` accepts only `workspace` and `job`; poll the returned
 job ID. Read-only clients do not inherit the owner's recovery permission.

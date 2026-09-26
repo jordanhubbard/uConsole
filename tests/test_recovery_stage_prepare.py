@@ -9,6 +9,8 @@ from unittest.mock import patch
 
 from forge_recovery_journal import acknowledgement, dispatch, prepare as prepare_publication
 from forge_recovery_stage_prepare import inputs, normal_boot, prepare
+from forge_recovery_stage_review import load
+from forge_recovery_bootplan import digest
 from forge_target_journal import append_event, private_directory, write_record
 import test_trial_firmware
 import test_tryboot_recipe
@@ -94,6 +96,70 @@ class RecoveryStagePreparationTests(unittest.TestCase):
             with self.assertRaises(ValueError): prepare(self.output, changed)
             capture.assert_not_called()
         self.assertFalse(self.output.exists())
+
+    def test_sealed_review_recompiles_offline_without_granting_authority(self):
+        result = prepare(self.output, self.frozen)
+        with patch('forge_recovery_stage_prepare.capture_boot') as boot, \
+                patch('forge_recovery_stage_prepare.transport') as remote:
+            reviewed = load(self.output, digest(result))
+            boot.assert_not_called()
+            remote.assert_not_called()
+        self.assertEqual(reviewed['acceptance'], result)
+        self.assertEqual(len(reviewed['plans']), 4)
+        self.assertFalse(reviewed['acceptance']['deployment_authorized'])
+
+    def rewrite(self, name, value):
+        # Deliberate local mutation of a test fixture, retaining private mode.
+        (self.output/name).write_text(json.dumps(value))
+
+    def test_seal_rejects_every_changed_record(self):
+        result = prepare(self.output, self.frozen)
+        for name in result['record_pins']:
+            with self.subTest(name=name):
+                original = json.loads((self.output/name).read_text())
+                self.rewrite(name, dict(original, unexpected=True))
+                with self.assertRaisesRegex(ValueError, 'digest'):
+                    load(self.output, digest(result))
+                self.rewrite(name, original)
+
+    def test_old_unsealed_draft_cannot_be_approved(self):
+        result = prepare(self.output, self.frozen)
+        del result['record_pins']
+        self.rewrite('acceptance.json', result)
+        with self.assertRaisesRegex(ValueError, 'sealed'):
+            load(self.output, digest(result))
+
+    def test_resealed_phase_with_unexpected_write_fails_recompilation(self):
+        result = prepare(self.output, self.frozen)
+        name = 'staging/firmware-start/plan.json'
+        plan = json.loads((self.output/name).read_text())
+        plan['after']['files'][0]['mtime_ns'] += 1
+        self.rewrite(name, plan)
+        result['staging_plan_pins'][0] = digest(plan)
+        self.rewrite('acceptance.json', result)
+        with self.assertRaisesRegex(ValueError, 'compiled transition'):
+            load(self.output, digest(result))
+
+    def test_resealed_review_cannot_redirect_phase_journal(self):
+        result = prepare(self.output, self.frozen)
+        name = 'staging/review.json'
+        review = json.loads((self.output/name).read_text())
+        review['phases'][0]['journal'] = str(self.root/'unrelated')
+        self.rewrite(name, review)
+        result['record_pins'][name] = digest(review)
+        self.rewrite('acceptance.json', result)
+        with self.assertRaisesRegex(ValueError, 'compiled transitions'):
+            load(self.output, digest(result))
+
+    def test_resealed_request_cannot_drop_lease_owner(self):
+        result = prepare(self.output, self.frozen)
+        request = json.loads((self.output/'request.json').read_text())
+        request['lease_owner'] = None
+        self.rewrite('request.json', request)
+        result['record_pins']['request.json'] = digest(request)
+        self.rewrite('acceptance.json', result)
+        with self.assertRaisesRegex(ValueError, 'lease owner'):
+            load(self.output, digest(result))
 
     def test_frozen_firmware_is_not_replaced_by_later_file_edits(self):
         (self.root/'firmware.json').write_text('{}')
