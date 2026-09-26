@@ -15,6 +15,49 @@ import build_emulator_qemu as builder
 
 
 class BuildGenerationTests(unittest.TestCase):
+    def test_overlapping_stack_and_patched_model_can_be_rebuilt_without_reapplying(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = root/'source.tar'
+            with tarfile.open(archive, 'w') as stream:
+                for name, data in [('configure', b'original\n'), ('meson.build', b'fixture\n')]:
+                    member = tarfile.TarInfo(f'qemu-{VERSION}/{name}')
+                    member.size = len(data)
+                    stream.addfile(member, io.BytesIO(data))
+            def change(path, old, new):
+                return f'--- a/{path}\n+++ b/{path}\n@@ -1 +1 @@\n-{old}\n+{new}\n'.encode()
+            patches = [('one', change('configure', 'original', 'middle')),
+                       ('two', change('configure', 'middle', 'final')),
+                       ('three', change('model.h', 'model input', 'model output'))]
+            models = [('model.h', b'model input\n')]
+            source = builder.prepare_source(archive, root, patches, models)
+            self.assertEqual((source/'configure').read_text(), 'final\n')
+            self.assertEqual((source/'model.h').read_text(), 'model output\n')
+            with mock.patch.object(builder.subprocess, 'run') as patcher:
+                self.assertEqual(builder.prepare_source(archive, root, patches, models), source)
+            patcher.assert_not_called()
+            (source/'model.h').write_text('changed outside builder')
+            with self.assertRaisesRegex(ValueError, 'Cached patched source differs'):
+                builder.prepare_source(archive, root, patches, models)
+            self.assertEqual((source/'model.h').read_text(), 'changed outside builder')
+
+    def test_failed_stack_is_not_published_and_can_start_fresh(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = root/'source.tar'
+            with tarfile.open(archive, 'w') as stream:
+                for name in ('configure', 'meson.build'):
+                    member = tarfile.TarInfo(f'qemu-{VERSION}/{name}')
+                    member.size = len(b'original\n')
+                    stream.addfile(member, io.BytesIO(b'original\n'))
+            good = ('one', b'--- a/configure\n+++ b/configure\n@@ -1 +1 @@\n-original\n+changed\n')
+            bad = ('two', b'--- a/configure\n+++ b/configure\n@@ -1 +1 @@\n-missing\n+broken\n')
+            with self.assertRaises(subprocess.CalledProcessError):
+                builder.prepare_source(archive, root, [good, bad], [])
+            self.assertFalse((root/f'qemu-{VERSION}').exists())
+            source = builder.prepare_source(archive, root, [good], [])
+            self.assertEqual((source/'configure').read_text(), 'changed\n')
+
     def test_changed_patch_uses_pristine_source_and_bad_patch_keeps_selection(self):
         # Use real extraction and patch application; only replace compilation.
         with tempfile.TemporaryDirectory() as directory:

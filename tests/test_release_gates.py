@@ -21,6 +21,7 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')\n", publish)
         self.assertIn('xvfb-run -a make check', host)
         self.assertIn('make check PYTHON="$(brew --prefix)/bin/python3.12"', host)
+        self.assertIn('python3 "$resources/tools/build_emulator_qemu.py" --jobs 4 > "$evidence/qemu-rebuild.log" 2>&1', release)
 
 
 @unittest.skipUnless(os.name == 'posix', 'Release shell runs on Linux or macOS')

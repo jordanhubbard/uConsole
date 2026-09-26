@@ -22,6 +22,20 @@ path and watchdog. It is not level 3 for any carrier peripheral.
 
 ## Build-upgrade qualification
 
+Repeat-build correction (2026-09-26): the release rehearsal exposed an overlapping
+patch-stack bug in cached QEMU trees. Reverse-checking an early patch against
+files subsequently modified by later patches was not a valid cache check.
+Preparation now applies the full stack in a temporary pristine tree, records
+final hashes for every patched/model file, and publishes the completed source
+atomically. Reuse verifies those final bytes without reapplying patches; changed
+cache files are refused and preserved. A fresh Linux ARM64 build, immediate
+repeat build and complete emulator-device checks passed. Package CI now requires
+both initial and repeat builds from extracted resources on every native target.
+Logs are `emulator-build-prepared-source-20260926.log`,
+`emulator-rebuild-prepared-source-20260926.log` and
+`emulator-check-prepared-source-20260926.log` under `build/emulator/`.
+Earlier package results alone did not exercise this repeat-build failure.
+
 Physical development defaults to an SSH host/target loop with a verified,
 host-retained backup and an explicit restore path before every target mutation.
 A spare SD card or reader is not a prerequisite. Successful changes may stay

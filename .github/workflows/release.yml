@@ -113,6 +113,7 @@ jobs:
           unset UCONSOLE_ROOT PYTHONPATH
           cd "$RUNNER_TEMP"
           python3 "$resources/tools/build_emulator_qemu.py" --jobs 4 > "$evidence/qemu-build.log" 2>&1
+          python3 "$resources/tools/build_emulator_qemu.py" --jobs 4 > "$evidence/qemu-rebuild.log" 2>&1
           python3 "$resources/tools/test_emulator_watchdog.py" > "$evidence/watchdog.log" 2>&1
           python3 "$resources/tools/test_emulator_pmic.py" > "$evidence/pmic.log" 2>&1
           python3 "$resources/tools/test_emulator_adc_migration.py" > "$evidence/adc-migration.log" 2>&1

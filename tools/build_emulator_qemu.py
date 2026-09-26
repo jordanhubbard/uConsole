@@ -97,6 +97,68 @@ def extract_source(archive, root):
     return source
 
 
+def patched_paths(patches, models):
+    paths = {name for name, _ in models}
+    for _, data in patches:
+        for line in data.decode().splitlines():
+            if line.startswith(('--- a/', '+++ b/')):
+                paths.add(line[6:].split('\t', 1)[0])
+    for name in paths:
+        path = Path(name)
+        if path.is_absolute() or '..' in path.parts or str(path) != name:
+            raise ValueError('Unsafe patched source path: '+name)
+    return sorted(paths)
+
+
+def source_hashes(source, paths):
+    result = {}
+    for name in paths:
+        path = source/name
+        checked = source
+        for part in ('', *Path(name).parts):
+            checked = checked/part
+            if checked.is_symlink(): raise ValueError('Patched source path is a symlink: '+name)
+        result[name] = hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
+    return result
+
+
+def prepare_source(archive, generation, patches, models):
+    """Apply the complete stack once, atomically publish it, then verify outputs.
+
+    Earlier patches cannot be reverse-checked individually against the final
+    tree: later patches may legitimately replace their lines and context.
+    Models can also be patch inputs, so verify their final bytes, not raw inputs.
+    """
+    source = generation/f'qemu-{VERSION}'
+    inputs = [[name, hashlib.sha256(data).hexdigest()] for name, data in patches+models]
+    paths = patched_paths(patches, models)
+    marker = '.uconsole-prepared-source.json'
+    if source.exists():
+        if source.is_symlink() or (source/marker).is_symlink():
+            raise ValueError('Unsafe cached source preparation')
+        record = json.loads((source/marker).read_text())
+        if record != dict(inputs=inputs, files=source_hashes(source, paths)):
+            raise ValueError('Cached patched source differs from its completed preparation')
+        return source
+    with tempfile.TemporaryDirectory(prefix='.qemu-prepare-', dir=generation) as temporary:
+        prepared = extract_source(archive, Path(temporary))
+        for name, data in models:
+            target = prepared/name
+            source_hashes(prepared, [name])  # Refuse links before writing.
+            target.write_bytes(data)
+        for index, (_, data) in enumerate(patches):
+            patch = Path(temporary)/f'patch-{index:04d}'
+            patch.write_bytes(data)
+            subprocess.run(['patch', '--batch', '--forward', '-p1', '-i', str(patch)], cwd=prepared, check=True)
+        record = dict(inputs=inputs, files=source_hashes(prepared, paths))
+        with (prepared/marker).open('x') as stream:
+            json.dump(record, stream, sort_keys=True, indent=2)
+            stream.flush()
+            os.fsync(stream.fileno())
+        prepared.rename(source)
+    return source
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--jobs', type=int, default=4)
@@ -124,27 +186,7 @@ def build_qemu(jobs):
               for name, destination in MODEL_SOURCES]
     generation = ROOT / 'qemu-cache' / generation_key(patches + models)
     generation.mkdir(parents=True, exist_ok=True)
-    source = extract_source(archive, generation)
-    for destination, data in models:
-        target = source / destination
-        if target.exists():
-            if target.read_bytes() != data:
-                raise ValueError('Cached QEMU model source differs: ' + str(target))
-        else:
-            with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as staged:
-                staged.write(data)
-                staged_path = Path(staged.name)
-            staged_path.replace(target)
-    for name, data in patches:
-        patch = generation / name
-        patch.write_bytes(data)
-        check = subprocess.run(['patch', '--batch', '--dry-run', '--forward', '-p1', '-i', str(patch)],
-                               cwd=source, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        if check.returncode == 0:
-            subprocess.run(['patch', '--batch', '--forward', '-p1', '-i', str(patch)], cwd=source, check=True)
-        else:
-            # Only accept a source tree which already contains this exact patch.
-            subprocess.run(['patch', '--batch', '--dry-run', '--reverse', '-p1', '-i', str(patch)], cwd=source, check=True)
+    source = prepare_source(archive, generation, patches, models)
     build = generation / 'build'
     build.mkdir(exist_ok=True)
     source_link = build / 'qemu-source'
