@@ -129,6 +129,9 @@ jobs:
           workspace="$RUNNER_TEMP/public-factory-desktop"
           evidence="$GITHUB_WORKSPACE/build/public-desktop-evidence"
           mkdir -m 700 "$evidence"
+          # Diskless real-UART reproduction: synchronous QMP stalls when the
+          # host stops draining serial; the recorder worker must keep Tk live.
+          xvfb-run -a /usr/bin/python3 "$resources/tools/validate_desktop_serial_backpressure.py" --output "$evidence/serial-backpressure" > "$evidence/serial-backpressure.log" 2>&1
           df -h "$RUNNER_TEMP"
           # This manufacturer mirror is HTTP. The independently pinned SHA256
           # is mandatory before any decompression or boot. Never use user images.
@@ -153,6 +156,7 @@ jobs:
           path: |
             build/public-desktop-evidence/**/*.log
             build/public-desktop-evidence/driver/driver.json
+            build/public-desktop-evidence/serial-backpressure/acceptance.json
             ${{ runner.temp }}/public-factory-desktop/desktop-record-*/screen-*.png
             ${{ runner.temp }}/public-factory-desktop/desktop-record-*/record.json
             ${{ runner.temp }}/public-factory-desktop/desktop-record-*/console.log

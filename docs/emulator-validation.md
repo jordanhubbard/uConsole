@@ -8,6 +8,36 @@ These results establish a usable development environment,
 
 ## Inputs
 
+### Recorder UART/QMP backpressure correction (2026-09-26)
+
+The second x86 desktop trial, `36243425771` at `c54e5d2`, again failed after
+reboot. Its retained diagnostic now identifies `query-name` timing out during
+`qmp_capabilities` reply, before the mouse input was sent. A separate read-only
+status probe failed at the same phase, while serial output stopped mid-line.
+Evidence is in `build/emulator/x86-public-onboarding-36243425771/`.
+
+The recorder performed synchronous QMP calls on the Tk thread that also drains
+its serial socket. QEMU's PL011 writes each UART byte synchronously; a full
+socket can hold QEMU's main lock and block QMP. The diskless
+`validate_desktop_serial_backpressure.py` reproduces this exact capability-reply
+timeout against real QEMU, then proves that draining UART restores QMP.
+Linux stalls after 278 undrained bytes; native macOS after 8,192. These are
+observations on the tested hosts, not portable socket-capacity guarantees.
+
+Recorder QMP calls and failure diagnostics now use one worker, while completion
+callbacks and input sequencing remain on Tk. Competing input is rejected while
+an exchange/sequence is pending; failed input is never replayed. With this path,
+both hosts drain all 65,536 fixture bytes and complete QMP, then exit their owned
+diskless QEMU cleanly without forced cleanup. Logs are
+`build/emulator/serial-backpressure-r2-20260926.log` and
+`build/emulator/macos-recorder-async-20260926.log`; the latter also records all
+16 focused recorder/driver/Tk tests passing. The macOS fixture is
+`/private/tmp/uconsole-recorder-io.f7pNsUHt`. CI's optional full desktop trial now
+runs this reproduction/regression first and retains its receipt. This fixes a
+reproduced harness deadlock, not yet the full x86 desktop acceptance gate.
+The complete Linux suite passes 1,556 tests (one skip) plus ShellCheck in
+`build/emulator/full-tests-recorder-async-20260926.log`.
+
 ### Owner-side fresh recovery enrollment (2026-09-26)
 
 Workbench now exposes **Enroll recovery session…** as an owner-only controller

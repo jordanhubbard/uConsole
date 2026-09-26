@@ -9,6 +9,7 @@ Only the Workbench-owned VM is controlled. EOF/failure force-stops that VM;
 use only a disposable test workspace. Password fixtures stay in a private file.
 """
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from pathlib import Path
@@ -96,6 +97,41 @@ def failure_observation(runtime, proc_root=Path('/proc')):
     return result
 
 
+class RecorderIO:
+    """One in-flight control exchange; callbacks run only when Tk polls.
+
+    QEMU may hold its main lock while writing UART bytes. The Tk thread must
+    keep draining serial while QMP negotiates, including during diagnostics.
+    """
+    def __init__(self):
+        self.pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='desktop-qmp')
+        self.pending = None
+
+    def submit(self, runtime, function, callback):
+        if self.pending is not None:
+            raise ValueError('Wait for the current control exchange to finish')
+        def work():
+            try:
+                return function(), None
+            except Exception as exc:
+                try:
+                    observation = failure_observation(runtime)
+                except Exception as diagnostic:
+                    observation = {'diagnostic_error': type(diagnostic).__name__+': '+str(diagnostic)}
+                return None, dict(error=str(exc), failure_observation=observation)
+        self.pending = (self.pool.submit(work), callback)
+
+    def poll(self):
+        if self.pending is not None and self.pending[0].done():
+            future, callback = self.pending
+            self.pending = None
+            callback(*future.result())
+
+    def close(self):
+        # Finish an uncertain request before teardown; never cancel/replay it.
+        self.pool.shutdown(wait=True)
+
+
 def main():
     cli = argparse.ArgumentParser(description=__doc__)
     cli.add_argument('--workspace', type=Path, required=True)
@@ -111,6 +147,7 @@ def main():
         json.dump({'onboarding_password': secret}, output)
     root = tk.Tk()
     app = Workbench(root, workspace)
+    control_io = RecorderIO()
     events = []
     inbox = queue.Queue(maxsize=16)
     started = time.monotonic()
@@ -123,8 +160,23 @@ def main():
         print(json.dumps(event), flush=True)
 
     def report_error(action, exc):
-        respond({'action': action, 'error': str(exc),
-                 'failure_observation': failure_observation(app.runtime)})
+        # Validation failures need no QMP diagnostic on the GUI thread.
+        respond({'action': action, 'error': str(exc)})
+
+    def control(action, operation, arguments, event=None, after=None):
+        runtime = app.runtime
+        if runtime is None:
+            raise ValueError('No owned runtime for recorder control')
+        def completed(result, error):
+            nonlocal typing
+            if error is not None:
+                typing = False
+                respond(dict(action=action, **error))
+            elif after is not None:
+                after()
+            else:
+                respond(dict(action=action, **(event or {})))
+        control_io.submit(runtime, lambda: runtime.control(operation, arguments), completed)
 
     def read_commands():
         while True:
@@ -143,11 +195,11 @@ def main():
             except (ValueError, TypeError) as exc:
                 inbox.put({'action': 'invalid', 'reason': str(exc)})
 
-    def send_keys(keys):
+    def send_keys(keys, action, after=None):
         if not isinstance(keys, list) or not 1 <= len(keys) <= 8:
             raise ValueError('key requires a list of 1-8 QEMU qcodes')
-        app.runtime.control('send-key', {'keys': [{'type': 'qcode', 'data': key} for key in keys],
-                                         'hold-time': 60})
+        control(action, 'send-key', {'keys': [{'type': 'qcode', 'data': key} for key in keys],
+                                     'hold-time': 60}, event={'keys': keys}, after=after)
 
     def type_sequence(keys, action):
         nonlocal typing
@@ -157,8 +209,7 @@ def main():
             nonlocal typing
             try:
                 key = next(sequence)
-                send_keys([key])
-                root.after(130, next_key)
+                send_keys([key], action, after=lambda: root.after(130, next_key))
             except StopIteration:
                 typing = False
                 respond({'action': action, 'completed': True, 'characters': len(keys)})
@@ -170,8 +221,8 @@ def main():
     def dispatch(request):
         nonlocal finished, typing
         action = request.get('action')
-        if typing and action not in ('status', 'capture'):
-            raise ValueError('Wait for the current input sequence to finish')
+        if (typing or control_io.pending is not None) and action not in ('status', 'eof'):
+            raise ValueError('Wait for the current input sequence/control exchange to finish')
         if options.keyboard == 'composite' and action in ('key', 'move', 'click', 'type', 'type-secret'):
             raise ValueError('Composite recording requires firmware/firmware-keys input; generic QEMU input is not evidence')
         if action == 'status':
@@ -181,8 +232,8 @@ def main():
                      'console_tail': app.console.get('1.0', 'end')[-2400:]})
         elif action == 'capture':
             target = directory / ('screen-' + uuid.uuid4().hex + '.png')
-            app.runtime.control('screendump', {'filename': str(target), 'format': 'png'})
-            respond({'action': action, 'path': str(target)})
+            control(action, 'screendump', {'filename': str(target), 'format': 'png'},
+                    event={'path': str(target)})
         elif action in ('firmware', 'firmware-keys'):
             if options.keyboard != 'composite':
                 raise ValueError('Firmware actions require --keyboard composite')
@@ -202,30 +253,30 @@ def main():
 
             root.after(25, poll_firmware)
         elif action == 'key':
-            send_keys(request.get('keys'))
-            respond({'action': action, 'keys': request['keys']})
+            send_keys(request.get('keys'), action)
         elif action == 'move':
             events = pointer_events(request.get('dx'), request.get('dy'))
-            app.runtime.control('input-send-event', {'events': events})
-            respond({'action': action, 'dx': request['dx'], 'dy': request['dy']})
+            control(action, 'input-send-event', {'events': events},
+                    event={'dx': request['dx'], 'dy': request['dy']})
         elif action == 'click':
             button = request.get('button', 'left')
             if button not in ('left', 'middle', 'right'):
                 raise ValueError('click requires left, middle or right')
-            app.runtime.control('input-send-event', {'events': [
-                {'type': 'btn', 'data': {'button': button, 'down': True}}]})
             typing = True
-            def release_button():
+            def completed_click():
                 nonlocal typing
-                try:
-                    app.runtime.control('input-send-event', {'events': [
-                        {'type': 'btn', 'data': {'button': button, 'down': False}}]})
-                    respond({'action': action, 'button': button})
-                except Exception as exc:
-                    report_error(action, exc)
-                finally:
-                    typing = False
-            root.after(80, release_button)
+                typing = False
+                respond({'action': action, 'button': button})
+            def release_button():
+                control(action, 'input-send-event', {'events': [
+                    {'type': 'btn', 'data': {'button': button, 'down': False}}]}, after=completed_click)
+            try:
+                control(action, 'input-send-event', {'events': [
+                    {'type': 'btn', 'data': {'button': button, 'down': True}}]},
+                    after=lambda: root.after(80, release_button))
+            except Exception:
+                typing = False
+                raise
         elif action in ('type', 'type-secret'):
             text = secret if action == 'type-secret' else request.get('text')
             type_sequence(text_keys(text), action)
@@ -251,6 +302,7 @@ def main():
             raise ValueError('Unknown or invalid recorder action')
 
     def poll():
+        control_io.poll()
         try:
             request = inbox.get_nowait()
         except queue.Empty:
@@ -274,6 +326,7 @@ def main():
         root.mainloop()
     finally:
         try:
+            control_io.close()
             try:
                 console = app.console.get('1.0', 'end')
             except tk.TclError:
