@@ -33,6 +33,7 @@ import forge_recovery_reboot_probe
 from forge_restore_claim_probe import script as restore_claim_script
 import forge_restore_stream_probe
 import forge_deploy_stream_probe
+import forge_recovery_session_probe
 
 
 def server_key(client_key, public_path=None):
@@ -171,7 +172,9 @@ def run(qemu, kernel, dtb, image, digest, key, output, require_python=False, sto
         boot_commit_interruption=False, boot_commit_reboot=False, boot_inspector_interruption=False,
         root_write_claim=False, root_restore_stream=False, root_restore_lost_completion=False,
         root_restore_interruption=False, root_deploy_stream=False, root_deploy_lost_completion=False,
-        root_deploy_interruption=False):
+        root_deploy_interruption=False, durable_lease=False):
+    if type(durable_lease) is not bool or durable_lease and not require_lease:
+        raise ValueError('Durable session validation requires the disposable recovery lease')
     if (type(root_deploy_interruption) is not bool or root_deploy_interruption and
             (not root_deploy_stream or root_deploy_lost_completion)):
         raise ValueError('Deployment interruption requires a distinct disposable stream/reboot trial')
@@ -309,6 +312,12 @@ def run(qemu, kernel, dtb, image, digest, key, output, require_python=False, sto
                 evidence['recovery_transport'] = {'status': 'passed', 'boot_bound_recheck': True}
                 if require_lease:
                     lease_client = BackupLeaseClient(probe, bound['verification']['boot_id'], owner)
+                if durable_lease:
+                    evidence['durable_session'] = forge_recovery_session_probe.run(
+                        probe, output/'durable-session', bound['verification']['boot_id'], owner)
+                    # Explicit test-only handoff of the exact validated receipt;
+                    # later watchdog checks must not start a competing sequence.
+                    lease_client.accepted = evidence['durable_session']['receipt']
                 if lease_soak_seconds:
                     original = json.loads(execute('cat /run/forge-lease.ready'))
                     samples = []
@@ -712,6 +721,7 @@ if __name__ == '__main__':
     parser.add_argument('--require-python', action='store_true')
     parser.add_argument('--require-network-observer', action='store_true')
     parser.add_argument('--require-lease', action='store_true')
+    parser.add_argument('--durable-lease', action='store_true', help='Qualify durable session restart and explicit lost-reply retry on the disposable VM')
     parser.add_argument('--lease-watchdog-loss', action='store_true')
     parser.add_argument('--lease-soak-seconds', type=int, default=0)
     parser.add_argument('--server-public-key', type=Path,

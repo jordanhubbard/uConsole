@@ -1884,6 +1884,44 @@ portable helper checks and refusal coverage remain on Windows. Windows is not
 an advertised forge package host. Fresh CI for this correction is still needed;
 the original failed run is retained, not counted as a pass.
 
+The subsequent `cf53aec` revision passes hosted Host CI (`36230138664`) and
+the complete three-platform package workflow (`36230138661`). Publication was
+skipped, as required for a PR. Downloaded archives match their native acceptance
+hashes; installed GUI/source editing, packaged source completeness, and
+archive-built QEMU watchdog/PMIC/ADC-migration checks pass on all three runners.
+Evidence and archives are retained in `ci-cf53aec-20260926/`. Archive SHA-256:
+
+| Target | SHA-256 |
+| --- | --- |
+| Linux x86-64 | `1090df732c3155f14d0544159db4fc87c41e3e05659257c99311491ea1169b53` |
+| Linux ARM64 | `27a181cad3f28b38bb2295491927d61c2e57b6d96d6a0b3b7a003abee5869d80` |
+| Mac ARM64 | `f3f07fb68500b9df8743b00e89bc989f9ccf194bbb2c75e285d217110c01dd45` |
+
+These qualify that revision and those checks, not subsequent source changes,
+full guest desktop acceptance on x86-64, or the unfinished hardware image loop.
+
+Foreground recovery jobs now have a durable session primitive in
+`forge_recovery_session.py`. A private owner-pinned journal binds the exact
+connection identity, credentials, RAM boot and lease owner. Its lock spans the
+job; each renewal intent is durable before transport, and only a validated
+reply becomes an acknowledgment. Reopening preserves an unresolved request;
+normal renewal refuses it until an explicit `retry_pending()` resends the exact
+request. Historical receipts are not presented as live leases, and journal
+failure poisons reuse. There is no background keeper, automatic sequence
+adoption, root-write approval, reboot or hold-release capability.
+
+All 40 focused session/lease/dispatch cases pass on Linux and Mac
+(`recovery-session-tests-r3-20260926.log`,
+`macos-recovery-session-tests-r2-20260926.log`). The full Linux suite plus
+shellcheck passes 1,439 tests in 110.836 seconds
+(`full-tests-recovery-session-probe-20260926.log`). A real RAM-only QEMU trial
+also passes (`recovery-durable-session-20260926/acceptance.json`, exit 0):
+competing owner refusal, real target reply loss, journal reopen, implicit-retry
+refusal, exact non-extending duplicate, then sequence advancement. No SD image
+was attached, and modeled watchdog exit completed without forced cleanup.
+This is the session foundation for GUI/controller integration, not a claim that
+the public full-image workflow is already wired or physically qualified.
+
 The fresh physical stream trial has now verified its complete 31,914,983,424-byte
 backup, compressed to 6,159,787,989 bytes, card SHA256
 `10809a79cb0ca8aa6639981966425279d36e4e8f2d8314b723aa85666a1e6df7`.
