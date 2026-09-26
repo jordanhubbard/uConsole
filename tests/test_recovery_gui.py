@@ -146,7 +146,7 @@ class RecoveryPanelTests(unittest.TestCase):
             submit.assert_not_called()
         client = ClientSession(self.owner, ['gui'])
         for name in ('discover_recovery_builder', 'build_recovery_image', 'prepare_recovery_publication', 'publish_recovery_image',
-                     'prepare_boot_privacy', 'apply_boot_privacy', 'verify_boot_privacy'):
+                     'prepare_boot_privacy', 'apply_boot_privacy', 'verify_boot_privacy', 'boot_recovery_session'):
             with self.assertRaises((ValueError, PermissionError)):
                 client.call(name, {'workspace': 'gui'})
 
@@ -302,6 +302,41 @@ class RecoveryPanelTests(unittest.TestCase):
             self.panel.privacy_verify_dialog(reboot=True)
             submit.assert_not_called()
         self.assertIn('not submitted', self.panel.status.get())
+
+    def tryboot_fixture(self):
+        import test_recovery_tryboot
+        fixture = test_recovery_tryboot.RecoveryTrybootTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        fixture.stage()
+        return fixture
+
+    def test_tryboot_enrollment_enables_backup_without_lease_or_grants(self):
+        fixture = self.tryboot_fixture()
+        enrolled = dict(status='enrolled-not-leased', boot_id=fixture.boot_id)
+        with patch('forge_recovery_tryboot.boot_and_enroll', return_value=dict(
+                status='recovery-boot-enrolled-not-leased', enrollment=enrolled)) as boot:
+            self.panel.boot_recovery(fixture.value, fixture.output)
+            self.assertFalse(self.panel.close())
+            self.owner.jobs[self.panel.job][2].result(timeout=5)
+            self.panel.poll()
+            boot.assert_called_once_with(fixture.output, fixture.value)
+        self.assertEqual(self.panel.enrollment_ready[0][0], fixture.output/'enrollment')
+        self.assertEqual(self.panel.enrollment_ready[1], enrolled)
+        self.assertNotIn('disabled', self.panel.backup_button.state())
+        self.assertEqual(self.owner.grants, frozenset())
+
+    def test_declined_tryboot_does_not_submit(self):
+        fixture = self.tryboot_fixture()
+        value = fixture.value
+        with patch('forge_recovery_gui.filedialog.askdirectory', side_effect=[str(value.staging), str(fixture.root)]), \
+                patch('forge_recovery_gui.filedialog.askopenfilename', side_effect=[str(value.probe.key), str(value.probe.known_hosts)]), \
+                patch('forge_recovery_gui.simpledialog.askstring', side_effect=[value.staging_pin, value.probe.host,
+                    value.probe.kernel, value.probe.serial]), \
+                patch('forge_recovery_gui.messagebox.askyesno', return_value=False), \
+                patch.object(self.owner, 'boot_recovery_session') as submit:
+            self.panel.enroll_dialog(tryboot=True)
+            submit.assert_not_called()
 
     def test_review_is_local_and_never_displays_credential_contents(self):
         with patch.object(RecoveryProbe, '_observe', side_effect=AssertionError('unexpected SSH')):

@@ -57,7 +57,7 @@ class RecoveryPanel:
         self.status = tk.StringVar(value='No action runs without confirmation. Prepared RAM-recovery session required.')
         ttk.Label(self.window, text='Backup → validated image change → deploy → reconcile → explicit boot release',
                   wraplength=760).pack(padx=12, pady=8)
-        ttk.Label(self.window, text='Advanced recovery controls. Preparation creates drafts, not authority. Staging execution and reboot are not automated here.',
+        ttk.Label(self.window, text='Advanced recovery controls. Preparation creates drafts. File changes and reboots require separate owner confirmations.',
                   wraplength=760).pack(padx=12, pady=4)
         controls = ttk.Frame(self.window)
         controls.pack(padx=12, pady=4)
@@ -92,6 +92,8 @@ class RecoveryPanel:
         self.privacy_reboot_button.pack(side='left', padx=4)
         self.privacy_verify_button = ttk.Button(privacy, text='Verify private mount…', command=self.privacy_verify_dialog)
         self.privacy_verify_button.pack(side='left', padx=4)
+        self.tryboot_button = ttk.Button(privacy, text='Boot recovery and enroll…', command=lambda: self.enroll_dialog(tryboot=True))
+        self.tryboot_button.pack(side='left', padx=4)
         self.choice = ttk.Combobox(self.window, textvariable=self.selected, state='readonly', width=50)
         self.choice.pack(padx=12, pady=4)
         self.choice.bind('<<ComboboxSelected>>', lambda event: self.review())
@@ -135,6 +137,7 @@ class RecoveryPanel:
         self.privacy_apply_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.privacy_reboot_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.privacy_verify_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
+        self.tryboot_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         if not self.pending:
             self.review()
 
@@ -448,7 +451,7 @@ class RecoveryPanel:
         self.status.set('Reading normal-SSH preimages and authoring private drafts. No target writes or reboot.')
         self.timer = self.window.after(100, self.poll)
 
-    def enroll_dialog(self):
+    def enroll_dialog(self, *, tryboot=False):
         if self.job or self.pending:
             return
         try:
@@ -462,7 +465,7 @@ class RecoveryPanel:
                     ('serial', 'Expected 16-digit hexadecimal hardware serial:')):
                 fields[name] = simpledialog.askstring('Fresh recovery session', prompt, parent=self.window)
                 if not fields[name]: return
-            selected = simpledialog.askinteger('Recovery boot selection',
+            selected = 1 if tryboot else simpledialog.askinteger('Recovery boot selection',
                 'Expected firmware selection: 1 = one-shot tryboot; 0 = persistent recovery.',
                 minvalue=0, maxvalue=1, parent=self.window)
             if selected is None: return
@@ -476,15 +479,30 @@ class RecoveryPanel:
             value = inputs(staging, fields['pin'], fields['host'], key, known,
                            fields['kernel'], fields['serial'], None, selected)
             self.show(summary(value))
-            if not messagebox.askyesno('Verify and enroll fresh recovery boot',
+            if tryboot:
+                from forge_recovery_tryboot import reviewed
+                draft, _ = reviewed(value)
+                self.show(dict(summary(value), normal_host=draft['request']['image_plan']['host']))
+            question = (f'Reboot {draft["request"]["image_plan"]["host"]} once into recovery and enroll the new RAM boot?\n\n'
+                    'Save target work first. All four staging phases must be acknowledged. The private image and all nine '
+                    'boot files are checked again before one tryboot request. Keep physical power-cycle access available '
+                    'for an unqualified image. This does not prove fallback, acquire a lease or authorize root writes. '
+                    'Prepare and run a backup promptly after enrollment; an unleased recovery boot may expire back to normal. '
+                    'No automatic reboot retry will occur.' if tryboot else
                     f'Read recovery identity from {value.probe.host}:2222 and pin its new RAM boot UUID?\n\n'
                     'Use this only for a fresh boot with no existing host lease owner. This is not a way to '
                     'recover a lost session. The sealed staging supplies the owner; it will not be guessed. '
                     'No lease, reboot, disk write or agent grant is performed. Failed enrollment retains its '
-                    'claim and evidence; do not retry or delete an uncertain session.', parent=self.window):
+                    'claim and evidence; do not retry or delete an uncertain session.')
+            if not messagebox.askyesno('Boot and enroll recovery' if tryboot else 'Verify and enroll fresh recovery boot',
+                                      question, parent=self.window):
                 return
             import uuid
-            self.enroll_session(value, Path(parent)/('recovery-enrollment-'+uuid.uuid4().hex))
+            output = Path(parent)/(('recovery-tryboot-' if tryboot else 'recovery-enrollment-')+uuid.uuid4().hex)
+            if tryboot:
+                self.boot_recovery(value, output)
+            else:
+                self.enroll_session(value, output)
         except Exception as exc:
             self.status.set('Enrollment not submitted: ' + str(exc))
 
@@ -498,6 +516,18 @@ class RecoveryPanel:
         self.enrollment_ready = None
         self.refresh()
         self.status.set('Verifying fresh RAM boot and recording a local session. No lease or target mutation.')
+        self.timer = self.window.after(100, self.poll)
+
+    def boot_recovery(self, value, output):
+        if self.job or self.pending:
+            raise ValueError('Finish the current job or review before recovery boot')
+        submitted = self.controller.boot_recovery_session(self.workspace, value, output)
+        self.job, self.job_kind = submitted['job_id'], 'tryboot-enroll'
+        self.preparation_output = Path(output)
+        self.enrollment_candidate = (Path(output)/'enrollment', value.probe.key, value.probe.known_hosts)
+        self.enrollment_ready = None
+        self.refresh()
+        self.status.set('Guarded one-shot recovery boot accepted. Keep Workbench open; no reboot retry or root-write authority.')
         self.timer = self.window.after(100, self.poll)
 
     def backup_dialog(self):
@@ -604,6 +634,14 @@ class RecoveryPanel:
         self.job = None
         self.refresh()
         self.show(result)
+        if self.job_kind == 'tryboot-enroll':
+            if result['status'] == 'completed' and result['result'].get('status') == 'recovery-boot-enrolled-not-leased':
+                self.enrollment_ready = (self.enrollment_candidate, result['result']['enrollment'])
+                self.backup_button.state(['!disabled'])
+            self.status.set(result['status'] + f': recovery boot evidence at {self.preparation_output}. '
+                            'No lease held or root writes authorized. After successful enrollment, prepare/approve/run the backup promptly. '
+                            'Unleased recovery can expire; retain any failed attempt and never automatically reboot again.')
+            return
         if self.job_kind == 'verify-privacy':
             self.status.set(result['status'] + f': private-mount evidence at {self.preparation_output}. '
                             'Only verified-private-normal-boot qualifies effective privacy, not recovery fallback. '

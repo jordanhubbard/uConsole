@@ -89,8 +89,7 @@ writes boot files, changes selectors, reboots, approves recovery policies, grant
 agents authority, or replaces whole-card backup and fallback qualification.
 These owner controls are deliberately absent from MCP. The build backend and
 GUI have fixture coverage; physical native-build qualification of this workflow
-is still pending. Recovery boot orchestration and guided deploy/restore remain
-separate unfinished steps.
+is still pending. The complete guided deploy/restore loop remains unfinished.
 
 **Prepare private boot mount…** backs up the target's `/etc/fstab`, observes its
 normal boot and current public FAT mount, and drafts only the boot mount's
@@ -175,6 +174,25 @@ Retain the original job,
 claim and evidence; never delete them to reset a sequence or automatically retry.
 Only `enrolled-not-leased` denotes a completed local binding, not a live lease
 or qualified fallback. This owner action is deliberately absent from MCP.
+
+After all four phases have been applied through **Target changes → Review
+recovery staging…**, **Boot recovery and enroll…** bridges the acknowledged
+staging to a fresh session. Select the same sealed staging and pinned recovery
+credentials, kernel and serial. Separate confirmation authorizes one tryboot
+request and interrupts target applications. The host requires every phase's
+acknowledgement and no pending/restoration attempt; the target rechecks the
+normal boot, private image, and all nine staged file snapshots under its lock
+before rebooting. An exclusive staging claim prevents another request even
+after uncertainty. Observation retries do not resend the reboot, and enrollment
+pins the first verified new RAM UUID rather than following a second boot.
+
+This action does not acquire a lease, prove fallback or authorize root writes.
+Keep physical power-cycle access available for an unqualified recovery image.
+After `recovery-boot-enrolled-not-leased`, prepare, approve and run the backup
+promptly; an unleased recovery boot can expire back to normal. Workbench enables
+the existing backup-draft action using the nested enrollment evidence. Failed
+boot/enrollment evidence remains intact; do not reset the claim or resubmit the
+reboot. The bridge is owner-only and absent from MCP.
 
 After successful enrollment in this panel, **Prepare backup job…** asks where
 to retain the future full-card archive and its evidence. It checks the sealed

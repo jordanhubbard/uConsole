@@ -297,6 +297,16 @@ class Controller:
                                'staging_sha256': enrollment.staging_pin,
                                'boot_id': enrollment.boot_id, 'lease_acquired': False})
 
+    def boot_recovery_session(self, name, enrollment, output):
+        """Owner-confirmed one-shot boot from fully acknowledged staging."""
+        from uconsole_emulator import require_private_image_host
+        require_private_image_host()
+        from forge_recovery_tryboot import reviewed, boot_and_enroll
+        reviewed(enrollment)
+        return self.submit(name, 'recovery_tryboot_enroll', lambda: boot_and_enroll(output, enrollment),
+                           target_identity=enrollment.machine_id, context={
+                               'staging_sha256': enrollment.staging_pin, 'root_write_authorized': False})
+
     def prepare_recovery_backup(self, name, source, output):
         """Owner-only backup policy authoring; approval/execution are separate."""
         from uconsole_emulator import require_private_image_host
