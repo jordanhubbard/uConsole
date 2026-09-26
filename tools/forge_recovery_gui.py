@@ -63,6 +63,8 @@ class RecoveryPanel:
         self.load_button.pack(side='left')
         self.prepare_button = ttk.Button(controls, text='Prepare boot staging…', command=self.prepare_dialog)
         self.prepare_button.pack(side='left', padx=4)
+        self.enroll_button = ttk.Button(controls, text='Enroll recovery session…', command=self.enroll_dialog)
+        self.enroll_button.pack(side='left', padx=4)
         self.approve_button = ttk.Button(controls, text='Approve reviewed policy…', command=self.approve)
         self.approve_button.pack(side='left', padx=4)
         self.approve_button.state(['disabled'])
@@ -97,6 +99,7 @@ class RecoveryPanel:
         self.run_button.state(['!disabled'] if names and listing['execution_granted'] and not self.job and not self.pending else ['disabled'])
         self.load_button.state(['disabled'] if self.job else ['!disabled'])
         self.prepare_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
+        self.enroll_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.approve_button.state(['!disabled'] if self.pending and not self.job else ['disabled'])
         self.recheck_button.state(['!disabled'] if self.job else ['disabled'])
         if not self.pending:
@@ -170,6 +173,57 @@ class RecoveryPanel:
         self.status.set('Reading normal-SSH preimages and authoring private drafts. No target writes or reboot.')
         self.timer = self.window.after(100, self.poll)
 
+    def enroll_dialog(self):
+        if self.job or self.pending:
+            return
+        try:
+            staging = filedialog.askdirectory(parent=self.window, title='Sealed boot staging preparation')
+            if not staging: return
+            fields = {}
+            for name, prompt in (
+                    ('pin', 'Owner-recorded staging acceptance SHA-256:'),
+                    ('host', 'Pinned recovery hostname or IP (port 2222, no username):'),
+                    ('kernel', 'Expected native kernel release:'),
+                    ('serial', 'Expected 16-digit hexadecimal hardware serial:'),
+                    ('boot', 'Independently observed NEW recovery boot UUID:')):
+                fields[name] = simpledialog.askstring('Fresh recovery session', prompt, parent=self.window)
+                if not fields[name]: return
+            selected = simpledialog.askinteger('Recovery boot selection',
+                'Expected firmware selection: 1 = one-shot tryboot; 0 = persistent recovery.',
+                minvalue=0, maxvalue=1, parent=self.window)
+            if selected is None: return
+            key = filedialog.askopenfilename(parent=self.window, title='Private recovery client key')
+            if not key: return
+            known = filedialog.askopenfilename(parent=self.window, title='Private pinned recovery known_hosts')
+            if not known: return
+            parent = filedialog.askdirectory(parent=self.window, title='Parent for new private enrollment evidence')
+            if not parent: return
+            from forge_session_enrollment import inputs, summary
+            value = inputs(staging, fields['pin'], fields['host'], key, known,
+                           fields['kernel'], fields['serial'], fields['boot'], selected)
+            self.show(summary(value))
+            if not messagebox.askyesno('Verify and enroll fresh recovery boot',
+                    f'Read recovery identity from {value.probe.host}:2222?\n\nBoot: {value.boot_id}\n\n'
+                    'Use this only for a fresh boot with no existing host lease owner. This is not a way to '
+                    'recover a lost session. The sealed staging supplies the owner; it will not be guessed. '
+                    'No lease, reboot, disk write or agent grant is performed. Failed enrollment retains its '
+                    'claim and evidence; do not retry or delete an uncertain session.', parent=self.window):
+                return
+            import uuid
+            self.enroll_session(value, Path(parent)/('recovery-enrollment-'+uuid.uuid4().hex))
+        except Exception as exc:
+            self.status.set('Enrollment not submitted: ' + str(exc))
+
+    def enroll_session(self, value, output):
+        if self.job or self.pending:
+            raise ValueError('Finish the current job or policy review before enrollment')
+        submitted = self.controller.enroll_recovery_session(self.workspace, value, output)
+        self.job, self.job_kind = submitted['job_id'], 'enroll-session'
+        self.preparation_output = Path(output)
+        self.refresh()
+        self.status.set('Verifying fresh RAM boot and recording a local session. No lease or target mutation.')
+        self.timer = self.window.after(100, self.poll)
+
     def load_policy(self, filename):
         if self.job:
             raise ValueError('Wait for the recovery job before reviewing another policy')
@@ -240,6 +294,11 @@ class RecoveryPanel:
         self.job = None
         self.refresh()
         self.show(result)
+        if self.job_kind == 'enroll-session':
+            self.status.set(result['status'] + f': enrollment evidence at {self.preparation_output}. '
+                            'Only enrolled-not-leased is a completed binding; use its session directory and pin '
+                            'in a separately reviewed job policy. No lease, reboot or grant was acquired.')
+            return
         if self.job_kind == 'prepare-staging':
             self.status.set(result['status'] + f': retained preparation artifacts at {self.preparation_output}. '
                             'Drafts are not approved, staged, or boot-qualified. No automatic retry or deployment.')

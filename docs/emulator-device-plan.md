@@ -87,6 +87,15 @@ preparation/panel tests pass on Linux and macOS in
 `macos-staging-preparation-tests-20260926.log` under `build/emulator/`.
 Physical execution of this public route and bootstrap provisioning remain open.
 
+Fresh-session enrollment (2026-09-26): Workbench now provides an owner-only
+**Enroll recovery session…** step after a separately authorized recovery boot.
+It verifies pinned RAM identity/firmware selection and the staging-bound owner,
+records a local unrenewed binding, and refuses duplicate per-boot enrollment.
+It neither adopts an existing lease nor increases client grants. All 21 focused
+tests pass on Linux and native macOS; see `docs/emulator-validation.md` for logs
+and the complete-suite result. Physical enrollment through this new UI, recovery
+image provisioning, boot orchestration and the complete guided loop remain open.
+
 Native unchanged-source stream (2026-09-26): the retained physical runner has
 acknowledged all 7,481 chunks (31,373,918,208 root bytes) and completed its
 post-stream root/protected-range hashes. The receipt in

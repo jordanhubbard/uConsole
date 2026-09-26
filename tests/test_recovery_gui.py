@@ -178,6 +178,53 @@ class RecoveryPanelTests(unittest.TestCase):
         self.assertIn('not approved, staged, or boot-qualified', self.panel.status.get())
         self.assertIn('prepared-not-approved', self.panel.details.get('1.0', 'end'))
 
+    def test_fresh_session_enrollment_is_owner_job_and_never_approves_policy(self):
+        import test_session_enrollment
+        fixture = test_session_enrollment.SessionEnrollmentTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        with fixture.observe():
+            self.panel.enroll_session(fixture.value, fixture.output)
+            job = self.panel.job
+            self.assertFalse(self.panel.close())
+            self.assertIn('disabled', self.panel.enroll_button.state())
+            self.owner.jobs[job][2].result(timeout=5)
+        self.panel.poll()
+        self.assertIsNone(self.panel.job)
+        self.assertIsNone(self.panel.pending)
+        self.assertIsNone(self.owner.recovery_jobs)
+        self.assertEqual(self.owner.grants, frozenset())
+        self.assertIn('enrolled-not-leased', self.panel.details.get('1.0', 'end'))
+        self.assertNotIn(fixture.value.owner, self.panel.details.get('1.0', 'end'))
+        self.assertIn('separately reviewed job policy', self.panel.status.get())
+
+    def test_pending_policy_blocks_session_enrollment(self):
+        self.panel.load_policy(self.policy)
+        self.assertIn('disabled', self.panel.enroll_button.state())
+        with patch.object(self.owner, 'enroll_recovery_session') as submit:
+            with self.assertRaises(ValueError): self.panel.enroll_session(None, self.path/'new')
+            self.panel.enroll_dialog()
+        submit.assert_not_called()
+
+    def test_declined_enrollment_dialog_never_contacts_or_submits(self):
+        import test_session_enrollment
+        fixture = test_session_enrollment.SessionEnrollmentTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        value = fixture.value
+        with patch('forge_recovery_gui.filedialog.askdirectory', side_effect=[str(fixture.stage), str(fixture.root)]), \
+                patch('forge_recovery_gui.filedialog.askopenfilename', side_effect=[str(value.probe.key), str(value.probe.known_hosts)]), \
+                patch('forge_recovery_gui.simpledialog.askstring', side_effect=[fixture.pin, value.probe.host,
+                    value.probe.kernel, value.probe.serial, value.boot_id]), \
+                patch('forge_recovery_gui.simpledialog.askinteger', return_value=1), \
+                patch('forge_recovery_gui.messagebox.askyesno', return_value=False), \
+                patch.object(RecoveryProbe, '_observe') as remote, \
+                patch.object(self.owner, 'enroll_recovery_session') as submit:
+            self.panel.enroll_button.invoke()
+        remote.assert_not_called()
+        submit.assert_not_called()
+        self.assertEqual(self.owner.jobs, {})
+
 
 if __name__ == '__main__':
     unittest.main()

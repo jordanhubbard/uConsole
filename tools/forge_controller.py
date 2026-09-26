@@ -209,6 +209,16 @@ class Controller:
             self.recovery_jobs = approved
             self.grants = self.grants | {'target-recovery'}
 
+    def enroll_recovery_session(self, name, enrollment, output):
+        """Local owner action only; not exposed through client call()/MCP."""
+        from uconsole_emulator import require_private_image_host
+        require_private_image_host()
+        from forge_session_enrollment import prepare
+        return self.submit(name, 'recovery_enroll_session', lambda: prepare(output, enrollment),
+                           target_identity=enrollment.machine_id, context={
+                               'staging_sha256': enrollment.staging_pin,
+                               'boot_id': enrollment.boot_id, 'lease_acquired': False})
+
     def submit_recovery(self, name, job):
         self.require('target-recovery')
         registry = self.recovery_jobs

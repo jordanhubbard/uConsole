@@ -78,6 +78,24 @@ an already provisioned private recovery image; it does not build/publish that
 image, qualify fallback, stage files, reboot, approve a policy, or replace the
 whole-card backup required before root writes.
 
+**Enroll recovery session…** records a fresh RAM boot after the separately
+authorized boot transition. Select the sealed staging preparation and its
+acceptance pin, pinned recovery host/key/known-hosts files, expected kernel and
+hardware serial, independently observed new boot UUID, and expected firmware
+selection (one-shot tryboot or persistent recovery). The owner is taken from
+sealed staging, never guessed or generated again. After confirmation, Workbench
+performs read-only pinned SSH identity/selection checks and writes a private
+`session/binding.json` plus its digest. It does not acquire a lease, reboot,
+write the card, approve policy or increase agent grants. Use the resulting
+session path and pin in a separately reviewed recovery-job policy.
+
+Enrollment is not lease recovery: do not use it when an existing host session
+already owns that boot. A per-staging, per-boot claim prevents duplicate wizard
+enrollment, including after an observation failure. Retain the original job,
+claim and evidence; never delete them to reset a sequence or automatically retry.
+Only `enrolled-not-leased` denotes a completed local binding, not a live lease
+or qualified fallback. This owner action is deliberately absent from MCP.
+
 The same owner preparation is available from a checkout:
 
 ```sh

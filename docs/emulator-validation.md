@@ -8,6 +8,28 @@ These results establish a usable development environment,
 
 ## Inputs
 
+### Owner-side fresh recovery enrollment (2026-09-26)
+
+Workbench now exposes **Enroll recovery session…** as an owner-only controller
+job. It derives the owner from sealed staging, pins credentials and the expected
+new boot, checks RAM identity and firmware selection, and creates an unrenewed
+local session. No lease is acquired, target written, reboot dispatched or client
+grant increased. A durable per-staging/per-boot claim rejects duplicate attempts;
+failed observations preserve evidence instead of resetting a lease sequence.
+
+All 21 focused enrollment/panel tests pass under Linux Xvfb and native macOS,
+including changed credentials/staging, wrong owner, reboot during observation,
+duplicate claims, declined GUI confirmation and unchanged client permissions.
+Logs: `build/emulator/session-enrollment-tests-20260926.log` and
+`build/emulator/macos-session-enrollment-tests-r2-20260926.log`. The native fixture
+is `/private/tmp/uconsole-enrollment.Qg7v5Zd9`. The full Linux suite also passes
+1,548 tests plus ShellCheck in `full-tests-session-enrollment-20260926.log` under
+`build/emulator/`; this was before splitting the wrong-owner and changed-boot
+subcases into separate tests, both included in the final 21-test focused runs.
+These use controlled SSH observations, not the active physical recovery target.
+The new UI is not yet physically qualified and does not complete bootstrap
+provisioning or the end-to-end guided workflow.
+
 ### Live coding-agent image round trip through packaged MCP (2026-09-26)
 
 The coding agent in this session exercised the actual macOS archive from
