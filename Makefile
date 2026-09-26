@@ -49,7 +49,7 @@ modem-flash-tool:
 	$(MAKE) -B -C '$(BUILD_DIR)/modem-fastboot' CC='$(CC)' all
 
 check:
-	$(PYTHON) -m unittest discover -s tests -v
+	$(PYTHON) tools/run_host_tests.py discover -s tests -v
 	shellcheck Code/scripts/uconsole-4g-cm5 Bin/uconsole_keyboard_flash/maple_upload Bin/uconsole_keyboard_flash/flash.sh scripts/platform.sh scripts/release.sh
 
 check-gui:

@@ -8,6 +8,24 @@ These results establish a usable development environment,
 
 ## Inputs
 
+### Bounded host-test diagnostics (2026-09-26)
+
+The superseded macOS test job in manual run `36245917832` was cancelled after
+the current-revision host/package workflow `36248033054` passed. Its retained
+log ends after a keyboard-oracle test and does not identify the stall's cause;
+the reviewed x86 desktop/package job had already completed successfully.
+`make check` now retains all-thread stack dumps every five minutes while keeping
+unittest discovery and exit semantics. CI's complete Linux/macOS test steps have
+a 20-minute limit. These are diagnostic bounds, not a claimed fix for the
+unexplained stall or permission to treat cancelled tests as passing.
+The complete Linux Xvfb suite passes 1,570 tests (one skip) plus ShellCheck in
+`build/emulator/full-tests-traceback-runner-20260926.log`. Native macOS passes
+all 18 focused runner/keyboard-oracle tests in
+`build/emulator/macos-traceback-runner-tests-20260926.log`, using fixture
+`/private/tmp/uconsole-test-traces.kzpGbi2a`. The runner tests exercise actual
+child-process success/failure exit codes and periodic stack output during a
+slow test without changing its successful result.
+
 ### Linux x86_64 desktop after UART/QMP correction (2026-09-26)
 
 The native x86 package/desktop job in run `36245917832`, revision
