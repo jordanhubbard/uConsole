@@ -87,9 +87,13 @@ both locations, consumes the displayed discovery, and performs no automatic
 retry. A successful build is **not published or boot-qualified**: neither action
 writes boot files, changes selectors, reboots, approves recovery policies, grants
 agents authority, or replaces whole-card backup and fallback qualification.
-These owner controls are deliberately absent from MCP. The build backend and
-GUI have fixture coverage; physical native-build qualification of this workflow
-is still pending. The complete guided deploy/restore loop remains unfinished.
+These owner controls are deliberately absent from MCP. In the 2026-09-26
+physical qualification at `b0458fb`, public-controller discovery, native build,
+verified private-image transfer, private mount setup/reboot, publication and
+sealed staging preparation passed. All four staging phases, one-shot recovery
+boot and fresh enrollment subsequently passed; the current-card backup/restore
+round trip is still running. These results do not yet qualify the complete
+guided deploy/restore loop or the final release revision.
 
 **Prepare private boot mount…** backs up the target's `/etc/fstab`, observes its
 normal boot and current public FAT mount, and drafts only the boot mount's
