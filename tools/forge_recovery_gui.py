@@ -10,10 +10,15 @@ from tkinter import filedialog, messagebox, ttk
 
 WARNINGS = {
     'backup-card': 'Read the offline card into a new private host backup. This does not authorize restoration.',
+    'hash-card': 'Read and hash the offline card under the bound recovery lease. This is not a backup and grants no write or boot-release authority.',
+    'prepare-hold': 'Compile a local selector plan from pinned hold, hash and backup/export evidence. No target contact or plan approval occurs; review the resulting pin separately.',
     'restore-root': 'Write the approved original backup to the offline root partition. Source filesystem errors require separate policy approval.',
     'deploy-root': 'Write the approved enhanced image root. The original backup remains the rollback source.',
     'reconcile-root': 'Fence and inspect the recorded attempt. This neither retries disk writes nor releases the recovery hold.',
     'retry-lease': 'Replay only the pending lease request with its original deadline. This does not adopt or extend a lease.',
+    'install-hold': 'Change only config.txt to keep subsequent boots in recovery. The independently approved root must still match. No reboot is performed.',
+    'release-hold': 'Restore the original config.txt selector only if the independently approved root still matches. This permits a later normal boot; it does not reboot or prove that boot succeeds.',
+    'reconcile-hold': 'Fence and inspect a previous boot-selector attempt, including independent card hashes. Do not infer retry or reboot permission from its result.',
 }
 
 
@@ -48,7 +53,7 @@ class RecoveryPanel:
         self.status = tk.StringVar(value='No action runs without confirmation. Prepared RAM-recovery session required.')
         ttk.Label(self.window, text='Backup → validated image change → deploy → reconcile → explicit boot release',
                   wraplength=760).pack(padx=12, pady=8)
-        ttk.Label(self.window, text='Advanced prepared-job controls. Firmware staging, plan preparation and boot release are not automated here.',
+        ttk.Label(self.window, text='Advanced prepared-job controls. Firmware staging and plan preparation are not automated. Boot release requires its own approved job.',
                   wraplength=760).pack(padx=12, pady=4)
         controls = ttk.Frame(self.window)
         controls.pack(padx=12, pady=4)
@@ -182,8 +187,8 @@ class RecoveryPanel:
         self.job = None
         self.refresh()
         self.show(result)
-        self.status.set(result['status'] + ': evidence retained. No rollback, hold release or reboot is implied. '
-                        'Reconcile uncertain writes; never automatically retry a failed action.')
+        self.status.set(result['status'] + ': evidence retained. No rollback or reboot is implied. '
+                        'Read the recorded selector result; reconcile uncertain writes and never automatically retry a failed action.')
 
     def close(self):
         if self.job:

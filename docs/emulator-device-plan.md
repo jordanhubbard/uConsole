@@ -54,9 +54,25 @@ The complete suites pass 1,465 tests plus shell checks on Linux and macOS
 (79 explicit platform/tool skips on macOS), retained in
 `full-tests-filesystem-portability-20260926.log` and
 `macos-full-filesystem-portability-20260926.log` under `build/emulator/`.
-Firmware staging, recovery-plan preparation and safe boot release still need
-integration into the guided host/target flow. The physical enhanced-image
+Firmware staging and recovery-plan preparation still need integration into the
+guided host/target flow. Prepared hold installation, release and reconciliation
+now have distinct owner-approved jobs with independent root guards, but their
+public workflow and subsequent physical boot still require qualification. The physical enhanced-image
 deploy/verify/rollback loop and final release-wide evidence remain required.
+
+Prepared hold workflow (2026-09-26): fixed `hash-card`, `prepare-hold`,
+`install-hold`, `release-hold` and `reconcile-hold` jobs now use the same scoped
+Workbench/MCP controller. Preparation derives the independent root guard from
+an explicitly typed, pinned backup/export manifest; it cannot silently adopt
+the live card's digest or approve its own resulting plan. The 1,475-test suites
+and shell checks pass on Linux and macOS (79 explicit macOS skips), retained in
+`full-tests-hold-jobs-r2-20260926.log` and `macos-full-hold-jobs-20260926.log`.
+All 31 focused job/panel tests also pass natively on macOS. Pure host preparation
+using retained physical hold/hash/source evidence passes in
+`physical-hold-plan-authoring-20260926/`: target contact, lease opening and
+dispatch were forbidden, and the resulting release draft remains unapproved.
+That draft does not replace the live physical runner or qualify current card
+state. Logs and records above are under `build/emulator/`.
 
 Build-upgrade qualification (2026-09-25): the QEMU builder now isolates source
 and build trees by frozen patch contents and recipe, retaining the previous

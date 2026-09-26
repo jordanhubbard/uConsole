@@ -203,6 +203,24 @@ class RecoveryJobsTests(unittest.TestCase):
             backup.assert_called_once_with(job.probe, str(self.root/'new'), 'a'*32, '12345678',
                                            boot_id=self.boot, device='/dev/mmcblk0', lease=lease, whole_card=True)
 
+    def test_hash_job_is_independent_readonly_observation_not_backup(self):
+        self.item.update(operation='hash-card', arguments=dict(destination=str(self.root/'new'),
+                         cid='a'*32, disk_id='12345678', device='/dev/mmcblk0'))
+        self.save()
+        job = self.registry().get('proof', 'main')
+        with patch('forge_recovery_jobs.Session') as session, patch('forge_recovery_hash.capture',
+                return_value=dict(status='verified-offline-storage-digests', is_backup=False,
+                                  target_written=False)) as capture:
+            lease = session.return_value.__enter__.return_value
+            lease.unresolved = False
+            self.assertFalse(execute(job)['is_backup'])
+            capture.assert_called_once_with(job.probe, str(self.root/'new'), 'a'*32, '12345678',
+                                            boot_id=self.boot, device='/dev/mmcblk0', lease=lease)
+        (self.root/'new').mkdir()
+        with patch('forge_recovery_jobs.Session') as session:
+            with self.assertRaises(FileExistsError): execute(job)
+            session.assert_not_called()
+
 
 if __name__ == '__main__':
     unittest.main()

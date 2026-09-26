@@ -151,7 +151,7 @@ class RecoveryPanelTests(unittest.TestCase):
             self.panel.poll()
             worker.assert_called_once()
         self.assertIn('uncertain write', self.panel.details.get('1.0', 'end'))
-        self.assertIn('Reconcile uncertain writes', self.panel.status.get())
+        self.assertIn('reconcile uncertain writes', self.panel.status.get())
 
     def test_nonregular_or_oversized_policy_refused(self):
         fifo = self.path/'fifo'

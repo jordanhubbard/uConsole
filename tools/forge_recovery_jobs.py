@@ -17,10 +17,15 @@ from forge_target_journal import private_directory, read_record
 
 FIELDS = {
     'backup-card': {'cid', 'disk_id', 'device', 'destination'},
+    'hash-card': {'cid', 'disk_id', 'device', 'destination'},
     'restore-root': {'journal', 'plan_sha256', 'source_directory', 'health_directory',
                      'health_sha256', 'accept_filesystem_errors'},
     'deploy-root': {'journal', 'plan_sha256', 'source_directory', 'health_directory', 'health_sha256'},
     'reconcile-root': {'journal', 'plan_sha256'},
+    'install-hold': {'journal', 'plan_sha256', 'root_sha256', 'root_bytes'},
+    'release-hold': {'journal', 'plan_sha256', 'root_sha256', 'root_bytes'},
+    'reconcile-hold': {'journal', 'plan_sha256', 'root_sha256', 'root_bytes', 'transition'},
+    'prepare-hold': {'input_directory', 'input_sha256', 'destination', 'transition'},
     'retry-lease': set(),
 }
 
@@ -86,9 +91,15 @@ class RecoveryJobs:
                 raise ValueError('Recovery operation arguments differ from their fixed schema')
             for field, argument in arguments.items():
                 if field.endswith('_sha256'): sha(argument)
-                elif field in ('journal', 'source_directory', 'health_directory', 'destination'): path(argument)
+                elif field in ('journal', 'source_directory', 'health_directory', 'destination', 'input_directory'): path(argument)
                 elif field == 'accept_filesystem_errors':
                     if type(argument) is not bool: raise ValueError('Filesystem-error review must be explicit boolean')
+                elif field == 'root_bytes':
+                    if type(argument) is not int or not 512 <= argument < 2**63 or argument % 512:
+                        raise ValueError('Recovery hold requires an aligned owner-approved root size')
+                elif field == 'transition':
+                    if not isinstance(argument, str) or argument not in ('install-hold', 'release-hold'):
+                        raise ValueError('Hold reconciliation requires an explicit transition')
                 elif field == 'cid':
                     if not isinstance(argument, str) or not re.fullmatch('[0-9a-f]{32}', argument):
                         raise ValueError('Recovery backup requires a pinned card CID')
@@ -128,8 +139,16 @@ class RecoveryJobs:
 def execute(job):
     """One foreground action under a durable session; never chain a failed action."""
     arguments = job.arguments
-    if job.operation == 'backup-card' and os.path.lexists(arguments['destination']):
-        raise FileExistsError('Backup destination exists; preserve it and review a new job')
+    if job.operation in ('backup-card', 'hash-card', 'prepare-hold') and os.path.lexists(arguments['destination']):
+        raise FileExistsError('Recovery destination exists; preserve it and review a new job')
+    hold = None
+    if job.operation in ('install-hold', 'release-hold', 'reconcile-hold'):
+        from forge_recovery_hold_jobs import load
+        hold = load(job)
+    preparation = None
+    if job.operation == 'prepare-hold':
+        from forge_recovery_hold_jobs import load_preparation
+        preparation = load_preparation(job)
     with Session(job.session, job.session_pin, job.probe, job.boot_id, job.owner) as lease:
         if job.operation == 'retry-lease':
             receipt = lease.retry_pending()
@@ -137,6 +156,16 @@ def execute(job):
                         root_written=False, normal_boot_release_authorized=False)
         if lease.unresolved:
             raise RuntimeError('Resolve the pending lease through its separately approved retry job')
+        if preparation is not None:
+            from forge_recovery_hold_jobs import prepare
+            return prepare(job, preparation)
+        if hold is not None:
+            from forge_recovery_hold_jobs import execute as execute_hold
+            return execute_hold(job, lease, hold)
+        if job.operation == 'hash-card':
+            from forge_recovery_hash import capture
+            return capture(job.probe, arguments['destination'], arguments['cid'], arguments['disk_id'],
+                           boot_id=job.boot_id, device=arguments['device'], lease=lease)
         if job.operation == 'backup-card':
             from forge_recovery_backup import backup
             return backup(job.probe, arguments['destination'], arguments['cid'], arguments['disk_id'],

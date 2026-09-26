@@ -1,6 +1,6 @@
 """Separate mutating SSH channel with durable two-phase CONFIG intent.
 
-No UI/MCP route calls this yet. authorize(plan) must be the trusted owner gate,
+authorize(plan) must be the trusted owner gate,
 not client flags or the read-only backup lease. There is exactly one attempt
 per pinned journal: failures retain uncertain evidence and require inspection.
 """

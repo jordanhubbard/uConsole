@@ -77,7 +77,8 @@ This is an advanced prepared-session interface, **not yet a complete guided
 hardware deployment workflow**. The owner must already have a private,
 digest-pinned physical recovery session and the operation's validated backup,
 health and plan journals. No tool here stages recovery firmware, adopts a live
-lease, releases the recovery hold, or reboots the target. Public physical image
+lease, or reboots the target. Hold installation/release require separate approved
+jobs with independent root guards. Public physical image
 deployment qualification remains open.
 
 Policy schema 1 contains a `jobs` object with 1–64 named entries. Each entry has
@@ -90,9 +91,14 @@ kernel, boot UUID and lease owner. Only physical sessions are accepted here.
 | Operation | Exact argument fields |
 | --- | --- |
 | `backup-card` | `cid`, `disk_id`, `device` (only `/dev/mmcblk0`), `destination` |
+| `hash-card` | `cid`, `disk_id`, `device` (only `/dev/mmcblk0`), `destination` |
+| `prepare-hold` | `input_directory`, `input_sha256`, `destination`, `transition` (`install-hold` or `release-hold`) |
 | `restore-root` | `journal`, `plan_sha256`, `source_directory`, `health_directory`, `health_sha256`, `accept_filesystem_errors` (boolean) |
 | `deploy-root` | `journal`, `plan_sha256`, `source_directory`, `health_directory`, `health_sha256` |
 | `reconcile-root` | `journal`, `plan_sha256` |
+| `install-hold` | `journal`, `plan_sha256`, `root_sha256`, `root_bytes` |
+| `release-hold` | `journal`, `plan_sha256`, `root_sha256`, `root_bytes` |
+| `reconcile-hold` | `journal`, `plan_sha256`, `root_sha256`, `root_bytes`, `transition` (`install-hold` or `release-hold`) |
 | `retry-lease` | No fields |
 
 An uncertain result must not be automatically retried. Existing backup destinations
@@ -102,6 +108,29 @@ release. A pending lease renewal blocks other actions: only an explicitly approv
 `retry-lease` job can replay its exact original request, without extending its
 deadline. Host journals and the original backup remain authoritative evidence;
 historical job success does not establish current boot identity or lease validity.
+
+Hold jobs change only the recovery boot selector (`config.txt`), not root data.
+`hash-card` supplies a separate read-only card/root/protected-range observation
+for plan preparation; it is not a substitute for the original retained backup.
+`prepare-hold` compiles a private local draft from an owner-pinned `inputs.json`
+in `input_directory`. Its schema-1 object has exactly `schema`, `hold_review`,
+`hash_plan`, `hash_observation`, `source_manifest`, `source_manifest_sha256`, and
+`source_kind`. The source kind is explicitly `backup-root-chunk-source` or
+`root-only-image-derivative`; source validation and the hold compiler must agree
+on root bytes, target, nonce, boot and lease owner. The input pin is the canonical
+journal digest. A successful preparation returns a new plan pin, not permission
+to execute it: the owner must separately review and approve an install/release
+job using that pin and source root guard. It neither contacts the target nor
+changes boot files, and refuses an existing destination.
+The root digest and aligned byte count must come from an independently reviewed
+backup/export, not from automatically adopting the current card. Before any
+target contact, the host checks the plan pin, exact operation, normal-system
+machine identity, physical RAM binding and root guard. The worker then rechecks
+the live lease, hashes, protected boot files and recovery-image dependency before
+the bounded selector commit. Existing attempts cannot be dispatched again.
+Use `reconcile-hold` to fence and inspect a retained attempt; it grants no retry
+or reboot authority. Releasing the selector does not prove a successful normal
+boot, and installing it does not prove a successful persistent recovery boot.
 
 Offline backup and derivative filesystem checks support Linux and macOS. Run
 `make deps` to install `dosfstools` and `e2fsprogs`. On macOS the checker resolver
