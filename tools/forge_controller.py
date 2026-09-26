@@ -377,6 +377,19 @@ class Controller:
                                'session_sha256': source.session_pin, 'plan_sha256': frozen['plan_sha256'],
                                'policy_approved': False})
 
+    def prepare_recovery_release(self, name, source, reviewed, output, *, accept_filesystem_errors=False):
+        """Owner-only normal-selector draft after independent root reconciliation."""
+        import copy
+        from uconsole_emulator import require_private_image_host
+        require_private_image_host()
+        from forge_release_policy import prepare
+        frozen = copy.deepcopy(reviewed)
+        return self.submit(name, 'recovery_prepare_release_policy', lambda: prepare(output, source, frozen, name,
+                           accept_filesystem_errors=accept_filesystem_errors),
+                           target_identity=source.machine_id, context={
+                               'session_sha256': source.session_pin, 'root_plan_sha256': frozen['plan_sha256'],
+                               'policy_approved': False})
+
     def prepare_backup_source(self, name, reviewed, output):
         """Owner-only offline preparation; never acquires recovery authority."""
         import copy

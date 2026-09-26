@@ -829,6 +829,43 @@ class RecoveryPanelTests(unittest.TestCase):
         submit.assert_not_called()
         self.assertEqual(confirm.call_args.args[0], 'Prepare root-transfer draft only')
 
+    def test_release_draft_is_separately_reviewed_without_reboot_or_grants(self):
+        import test_release_policy
+        fixture = test_release_policy.ReleasePolicyTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        with patch.object(RecoveryProbe, '_observe') as remote:
+            self.panel.prepare_release(fixture.source, fixture.reviewed(), fixture.output, accept_filesystem_errors=True)
+            self.owner.jobs[self.panel.job][2].result(timeout=5)
+        remote.assert_not_called()
+        self.panel.poll()
+        self.assertIsNotNone(self.panel.pending)
+        self.assertIsNone(self.owner.recovery_jobs)
+        self.assertEqual(self.owner.grants, frozenset())
+        self.assertIn('release-hold', self.panel.details.get('1.0', 'end'))
+        self.assertIn('No selector changed', self.panel.status.get())
+        with self.assertRaises(ValueError): self.owner.call('prepare_recovery_release', {'workspace': 'gui'})
+
+    def test_declined_original_errors_prevent_release_draft(self):
+        import test_release_policy
+        from forge_recovery_bootplan import digest
+        f = test_release_policy.ReleasePolicyTests()
+        f.setUp()
+        self.addCleanup(f.doCleanups)
+        accepted = json.loads((f.source.directory/'acceptance.json').read_text())
+        self.panel.enrollment_ready = ((f.source.directory, f.source.probe.key, f.source.probe.known_hosts), accepted)
+        self.panel.refresh()
+        with patch('forge_recovery_gui.filedialog.askdirectory', side_effect=[str(f.journal), str(f.reconciliation),
+                   str(f.review_directory), str(f.f.source.source)]), \
+                patch('forge_recovery_gui.simpledialog.askstring', side_effect=[f.pin, digest(f.accepted), f.review_pin]), \
+                patch('forge_recovery_gui.messagebox.askyesno', return_value=False) as confirm, \
+                patch.object(RecoveryProbe, '_observe') as remote, patch.object(self.owner, 'prepare_recovery_release') as submit:
+            self.panel.release_prepare_button.invoke()
+        remote.assert_not_called()
+        submit.assert_not_called()
+        self.assertEqual(confirm.call_args.args[0], 'Normal boot retains original filesystem errors')
+        self.assertEqual(confirm.call_args.kwargs['default'], 'no')
+
     def test_declined_backup_draft_has_no_target_contact(self):
         import test_backup_policy
         fixture = test_backup_policy.BackupPolicyTests()

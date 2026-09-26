@@ -289,6 +289,22 @@ grant agent authority, reboot, or release normal boot. Native compatibility and
 post-write reconciliation/release remain separate gates. Host fixtures for the
 new controls are not physical qualification of this route.
 
+**Prepare normal-boot release…** requires the root operation's plan pin and a
+completed independent root-reconciliation journal, plus the original
+`hold-review.json` and its pin (normally in sealed staging) and the retained
+original backup. Workbench reclassifies the saved fence, file inspection and
+full-card hashes, rather than trusting a success label. Only the approved source
+root with intact protected ranges and held files qualifies; an incomplete
+same-boot writer that requires a new recovery boot does not. Independent recovery
+in a freshly enrolled boot can qualify without falsely changing the original
+attempt to completed. Source health stays bound to the original operation;
+known original filesystem errors require a separate default-No decision.
+The result is an unapproved `release-hold` policy. Preparation is offline and
+does not renew a lease, change boot selection, reboot, write root bytes or grant
+agent authority. Review/approval and selector execution remain separate. Normal
+return and cleanup are subsequent actions; keep the private boot mount until
+all credential-bearing boot artifacts have been removed through their journals.
+
 For a completed retained backup, **Prepare retained backup source…** is an
 owner-only, host-only action. Select the private backup directory and its
 owner-recorded canonical `acceptance.json` SHA-256, then review the card size,
