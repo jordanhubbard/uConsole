@@ -234,6 +234,18 @@ class Controller:
                            target_identity=frozen['native']['boot']['machine_id'], context={
                                'build_acceptance_sha256': acceptance_pin, 'publication_authorized': False})
 
+    def publish_recovery_image(self, name, reviewed):
+        """Owner confirmation only; no client grant, selector change or reboot."""
+        from uconsole_emulator import require_private_image_host
+        require_private_image_host()
+        import copy
+        from forge_recovery_publication_dispatch import publish
+        from forge_recovery_bootplan import digest
+        frozen = copy.deepcopy(reviewed)
+        return self.submit(name, 'recovery_publish_image', lambda: publish(frozen),
+                           target_identity=frozen['plan']['machine_id'], context={
+                               'plan_sha256': digest(frozen['plan']), 'reboot_authorized': False})
+
     def approve_recovery_policy(self, path, digest):
         """Local owner action only; clients cannot approve or replace policy."""
         approved = self.load_recovery_policy(path, digest)

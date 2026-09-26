@@ -145,7 +145,7 @@ class RecoveryPanelTests(unittest.TestCase):
             with self.assertRaises(ValueError): self.panel.discover_builder('fixture')
             submit.assert_not_called()
         client = ClientSession(self.owner, ['gui'])
-        for name in ('discover_recovery_builder', 'build_recovery_image', 'prepare_recovery_publication'):
+        for name in ('discover_recovery_builder', 'build_recovery_image', 'prepare_recovery_publication', 'publish_recovery_image'):
             with self.assertRaises((ValueError, PermissionError)):
                 client.call(name, {'workspace': 'gui'})
 
@@ -177,6 +177,47 @@ class RecoveryPanelTests(unittest.TestCase):
             self.panel.publication_dialog()
             submit.assert_not_called()
         self.assertEqual(self.owner.jobs, {})
+
+    def publication_fixture(self):
+        import test_recovery_publication_dispatch
+        fixture = test_recovery_publication_dispatch.PublicationDispatchTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        return fixture
+
+    def test_publication_is_explicit_owner_job_without_agent_grants(self):
+        fixture = self.publication_fixture()
+        with patch('forge_recovery_publication_dispatch.publish', return_value=dict(status='published-not-boot-qualified')) as publish:
+            self.panel.publish_image(fixture.frozen)
+            job = self.panel.job
+            self.assertFalse(self.panel.close())
+            self.assertIn('disabled', self.panel.publish_button.state())
+            self.owner.jobs[job][2].result(timeout=5)
+            self.panel.poll()
+            publish.assert_called_once_with(fixture.frozen)
+        self.assertEqual(self.owner.grants, frozenset())
+        self.assertIn('No reboot or root-write authority', self.panel.status.get())
+
+    def test_declined_publication_never_submits(self):
+        fixture = self.publication_fixture()
+        with patch('forge_recovery_gui.filedialog.askdirectory', return_value=str(fixture.directory)), \
+                patch('forge_recovery_gui.messagebox.askyesno', return_value=False), \
+                patch.object(self.owner, 'publish_recovery_image') as submit:
+            self.panel.publish_dialog()
+            submit.assert_not_called()
+        self.assertEqual(self.owner.jobs, {})
+
+    def test_changed_publication_during_confirmation_refused(self):
+        fixture = self.publication_fixture()
+        def change(*args, **kwargs):
+            (fixture.directory/'publish-attempt').mkdir(mode=0o700)
+            return True
+        with patch('forge_recovery_gui.filedialog.askdirectory', return_value=str(fixture.directory)), \
+                patch('forge_recovery_gui.messagebox.askyesno', side_effect=change), \
+                patch.object(self.owner, 'publish_recovery_image') as submit:
+            self.panel.publish_dialog()
+            submit.assert_not_called()
+        self.assertIn('not submitted', self.panel.status.get())
 
     def test_review_is_local_and_never_displays_credential_contents(self):
         with patch.object(RecoveryProbe, '_observe', side_effect=AssertionError('unexpected SSH')):

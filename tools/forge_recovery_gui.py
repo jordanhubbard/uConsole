@@ -80,6 +80,8 @@ class RecoveryPanel:
         self.build_button.pack(side='left', padx=4)
         self.publication_button = ttk.Button(builder, text='Prepare publication…', command=self.publication_dialog)
         self.publication_button.pack(side='left', padx=4)
+        self.publish_button = ttk.Button(builder, text='Publish reviewed image…', command=self.publish_dialog)
+        self.publish_button.pack(side='left', padx=4)
         self.choice = ttk.Combobox(self.window, textvariable=self.selected, state='readonly', width=50)
         self.choice.pack(padx=12, pady=4)
         self.choice.bind('<<ComboboxSelected>>', lambda event: self.review())
@@ -118,6 +120,7 @@ class RecoveryPanel:
         self.discover_build_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.build_button.state(['!disabled'] if self.build_candidate and not self.job and not self.pending else ['disabled'])
         self.publication_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
+        self.publish_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         if not self.pending:
             self.review()
 
@@ -186,6 +189,41 @@ class RecoveryPanel:
             self.prepare_publication(directory, pin, Path(parent)/('recovery-publication-'+uuid.uuid4().hex))
         except Exception as exc:
             self.status.set('Publication preparation not submitted: ' + str(exc))
+
+    def publish_dialog(self):
+        if self.job or self.pending:
+            return
+        directory = filedialog.askdirectory(parent=self.window, title='Completed publication preparation journal')
+        if not directory:
+            return
+        try:
+            from forge_recovery_publication_dispatch import inputs
+            pin = policy_pin(Path(directory)/'acceptance.json')
+            frozen = inputs(directory, pin)
+            plan = frozen['plan']
+            self.show(dict(plan=plan, expected_boot=frozen['boot'], preparation_sha256=pin))
+            if not messagebox.askyesno('Publish credential-bearing recovery image',
+                    f'Publish the displayed exact image on {plan["host"]}?\n\n'
+                    f'SHA-256: {plan["sha256"]}\nDestination: {plan["destination"]}\n\n'
+                    'This writes one credential-bearing image to the verified private boot filesystem. It does not '
+                    'change boot selectors, reboot, qualify fallback or authorize root writes. Keep Workbench open. '
+                    'Failure may leave publication uncertain: retain evidence and inspect, never automatically retry.', parent=self.window):
+                return
+            if inputs(directory, pin) != frozen:
+                raise ValueError('Publication changed during confirmation; review again')
+            self.publish_image(frozen)
+        except Exception as exc:
+            self.status.set('Publication not submitted: ' + str(exc))
+
+    def publish_image(self, frozen):
+        if self.job or self.pending:
+            raise ValueError('Finish the current job or review before publishing')
+        submitted = self.controller.publish_recovery_image(self.workspace, frozen)
+        self.job, self.job_kind = submitted['job_id'], 'publish-image'
+        self.preparation_output = Path(frozen['directory'])/'publish-attempt'
+        self.refresh()
+        self.status.set('Publication accepted. Keep Workbench open; do not resubmit after a status failure.')
+        self.timer = self.window.after(100, self.poll)
 
     def prepare_publication(self, directory, pin, output):
         if self.job or self.pending:
@@ -462,7 +500,12 @@ class RecoveryPanel:
             return
         if self.job_kind == 'prepare-publication':
             self.status.set(result['status'] + f': publication draft/evidence at {self.preparation_output}. '
-                            'Not published or approved. Private mount provisioning and publication execution are separate owner steps.')
+                            'Not published or approved. Review separately with Publish reviewed image.')
+            return
+        if self.job_kind == 'publish-image':
+            self.status.set(result['status'] + f': publication evidence at {self.preparation_output}. '
+                            'No reboot or root-write authority. Inspect uncertain publication; never automatically retry. '
+                            'Only published-not-boot-qualified confirms this publication; fallback remains separate.')
             return
         if self.job_kind == 'enroll-session':
             if result['status'] == 'completed' and result['result'].get('status') == 'enrolled-not-leased':

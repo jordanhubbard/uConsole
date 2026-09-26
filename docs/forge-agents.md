@@ -85,8 +85,8 @@ writes boot files, changes selectors, reboots, approves recovery policies, grant
 agents authority, or replaces whole-card backup and fallback qualification.
 These owner controls are deliberately absent from MCP. The build backend and
 GUI have fixture coverage; physical native-build qualification of this workflow
-is still pending. Publication/bootstrap and guided deploy/restore remain separate
-unfinished steps.
+is still pending. Private-mount provisioning, boot orchestration and guided
+deploy/restore remain separate unfinished steps.
 
 **Prepare publication…** accepts a completed private build journal and the
 SHA-256 of its `acceptance.json`. After owner review it verifies the retained
@@ -95,8 +95,21 @@ inspects the persistent private mount policy and proposed destination. It writes
 an exact publication draft under `publication/` and an owner review with its plan
 pin. This step refuses a public boot mount, existing destination, changed build
 or reboot. It never publishes, changes mount permissions, alters fstab or approves
-an operation. Private mount provisioning and publication execution are still
-separate owner steps; this is not a completed bootstrap wizard.
+an operation. Private mount provisioning remains a separate owner step; this is
+not a completed bootstrap wizard.
+
+**Publish reviewed image…** selects that completed preparation and displays its
+exact target, source, destination, digest and expected normal boot. Confirmation
+authorizes one credential-bearing image publication, not a selector change or
+reboot. The controller rechecks the pinned inputs, records durable intent, checks
+private policy and absence, and verifies publication acknowledgement and final
+private bytes. A `publish-attempt/` journal prevents resubmission even after a
+failed preflight. If SSH or final verification fails, retain the journal and
+inspect/reconcile the original publication operation; do not delete evidence to
+retry. `published-not-boot-qualified` confirms publication only. Use its
+`publication/` journal and plan pin for the separate staging preparation; physical
+fallback qualification and full-card backup remain required. This owner action
+is not exposed through MCP and does not expand agent grants.
 
 **Prepare boot staging…** is an owner-only normal-SSH preparation step, not an
 agent permission or a staging action. Select an acknowledged private recovery
