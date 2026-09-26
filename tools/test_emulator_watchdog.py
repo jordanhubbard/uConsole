@@ -78,6 +78,19 @@ def main():
                     qtest('clock_step 6000000000')
                     qmp('query-status')
                     assert 'RESET' not in events
+                    # Match the production driver's start/ping sequence with
+                    # a 60-second userspace timeout: the 20-bit hardware value
+                    # wraps to 12 seconds and the core refreshes it within 8.
+                    # Exercise many refreshes, not just one successful reload.
+                    for heartbeat in range(128):
+                        qtest('writel 0xfe100024 0x5a0c0000')
+                        qtest('writel 0xfe10001c 0x5a000122')
+                        qtest('clock_step 8000000000')
+                        left = int(qtest('readl 0xfe100024').split()[1], 16)
+                        assert left == 4 * 65536, (heartbeat, left)
+                        qmp('query-status')
+                        assert 'RESET' not in events, (heartbeat, events)
+                    qtest('writel 0xfe10001c 0x5a000102')
                     qtest('writel 0xfe100024 0x5a010000')
                     qtest('writel 0xfe10001c 0x5a000020')
                     qtest('clock_step 1000000000')
@@ -90,7 +103,7 @@ def main():
                     qtest('clock_step 1000000')
                     qmp('query-status')
                     assert 'SHUTDOWN' in events, 'Linux poweroff request failed'
-                    print('PASS: watchdog arm, countdown, reload, cancel, password, expiry, poweroff')
+                    print('PASS: watchdog arm, countdown, sustained heartbeat, reload, cancel, password, expiry, poweroff')
             except Exception:
                 print((directory / 'qemu.log').read_text())
                 raise
