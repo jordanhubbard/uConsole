@@ -244,14 +244,34 @@ class Controller:
             if approved.kind == 'service':
                 from forge_target_service_dispatch import dispatch
                 return dispatch(approved.journal, direction, approved.authorization_sha256)
+            if approved.kind == 'recovery-stage':
+                from forge_recovery_stage_dispatch import dispatch
+                return dispatch(approved.journal, approved.authorization_sha256, approved.phase, direction,
+                                authorize=lambda request: request if request['boot_id'] == approved.boot_id else None)
             from forge_target_ssh import dispatch
             return dispatch(approved.journal, direction, approved_plan_sha256=approved.plan_sha256)
 
         return self.submit(name, 'target_' + direction, execute, target_identity=machine_id, context={
             'transaction': approved.name, 'direction': direction,
             'policy_sha256': self.targets.sha256,
-            **({'kind': 'service', 'authorization_sha256': approved.authorization_sha256}
+            **({'kind': approved.kind, 'authorization_sha256': approved.authorization_sha256,
+                'phase': approved.phase, 'boot_id': approved.boot_id} if approved.kind == 'recovery-stage' else
+               {'kind': 'service', 'authorization_sha256': approved.authorization_sha256}
                if approved.kind == 'service' else {'plan_sha256': approved.plan_sha256})})
+
+    def submit_target_staging_reconcile(self, name, transaction, direction):
+        self.require('target-write')
+        approved = self.targets.get(transaction, name)
+        if approved.kind != 'recovery-stage' or direction not in ('apply', 'restore'):
+            raise ValueError('Choose an approved recovery staging phase and its attempted direction')
+        from forge_target_recovery import binding
+        _, machine_id = binding(approved)
+        def execute():
+            from forge_recovery_stage_dispatch import reconcile
+            return reconcile(approved.journal, approved.authorization_sha256, approved.phase, direction)
+        return self.submit(name, 'target_staging_reconcile', execute, target_identity=machine_id, context={
+            'transaction': approved.name, 'direction': direction, 'phase': approved.phase,
+            'authorization_sha256': approved.authorization_sha256, 'policy_sha256': self.targets.sha256})
 
     def submit_target_recovery(self, name, transaction):
         # Existing physical-target authority is required even for this fixed
@@ -803,6 +823,8 @@ class Controller:
             return self.submit_target(name, args['transaction'], args['direction'])
         if tool == 'target_recovery_inspect':
             return self.submit_target_recovery(name, args['transaction'])
+        if tool == 'target_staging_reconcile':
+            return self.submit_target_staging_reconcile(name, args['transaction'], args['direction'])
         if tool == 'host_tasks':
             return {'tasks': self.host_tasks.describe(name) if self.host_tasks else [],
                     'execution_granted': 'host-task' in self.grants}

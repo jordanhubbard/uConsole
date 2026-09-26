@@ -9,6 +9,11 @@ import uuid
 
 
 def binding(approved):
+    if approved.kind == 'recovery-stage':
+        from forge_recovery_stage_review import load
+        reviewed = load(approved.journal, approved.authorization_sha256)
+        image = reviewed['request']['image_plan']
+        return image['host'], image['machine_id']
     if approved.kind == 'service':
         from forge_target_service_dispatch import locked, transaction, digest
         from forge_target_journal import read_record

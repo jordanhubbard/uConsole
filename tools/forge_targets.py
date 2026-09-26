@@ -16,9 +16,14 @@ class TargetTransaction:
     plan_sha256: str = ''
     authorization_sha256: str = ''
     kind: str = 'files'
+    phase: str = ''
+    boot_id: str = ''
 
     def definition(self):
         base = {'workspace': self.workspace, 'journal': str(self.journal)}
+        if self.kind == 'recovery-stage':
+            return dict(base, kind=self.kind, authorization_sha256=self.authorization_sha256,
+                        phase=self.phase, boot_id=self.boot_id)
         if self.kind == 'service':
             return dict(base, kind='service', authorization_sha256=self.authorization_sha256)
         return dict(base, plan_sha256=self.plan_sha256)
@@ -48,10 +53,16 @@ class TargetTransactions:
             if not isinstance(item, dict):
                 raise ValueError('Invalid target transaction fields')
             service = item.get('kind') == 'service'
-            fields = {'workspace', 'journal', 'kind', 'authorization_sha256'} if service else {'workspace', 'journal', 'plan_sha256'}
+            staging = item.get('kind') == 'recovery-stage'
+            fields = {'workspace', 'journal', 'kind', 'authorization_sha256'} if service or staging else {'workspace', 'journal', 'plan_sha256'}
+            if staging: fields |= {'phase', 'boot_id'}
             if set(item) != fields:
                 raise ValueError('Invalid target transaction fields')
-            pin = 'authorization_sha256' if service else 'plan_sha256'
+            pin = 'authorization_sha256' if service or staging else 'plan_sha256'
+            if staging and (item['phase'] not in ('firmware-start', 'firmware-fixup', 'command', 'selector') or
+                    not isinstance(item['boot_id'], str) or not re.fullmatch(
+                        '[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}', item['boot_id'])):
+                raise ValueError('Staging approval requires a fixed phase and explicit normal boot UUID')
             if not isinstance(item['workspace'], str) or item['workspace'] not in workspaces:
                 raise ValueError('Target transaction must bind to a registered workspace')
             if (not isinstance(item['journal'], str) or not Path(item['journal']).is_absolute() or
@@ -59,7 +70,8 @@ class TargetTransactions:
                     not re.fullmatch('[0-9a-f]{64}', item[pin])):
                 raise ValueError('Target transaction requires an absolute journal and approved plan digest')
             self.transactions[name] = TargetTransaction(name, item['workspace'], Path(item['journal']),
-                                                        **{pin: item[pin]}, kind='service' if service else 'files')
+                **{pin: item[pin]}, kind='recovery-stage' if staging else 'service' if service else 'files',
+                **({'phase': item['phase'], 'boot_id': item['boot_id']} if staging else {}))
 
     def get(self, name, workspace):
         item = self.transactions.get(name)
@@ -69,7 +81,9 @@ class TargetTransactions:
 
     def describe(self, workspace):
         return [dict({'name': item.name, 'policy_sha256': self.sha256},
-                     **({'kind': 'service', 'authorization_sha256': item.authorization_sha256}
+                     **({'kind': item.kind, 'authorization_sha256': item.authorization_sha256,
+                         'phase': item.phase, 'boot_id': item.boot_id} if item.kind == 'recovery-stage' else
+                        {'kind': 'service', 'authorization_sha256': item.authorization_sha256}
                         if item.kind == 'service' else {'plan_sha256': item.plan_sha256}))
                 for item in sorted(self.transactions.values(), key=lambda item: item.name)
                 if item.workspace == workspace]

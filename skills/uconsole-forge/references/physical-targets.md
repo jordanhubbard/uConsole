@@ -35,6 +35,23 @@ once running. Check the result and context: file transactions carry
 `authorization_sha256`; both retain `policy_sha256`. These pins bind the reviewed
 operation, not proof that arbitrary application behavior is safe.
 
+For `kind: recovery-stage`, listings/context additionally bind the sealed
+preparation's `authorization_sha256`, one `phase`, and an owner-approved normal
+`boot_id`. Apply phases in order: `firmware-start`, `firmware-fixup`, `command`,
+`selector`; restore in reverse order. Apply requires the original prepared boot;
+restore after reboot requires new owner approval for the observed normal boot.
+Do not replace a boot UUID or reapprove a plan yourself to bypass that boundary.
+
+A failed staging invocation must not be resubmitted. Use
+`target_staging_reconcile` with the same transaction and attempted `direction`;
+it fences delayed work and inspects files without retrying the write. Poll its
+job and inspect `outcome`, file conflicts, scratch files and `requires_new_boot`.
+An incomplete attempt requires a separately reviewed normal reboot and another
+reconciliation before further writes. Reconciliation does not authorize that
+reboot or new-boot writes. Staging does not enter RAM recovery, release a hold,
+deploy a root image, or prove physical fallback. Keep these separate from the
+ordinary file/service transactions below.
+
 Workbench's physical-target panel can prepare file or standalone-service plans.
 **Prepare service…** captures backups without granting writes. Separate approval
 creates a private target journal and registers the pinned pair; it does not

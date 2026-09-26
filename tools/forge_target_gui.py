@@ -34,6 +34,8 @@ class TargetPanel:
         self.prepare_button.pack(side='left')
         self.service_prepare_button = ttk.Button(author_actions, text='Prepare service…', command=self.prepare_service_dialog)
         self.service_prepare_button.pack(side='left', padx=4)
+        self.staging_review_button = ttk.Button(author_actions, text='Review recovery staging…', command=self.review_staging)
+        self.staging_review_button.pack(side='left', padx=4)
         self.approve_button = ttk.Button(author_actions, text='Approve reviewed plan…', command=self.approve)
         self.approve_button.pack(side='left', padx=4)
         self.approve_button.state(['disabled'])
@@ -51,6 +53,15 @@ class TargetPanel:
             if not listing['execution_granted'] or not names:
                 button.state(['disabled'])
         self.buttons.append(self.inspect_button)
+        self.reconcile_buttons = []
+        for direction in ('apply', 'restore'):
+            button = ttk.Button(actions, text='Reconcile staging '+direction+'…',
+                                command=lambda d=direction: self.reconcile_staging(d))
+            button.pack(side='left', padx=4)
+            self.buttons.append(button)
+            self.reconcile_buttons.append(button)
+            button.state(['disabled'])
+        ttk.Button(self.window, text='Recheck job status', command=self.poll).pack(padx=12, pady=4)
         ttk.Label(self.window, textvariable=self.status, wraplength=650).pack(padx=12, pady=8)
         self.window.protocol('WM_DELETE_WINDOW', self.close)
         self.review()
@@ -58,6 +69,9 @@ class TargetPanel:
     def plan_summary(self):
         from forge_target_journal import locked
         approved = self.controller.targets.get(self.selected.get(), self.workspace)
+        if approved.kind == 'recovery-stage':
+            from forge_recovery_stage_gui import summary
+            return summary(approved)
         if approved.kind == 'service':
             from forge_target_service_dispatch import locked as service_locked, transaction, digest
             from forge_target_journal import read_record
@@ -91,9 +105,21 @@ class TargetPanel:
             summary = self.plan_summary() if self.selected.get() else {
                 'configuration': 'Prepare from local files here, or start with --target-policy and --target-policy-sha256. Transactions bind workspace gui.'}
             text = json.dumps(summary, indent=2)
+            listing = self.controller.call('target_transactions', {'workspace': self.workspace})
+            for button in self.reconcile_buttons:
+                button.state(['!disabled'] if summary.get('kind') == 'recovery-stage' and
+                             listing['execution_granted'] and self.job is None else ['disabled'])
         except Exception as exc:
             text = str(exc)
         self.show_details(text)
+
+    def review_staging(self):
+        from forge_recovery_stage_gui import review_dialog
+        review_dialog(self)
+
+    def reconcile_staging(self, direction):
+        from forge_recovery_stage_gui import reconcile
+        reconcile(self, direction)
 
     def prepare_dialog(self):
         if self.job is not None:
@@ -179,6 +205,10 @@ class TargetPanel:
             return
         try:
             review = self.pending
+            if review.get('kind') == 'recovery-stage':
+                from forge_recovery_stage_gui import approve
+                approve(self, review)
+                return
             if review.get('kind') == 'service':
                 self.approve_service(review)
                 return
@@ -271,13 +301,16 @@ class TargetPanel:
             self.status.set('Wait for the current hardware job; do not reverse an uncertain operation.')
             return
         try:
+            selected = self.selected.get()
             summary = self.plan_summary()
             if not messagebox.askyesno('Confirm physical target write',
                     f'{direction.title()} transaction {self.selected.get()} on {summary["host"]}?\n\n'
                     + '\n'.join(summary['paths']) + '\n\nStop unrelated writers first. '
                     'Running jobs cannot be cancelled; failures may leave partial changes.', parent=self.window):
                 return
-            submitted = self.controller.submit_target(self.workspace, self.selected.get(), direction)
+            if self.selected.get() != selected or self.plan_summary() != summary:
+                raise ValueError('Selected target approval changed during confirmation')
+            submitted = self.controller.submit_target(self.workspace, selected, direction)
             self.job = submitted['job_id']
             self.job_kind = 'transition'
             self.choice.configure(state='disabled')
@@ -305,8 +338,16 @@ class TargetPanel:
             self.status.set(str(exc))
 
     def poll(self):
+        if self.timer is not None:
+            self.window.after_cancel(self.timer)
         self.timer = None
-        result = self.controller.job(self.job)
+        if self.job is None:
+            return
+        try:
+            result = self.controller.job(self.job)
+        except Exception as exc:
+            self.status.set('Job status unavailable; retained job '+self.job+'. Recheck status, do not resubmit: '+str(exc))
+            return
         if result['status'] not in ('completed', 'failed', 'cancelled'):
             self.timer = self.window.after(100, self.poll)
             return
@@ -315,6 +356,14 @@ class TargetPanel:
         listing = self.controller.call('target_transactions', {'workspace': self.workspace})
         for button in self.buttons:
             button.state(['!disabled'] if listing['execution_granted'] and listing['transactions'] else ['disabled'])
+        staging = any(item['name'] == self.selected.get() and item.get('kind') == 'recovery-stage'
+                      for item in listing['transactions'])
+        for button in self.reconcile_buttons:
+            button.state(['!disabled'] if staging and listing['execution_granted'] else ['disabled'])
+        if self.job_kind == 'staging-reconcile':
+            self.show_details(json.dumps(result.get('result', {'error': result.get('error')}), indent=2))
+            self.status.set('Reconciliation '+result['status']+'; inspect conflicts and requires_new_boot. No retry or reboot performed.')
+            return
         if self.job_kind == 'recovery-inspect':
             self.show_details(json.dumps(result.get('result', {'error': result.get('error')}), indent=2))
             self.status.set('Inspection ' + result['status'] + '; backup and independent boot recovery remain required.')

@@ -110,9 +110,26 @@ prepare them again rather than upgrading their evidence. Verification neither
 contacts the target nor grants staging authority, and its output omits private
 payloads and the lease owner. Verification alone does not authorize execution.
 
-The checkout also provides explicit, single-phase guarded staging. This is not
-yet registered as a Workbench/MCP transaction. Each command requires the sealed
-preparation pin and the exact normal boot UUID being approved:
+Workbench's **Physical SSH target** panel provides **Review recovery staging…**.
+Select the sealed preparation, its acceptance pin and the exact normal boot UUID
+you have independently verified. Review the four phases and separately choose
+**Approve reviewed plan…**. This registers four `recovery-stage` transactions;
+it neither stages files nor grants existing read-only clients write access.
+Existing authorized `target-write` clients can invoke the newly approved IDs.
+Use Apply/Restore on each selected phase, with separate confirmations. Restore
+after a reboot requires new owner approval naming that normal boot UUID.
+
+MCP uses `target_transition` for the selected staging transaction and
+`target_staging_reconcile` for its attempted direction. Both accept only
+`workspace`, `transaction` and `direction` (`apply` or `restore`), require
+`target-write`, serialize physical-target ownership and cannot be cancelled while
+running. Listings and job context include the preparation pin, phase and approved
+boot, not private journal contents. Reconciliation may observe a new native boot
+but does not grant write authority on that boot. Workbench exposes separate
+**Reconcile staging apply…** and **Reconcile staging restore…** buttons.
+
+The same explicit, single-phase staging is available from a checkout. Each write
+requires the sealed preparation pin and the exact normal boot UUID being approved:
 
 ```sh
 python3 tools/forge_recovery_stage_dispatch.py apply \

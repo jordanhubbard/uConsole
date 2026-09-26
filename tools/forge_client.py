@@ -20,6 +20,7 @@ REQUIRED = {
     'screenshot': ('transfer',), 'host_task': ('host-task',),
     'target_transition': ('target-write',),
     'target_recovery_inspect': ('target-write',),
+    'target_staging_reconcile': ('target-write',),
     'recovery_job': ('target-recovery',),
     **{name: ('image-write',) for name in (
         'checkpoint', 'restore', 'recover', 'refresh_boot', 'configure_display', 'export', 'prepare')},
