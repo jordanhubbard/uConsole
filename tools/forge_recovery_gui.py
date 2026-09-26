@@ -118,6 +118,14 @@ class RecoveryPanel:
         self.held_reboot_button.pack(side='left', padx=4)
         self.reconcile_prepare_button = ttk.Button(transitions, text='Prepare reconciliation…', command=self.reconcile_dialog)
         self.reconcile_prepare_button.pack(side='left', padx=4)
+        transfers = ttk.Frame(self.window)
+        transfers.pack(padx=12, pady=4)
+        self.deploy_prepare_button = ttk.Button(transfers, text='Prepare enhanced-root deployment…',
+                                               command=lambda: self.root_dialog('deploy-root'))
+        self.deploy_prepare_button.pack(side='left')
+        self.restore_prepare_button = ttk.Button(transfers, text='Prepare original-root restoration…',
+                                                command=lambda: self.root_dialog('restore-root'))
+        self.restore_prepare_button.pack(side='left', padx=4)
         self.choice = ttk.Combobox(self.window, textvariable=self.selected, state='readonly', width=50)
         self.choice.pack(padx=12, pady=4)
         self.choice.bind('<<ComboboxSelected>>', lambda event: self.review())
@@ -155,6 +163,8 @@ class RecoveryPanel:
         self.hold_button.state(['!disabled'] if self.enrollment_ready and not self.job and not self.pending else ['disabled'])
         self.held_reboot_button.state(['!disabled'] if self.enrollment_ready and not self.job and not self.pending else ['disabled'])
         self.reconcile_prepare_button.state(['!disabled'] if self.enrollment_ready and not self.job and not self.pending else ['disabled'])
+        for button in (self.deploy_prepare_button, self.restore_prepare_button):
+            button.state(['!disabled'] if self.enrollment_ready and not self.job and not self.pending else ['disabled'])
         self.approve_button.state(['!disabled'] if self.pending and not self.job else ['disabled'])
         self.recheck_button.state(['!disabled'] if self.job else ['disabled'])
         self.discover_build_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
@@ -743,6 +753,63 @@ class RecoveryPanel:
         self.status.set('Preparing an observation-only policy offline. No target contact, lease renewal or write retry.')
         self.timer = self.window.after(100, self.poll)
 
+    def root_dialog(self, operation):
+        if self.job or self.pending or not self.enrollment_ready:
+            return
+        try:
+            from forge_backup_policy import inputs as enrolled
+            from forge_recovery_bootplan import digest
+            from forge_root_policy import inputs
+            (directory, key, known), accepted = self.enrollment_ready
+            source = enrolled(directory, digest(accepted), key, known)
+            choices = []
+            for title, filename in (
+                    ('Original install-hold plan journal', 'plan.json'),
+                    ('Completed hold reconciliation journal', 'acceptance.json'),
+                    ('Verified enhanced derivative' if operation == 'deploy-root' else 'Verified original backup source', 'manifest.json'),
+                    ('Completed source filesystem-health evidence', 'acceptance.json')):
+                path = filedialog.askdirectory(parent=self.window, title=title)
+                if not path: return
+                pin = simpledialog.askstring(title, f'Owner-recorded canonical SHA-256 of {filename}:', parent=self.window)
+                if not pin: return
+                choices.extend((path, pin.strip()))
+            reviewed = inputs(source, *choices, operation)
+            accept_errors = False
+            if reviewed['source_filesystem_errors']:
+                accept_errors = messagebox.askyesno('Original backup has filesystem errors',
+                    'The retained original backup has recorded filesystem errors. Restore those exact original bytes '
+                    'without repair? This is not a healthy-filesystem claim. Choose No to stop preparing this policy.',
+                    default='no', parent=self.window)
+                if not accept_errors: return
+            parent = filedialog.askdirectory(parent=self.window, title='Parent for unapproved root-transfer plan and policy')
+            if not parent: return
+            if not messagebox.askyesno('Prepare root-transfer draft only',
+                    f"Operation: {operation}\nBoot: {source.boot_id}\n"
+                    f"Current root: {reviewed['root_before']['sha256']}\n"
+                    f"Selected root: {reviewed['root_after']['sha256']}\n\n"
+                    'Prepare a pinned plan and unapproved policy offline. No lease renewal, target write, reboot or '
+                    'normal-boot release occurs now. After separate review/approval, running this job replaces root '
+                    'partition bytes; keep the original backup and physical recovery access available. '
+                    'Source, hold, protected ranges and target identity are independently rechecked during execution. '
+                    'A failed attempt must be reconciled, never retried.', parent=self.window):
+                return
+            import uuid
+            self.prepare_root(source, reviewed, Path(parent)/('root-policy-'+uuid.uuid4().hex),
+                              accept_filesystem_errors=accept_errors)
+        except Exception as exc:
+            self.status.set('Root-transfer draft not submitted: ' + str(exc))
+
+    def prepare_root(self, source, reviewed, output, *, accept_filesystem_errors=False):
+        if self.job or self.pending:
+            raise ValueError('Finish the current job or review before preparing root transfer')
+        submitted = self.controller.prepare_recovery_root(self.workspace, source, reviewed, output,
+                                                          accept_filesystem_errors=accept_filesystem_errors)
+        self.job, self.job_kind = submitted['job_id'], 'prepare-root'
+        self.preparation_output = Path(output)
+        self.refresh()
+        self.status.set('Compiling pinned root-transfer evidence offline. No target writes, lease renewal or policy approval.')
+        self.timer = self.window.after(100, self.poll)
+
     def source_dialog(self, *, health=False):
         if self.job or self.pending:
             return
@@ -970,6 +1037,8 @@ class RecoveryPanel:
                 self.hold_button.state(['!disabled'])
                 self.held_reboot_button.state(['!disabled'])
                 self.reconcile_prepare_button.state(['!disabled'])
+                self.deploy_prepare_button.state(['!disabled'])
+                self.restore_prepare_button.state(['!disabled'])
             self.status.set(result['status'] + f': recovery boot evidence at {self.preparation_output}. '
                             'New session is not leased; no root writes authorized. Promptly approve its next job; '
                             'held boots require independent hold reconciliation before deployment. '
@@ -1013,13 +1082,15 @@ class RecoveryPanel:
                 self.hold_button.state(['!disabled'])
                 self.held_reboot_button.state(['!disabled'])
                 self.reconcile_prepare_button.state(['!disabled'])
+                self.deploy_prepare_button.state(['!disabled'])
+                self.restore_prepare_button.state(['!disabled'])
             self.status.set(result['status'] + f': enrollment evidence at {self.preparation_output}. '
                             'Only enrolled-not-leased is a completed binding; use its session directory and pin '
                             'in a separately reviewed job policy, or choose Prepare backup job. No lease, reboot or grant was acquired.')
             return
-        if self.job_kind in ('prepare-backup', 'prepare-hash', 'prepare-hold', 'prepare-reconciliation'):
+        if self.job_kind in ('prepare-backup', 'prepare-hash', 'prepare-hold', 'prepare-reconciliation', 'prepare-root'):
             kind = {'prepare-backup': 'Backup', 'prepare-hash': 'Hash', 'prepare-hold': 'Hold',
-                    'prepare-reconciliation': 'Reconciliation'}[self.job_kind]
+                    'prepare-reconciliation': 'Reconciliation', 'prepare-root': 'Root transfer'}[self.job_kind]
             if result['status'] == 'completed':
                 try:
                     filename = self.preparation_output/'policy.json'
@@ -1029,7 +1100,8 @@ class RecoveryPanel:
                     self.status.set(kind + '-only draft ready for review. Approve separately, then run the selected job. '
                                     + {'Backup': 'No backup exists yet.', 'Hash': 'No full-card hashes captured yet.',
                                        'Hold': 'No hold installed, lease renewed or deployment approved.',
-                                       'Reconciliation': 'No observation run, lease renewed, write retried or hold released.'}[kind])
+                                       'Reconciliation': 'No observation run, lease renewed, write retried or hold released.',
+                                       'Root transfer': 'No root bytes written, lease renewed or hold released.'}[kind])
                 except Exception as exc:
                     self.status.set(kind + ' draft review failed: ' + str(exc))
             else:

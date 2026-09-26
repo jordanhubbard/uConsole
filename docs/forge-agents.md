@@ -270,6 +270,25 @@ Neither operation retries root writes, repairs a filesystem, reboots, or grants
 normal-boot release. This preparation control is owner-only, not an MCP method;
 authorized agents may execute only the separately owner-approved job ID.
 
+**Prepare enhanced-root deployment…** and **Prepare original-root restoration…**
+compile a root-only transfer plan and unapproved policy from the currently
+enrolled persistent recovery boot. Select the original install-hold journal,
+its completed `reconciled-after` observation from this boot, the verified
+derivative or original-source manifest, and the source filesystem-health
+directory; supply the owner-recorded pin for each. The original backup must
+still exist with its recorded private-file identity. Deployment also rechecks
+the enhanced image's identity and requires clean pinned derivative-root health;
+it cannot waive filesystem errors. Original restoration displays a separate,
+default-No confirmation before retaining an explicit decision to restore known
+original filesystem errors without repair. After either draft, policy approval
+and execution remain separate. The existing workers independently reverify
+sources, target identity, persistent hold, live lease and protected ranges,
+retain every uncertain attempt, and never retry it automatically. These
+preparation controls do not contact the target, renew leases, write root bytes,
+grant agent authority, reboot, or release normal boot. Native compatibility and
+post-write reconciliation/release remain separate gates. Host fixtures for the
+new controls are not physical qualification of this route.
+
 For a completed retained backup, **Prepare retained backup source…** is an
 owner-only, host-only action. Select the private backup directory and its
 owner-recorded canonical `acceptance.json` SHA-256, then review the card size,

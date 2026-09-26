@@ -772,6 +772,63 @@ class RecoveryPanelTests(unittest.TestCase):
         remote.assert_not_called()
         submit.assert_not_called()
 
+    def test_root_draft_requires_separate_review_and_cannot_be_called_by_mcp(self):
+        import test_root_policy
+        fixture = test_root_policy.RootPolicyTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        with patch.object(RecoveryProbe, '_observe') as remote:
+            self.panel.prepare_root(fixture.source, fixture.reviewed(), fixture.output, accept_filesystem_errors=True)
+            self.owner.jobs[self.panel.job][2].result(timeout=5)
+        remote.assert_not_called()
+        self.panel.poll()
+        self.assertIsNotNone(self.panel.pending)
+        self.assertIsNone(self.owner.recovery_jobs)
+        self.assertEqual(self.owner.grants, frozenset())
+        self.assertIn('restore-root', self.panel.details.get('1.0', 'end'))
+        self.assertIn('accept_filesystem_errors', self.panel.details.get('1.0', 'end'))
+        self.assertIn('No root bytes written', self.panel.status.get())
+        with self.assertRaises(ValueError): self.owner.call('prepare_recovery_root', {'workspace': 'gui'})
+
+    def root_dialog_fixture(self, derived=False):
+        import test_root_policy
+        fixture = test_root_policy.RootPolicyTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        if derived: fixture.setup_case(True)
+        accepted = json.loads((fixture.enrollment/'acceptance.json').read_text())
+        self.panel.enrollment_ready = ((fixture.source.directory, fixture.source.probe.key,
+                                       fixture.source.probe.known_hosts), accepted)
+        self.panel.refresh()
+        return fixture
+
+    def test_declined_source_errors_do_not_draft_restore(self):
+        from forge_recovery_bootplan import digest
+        f = self.root_dialog_fixture()
+        with patch('forge_recovery_gui.filedialog.askdirectory', side_effect=[str(f.hold), str(f.reconciliation),
+                   str(f.manifest), str(f.health)]), \
+                patch('forge_recovery_gui.simpledialog.askstring', side_effect=[f.f.hold_pin, digest(f.accepted),
+                      f.manifest_pin, f.health_pin]), patch('forge_recovery_gui.messagebox.askyesno', return_value=False) as confirm, \
+                patch.object(RecoveryProbe, '_observe') as remote, patch.object(self.owner, 'prepare_recovery_root') as submit:
+            self.panel.restore_prepare_button.invoke()
+        remote.assert_not_called()
+        submit.assert_not_called()
+        self.assertEqual(confirm.call_args.args[0], 'Original backup has filesystem errors')
+        self.assertEqual(confirm.call_args.kwargs['default'], 'no')
+
+    def test_declined_healthy_deployment_does_not_draft(self):
+        from forge_recovery_bootplan import digest
+        f = self.root_dialog_fixture(True)
+        with patch('forge_recovery_gui.filedialog.askdirectory', side_effect=[str(f.hold), str(f.reconciliation),
+                   str(f.manifest), str(f.health), str(f.root)]), \
+                patch('forge_recovery_gui.simpledialog.askstring', side_effect=[f.f.hold_pin, digest(f.accepted),
+                      f.manifest_pin, f.health_pin]), patch('forge_recovery_gui.messagebox.askyesno', return_value=False) as confirm, \
+                patch.object(RecoveryProbe, '_observe') as remote, patch.object(self.owner, 'prepare_recovery_root') as submit:
+            self.panel.deploy_prepare_button.invoke()
+        remote.assert_not_called()
+        submit.assert_not_called()
+        self.assertEqual(confirm.call_args.args[0], 'Prepare root-transfer draft only')
+
     def test_declined_backup_draft_has_no_target_contact(self):
         import test_backup_policy
         fixture = test_backup_policy.BackupPolicyTests()

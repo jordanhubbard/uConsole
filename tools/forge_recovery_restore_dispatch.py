@@ -1,7 +1,8 @@
 """Durable, one-attempt physical restore dispatch for installed owner code.
 
-No GUI/MCP route. Source health is evidence, not implicit approval: the owner
-callback must explicitly acknowledge non-clean source filesystems. An existing
+GUI/MCP jobs reach this worker only through separately pinned owner policy.
+Source health is evidence, not implicit approval: the owner callback must
+explicitly acknowledge non-clean source filesystems. An existing
 attempt is never reused, even if transport failed before acknowledgement.
 """
 import copy
