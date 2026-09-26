@@ -189,6 +189,17 @@ class Controller:
         from forge_recovery_jobs import RecoveryJobs
         return RecoveryJobs(path, digest, self.workspaces)
 
+    def prepare_recovery_staging(self, name, publication, publication_pin, bundle, bundle_pin, output):
+        """Owner-only normal-SSH preparation; deliberately absent from MCP call()."""
+        from uconsole_emulator import require_private_image_host
+        require_private_image_host()
+        from forge_recovery_stage_prepare import inputs, prepare
+        frozen = inputs(publication, publication_pin, bundle, bundle_pin)
+        return self.submit(name, 'recovery_prepare_staging', lambda: prepare(output, frozen),
+                           target_identity=frozen['image_plan']['machine_id'], context={
+                               'publication_sha256': publication_pin, 'firmware_sha256': bundle_pin,
+                               'staging_authorized': False})
+
     def approve_recovery_policy(self, path, digest):
         """Local owner action only; clients cannot approve or replace policy."""
         approved = self.load_recovery_policy(path, digest)

@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import stat
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 
 
 WARNINGS = {
@@ -47,18 +47,22 @@ class RecoveryPanel:
     def __init__(self, parent, controller, workspace):
         self.controller, self.workspace = controller, workspace
         self.job = self.timer = self.pending = None
+        self.job_kind = 'recovery'
+        self.preparation_output = None
         self.window = tk.Toplevel(parent)
         self.window.title('Physical recovery — prepared jobs')
         self.selected = tk.StringVar()
         self.status = tk.StringVar(value='No action runs without confirmation. Prepared RAM-recovery session required.')
         ttk.Label(self.window, text='Backup → validated image change → deploy → reconcile → explicit boot release',
                   wraplength=760).pack(padx=12, pady=8)
-        ttk.Label(self.window, text='Advanced prepared-job controls. Firmware staging and plan preparation are not automated. Boot release requires its own approved job.',
+        ttk.Label(self.window, text='Advanced recovery controls. Preparation creates drafts, not authority. Staging execution and reboot are not automated here.',
                   wraplength=760).pack(padx=12, pady=4)
         controls = ttk.Frame(self.window)
         controls.pack(padx=12, pady=4)
         self.load_button = ttk.Button(controls, text='Review policy…', command=self.load_dialog)
         self.load_button.pack(side='left')
+        self.prepare_button = ttk.Button(controls, text='Prepare boot staging…', command=self.prepare_dialog)
+        self.prepare_button.pack(side='left', padx=4)
         self.approve_button = ttk.Button(controls, text='Approve reviewed policy…', command=self.approve)
         self.approve_button.pack(side='left', padx=4)
         self.approve_button.state(['disabled'])
@@ -92,6 +96,7 @@ class RecoveryPanel:
             self.selected.set(names[0] if names else '')
         self.run_button.state(['!disabled'] if names and listing['execution_granted'] and not self.job and not self.pending else ['disabled'])
         self.load_button.state(['disabled'] if self.job else ['!disabled'])
+        self.prepare_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.approve_button.state(['!disabled'] if self.pending and not self.job else ['disabled'])
         self.recheck_button.state(['!disabled'] if self.job else ['disabled'])
         if not self.pending:
@@ -117,6 +122,53 @@ class RecoveryPanel:
                 self.load_policy(Path(filename))
             except Exception as exc:
                 self.status.set('Policy review failed: ' + str(exc))
+
+    def prepare_dialog(self):
+        if self.job or self.pending:
+            return
+        publication = filedialog.askdirectory(parent=self.window, title='Acknowledged private recovery-image publication journal')
+        if not publication:
+            return
+        publication_pin = simpledialog.askstring('Publication approval', 'Approved publication plan SHA-256:', parent=self.window)
+        if not publication_pin:
+            return
+        bundle = filedialog.askopenfilename(parent=self.window, title='Owner-reviewed matched firmware bundle JSON')
+        if not bundle:
+            return
+        bundle_pin = simpledialog.askstring('Firmware approval', 'Approved canonical firmware bundle SHA-256:', parent=self.window)
+        if not bundle_pin:
+            return
+        parent = filedialog.askdirectory(parent=self.window, title='Parent directory for private preimage backups and staging drafts')
+        if not parent:
+            return
+        try:
+            from forge_recovery_stage_prepare import inputs
+            frozen = inputs(publication, publication_pin, bundle, bundle_pin)
+            plan = frozen['image_plan']
+            self.show(dict(host=plan['host'], machine_id=plan['machine_id'],
+                           image_sha256=plan['sha256'], publication_sha256=publication_pin,
+                           firmware_revision=frozen['firmware_bundle'].get('revision'), firmware_sha256=bundle_pin))
+            if not messagebox.askyesno('Prepare recovery boot drafts',
+                    f'Read boot preimages and recovery-image state from {plan["host"]}?\n\n'
+                    'This performs read-only SSH checks and creates private host backups/plans. It does not stage firmware, approve jobs, '
+                    'reboot, or replace the required whole-card backup and fallback qualification.', parent=self.window):
+                return
+            import uuid
+            self.prepare_staging(publication, publication_pin, bundle, bundle_pin,
+                                 Path(parent)/('recovery-staging-'+uuid.uuid4().hex))
+        except Exception as exc:
+            self.status.set('Preparation not submitted: ' + str(exc))
+
+    def prepare_staging(self, publication, publication_pin, bundle, bundle_pin, output):
+        if self.job or self.pending:
+            raise ValueError('Finish the current job or policy review before preparing staging')
+        submitted = self.controller.prepare_recovery_staging(self.workspace, publication, publication_pin,
+                                                            bundle, bundle_pin, output)
+        self.job, self.job_kind = submitted['job_id'], 'prepare-staging'
+        self.preparation_output = Path(output)
+        self.refresh()
+        self.status.set('Reading normal-SSH preimages and authoring private drafts. No target writes or reboot.')
+        self.timer = self.window.after(100, self.poll)
 
     def load_policy(self, filename):
         if self.job:
@@ -163,6 +215,7 @@ class RecoveryPanel:
             if self.controller.recovery_jobs is not registry:
                 raise ValueError('Recovery policy changed during confirmation; review it again')
             submitted = self.controller.submit_recovery(self.workspace, job.name)
+            self.job_kind = 'recovery'
             self.job = submitted['job_id']
             self.refresh()
             self.status.set(f'{job.operation}: waiting for job {self.job}. Keep Workbench open.')
@@ -187,6 +240,10 @@ class RecoveryPanel:
         self.job = None
         self.refresh()
         self.show(result)
+        if self.job_kind == 'prepare-staging':
+            self.status.set(result['status'] + f': retained preparation artifacts at {self.preparation_output}. '
+                            'Drafts are not approved, staged, or boot-qualified. No automatic retry or deployment.')
+            return
         self.status.set(result['status'] + ': evidence retained. No rollback or reboot is implied. '
                         'Read the recorded selector result; reconcile uncertain writes and never automatically retry a failed action.')
 

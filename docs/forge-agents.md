@@ -66,6 +66,34 @@ existing clients' grants. Select a job, review it, then explicitly confirm
 retrieval fails, use **Recheck job status**, not another submission. The result
 panel retains failures and makes no implicit rollback or boot-release claim.
 
+**Prepare boot staging…** is an owner-only normal-SSH preparation step, not an
+agent permission or a staging action. Select an acknowledged private recovery
+image publication journal, its plan pin, a reviewed matched-firmware bundle and
+its canonical journal digest, then a new private output directory. Workbench
+shows the target and source pins before asking to read the target. Preparation
+backs up all nine boot preimages, authors four ordered drafts and a hold review,
+then rechecks the normal boot identity, unchanged preimages and private published
+image. Failures retain incomplete artifacts and grant no authority. This requires
+an already provisioned private recovery image; it does not build/publish that
+image, qualify fallback, stage files, reboot, approve a policy, or replace the
+whole-card backup required before root writes.
+
+The same owner preparation is available from a checkout:
+
+```sh
+python3 tools/forge_recovery_stage_prepare.py \
+  --publication /private/published-image-journal \
+  --publication-sha256 APPROVED_PLAN_SHA256 \
+  --firmware-bundle /private/firmware-bundle.json \
+  --firmware-sha256 APPROVED_CANONICAL_BUNDLE_SHA256 \
+  --output /private/new-staging-draft
+```
+
+Input journals must be private and owner-owned; new outputs are created private.
+The JSON pins use the canonical journal encoding (sorted keys, two-space indentation, final
+newline). A prepared draft is historical evidence, not authorization to execute
+its phases or proof that the target remains unchanged.
+
 `recovery_jobs` lists approved IDs, operations and pins, without credential or
 backup paths. `recovery_job` accepts only `workspace` and `job`; poll the returned
 job ID. Read-only clients do not inherit the owner's recovery permission.

@@ -160,6 +160,24 @@ class RecoveryPanelTests(unittest.TestCase):
         self.policy.write_bytes(b' '*(1024*1024+1))
         with self.assertRaises(ValueError): policy_pin(self.policy)
 
+    def test_normal_ssh_preparation_uses_shared_job_without_approving_staging(self):
+        import test_recovery_stage_prepare
+        fixture = test_recovery_stage_prepare.RecoveryStagePreparationTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        self.panel.prepare_staging(fixture.publication, fixture.frozen['publication_sha256'],
+                                   fixture.root/'firmware.json', fixture.frozen['firmware_sha256'], fixture.output)
+        job = self.panel.job
+        self.assertFalse(self.panel.close())
+        self.owner.jobs[job][2].result(timeout=5)
+        self.panel.poll()
+        self.assertIsNone(self.panel.job)
+        self.assertIsNone(self.panel.pending)
+        self.assertIsNone(self.owner.targets)
+        self.assertEqual(self.owner.grants, frozenset())
+        self.assertIn('not approved, staged, or boot-qualified', self.panel.status.get())
+        self.assertIn('prepared-not-approved', self.panel.details.get('1.0', 'end'))
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -74,6 +74,29 @@ dispatch were forbidden, and the resulting release draft remains unapproved.
 That draft does not replace the live physical runner or qualify current card
 state. Logs and records above are under `build/emulator/`.
 
+Normal-SSH staging preparation (2026-09-26): Workbench's owner-only
+**Prepare boot staging…** action now freezes publication/firmware pins, requires
+an acknowledged intact private recovery image, backs up all nine boot preimages,
+authors the four ordered phase drafts and hold review, and verifies unchanged
+normal-boot/file/publication bookends. It does not grant client permissions,
+approve policy, stage firmware or reboot. A failed preparation retains incomplete
+artifacts. The complete Linux suite passes 1,486 tests plus shell checks in
+`build/emulator/full-tests-staging-preparation-20260926.log`; all 20 focused
+preparation/panel tests pass on Linux and macOS in
+`recovery-staging-preparation-tests-20260926.log` and
+`macos-staging-preparation-tests-20260926.log` under `build/emulator/`.
+Physical execution of this public route and bootstrap provisioning remain open.
+
+Native unchanged-source stream (2026-09-26): the retained physical runner has
+acknowledged all 7,481 chunks (31,373,918,208 root bytes) and completed its
+post-stream root/protected-range hashes. The receipt in
+`build/emulator/physical-restore-stream-20260925/root-restore/restore-attempt/acceptance.json`
+is `acknowledged`, reports `bytes_written=0`, and matches the original root
+SHA-256 `43aec057497163618ef9e051e2146d41c944f99242af833c0e2bf66749db8da8`.
+This proves the unchanged native stream, not actual root-write qualification,
+enhanced deployment or filesystem health. Independent reconciliation, hold
+release and normal return are still running; no overall acceptance is claimed.
+
 Build-upgrade qualification (2026-09-25): the QEMU builder now isolates source
 and build trees by frozen patch contents and recipe, retaining the previous
 public build until both new binaries pass version checks. Legacy build
