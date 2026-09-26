@@ -136,6 +136,8 @@ class RecoveryPanel:
         self.normal_reboot_button.pack(side='left')
         self.normal_verify_button = ttk.Button(normal, text='Verify normal return…', command=self.normal_return_dialog)
         self.normal_verify_button.pack(side='left', padx=4)
+        self.cleanup_button = ttk.Button(normal, text='Clean up recovery artifacts…', command=self.cleanup_dialog)
+        self.cleanup_button.pack(side='left', padx=4)
         self.choice = ttk.Combobox(self.window, textvariable=self.selected, state='readonly', width=50)
         self.choice.pack(padx=12, pady=4)
         self.choice.bind('<<ComboboxSelected>>', lambda event: self.review())
@@ -186,7 +188,7 @@ class RecoveryPanel:
         self.privacy_reboot_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.privacy_verify_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.tryboot_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
-        for button in (self.normal_reboot_button, self.normal_verify_button):
+        for button in (self.normal_reboot_button, self.normal_verify_button, self.cleanup_button):
             button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.source_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.health_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
@@ -936,6 +938,41 @@ class RecoveryPanel:
         self.status.set('Verifying normal return. No automatic reboot retry; retain private boot artifacts until ordered cleanup.')
         self.timer = self.window.after(100, self.poll)
 
+    def cleanup_dialog(self):
+        if self.job or self.pending: return
+        try:
+            from forge_recovery_cleanup import inputs
+            staging = filedialog.askdirectory(parent=self.window, title='Original sealed staging directory')
+            if not staging: return
+            pin = simpledialog.askstring('Staging pin', 'Canonical SHA-256 of staging acceptance.json:', parent=self.window)
+            if not pin: return
+            boot = simpledialog.askstring('Verified normal boot', 'Boot UUID from successful normal-return evidence:', parent=self.window)
+            if not boot: return
+            reviewed = inputs(staging, pin.strip(), boot.strip())
+            parent = filedialog.askdirectory(parent=self.window, title='Parent for new cleanup evidence')
+            if not parent: return
+            if not messagebox.askyesno('Ordered recovery cleanup',
+                    f"Restore staged boot files and remove the owned recovery image at {reviewed['host']}?\n\n"
+                    'All four phases are restored in reverse order. Previously confirmed restores are skipped; '
+                    'uncertain operations must be reconciled, never retried. All nine original preimages and '
+                    'the exact normal boot are checked before removing the journal-owned image. '
+                    'No root writes or reboot. Boot-mount permissions remain private; this does not restore public access.',
+                    parent=self.window): return
+            import uuid
+            self.cleanup_recovery(reviewed, Path(parent)/('recovery-cleanup-'+uuid.uuid4().hex))
+        except Exception as exc:
+            self.status.set('Cleanup not submitted: ' + str(exc))
+
+    def cleanup_recovery(self, reviewed, output):
+        if self.job or self.pending:
+            raise ValueError('Finish the current job or review before cleanup')
+        submitted = self.controller.cleanup_recovery(self.workspace, reviewed, output)
+        self.job, self.job_kind = submitted['job_id'], 'recovery-cleanup'
+        self.preparation_output = Path(output)
+        self.refresh()
+        self.status.set('Restoring staging, then removing the owned private image. Boot permissions remain private.')
+        self.timer = self.window.after(100, self.poll)
+
     def source_dialog(self, *, health=False):
         if self.job or self.pending:
             return
@@ -1129,6 +1166,10 @@ class RecoveryPanel:
         self.job = None
         self.refresh()
         self.show(result)
+        if self.job_kind == 'recovery-cleanup':
+            self.status.set(result['status'] + f': cleanup evidence at {self.preparation_output}. '
+                            'Boot-mount permissions remain private. Uncertain operations require reconciliation, not retry.')
+            return
         if self.job_kind == 'normal-return':
             if result['status'] == 'completed' and result['result'].get('status') == 'verified-normal-return':
                 self.enrollment_ready = None

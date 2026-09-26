@@ -403,6 +403,18 @@ class Controller:
                                'plan_sha256': frozen['plan_sha256'], 'reboot_requested': reboot,
                                'root_write_authorized': False})
 
+    def cleanup_recovery(self, name, reviewed, output):
+        """Owner-only reverse staging and image removal, never public FAT permissions."""
+        import copy
+        from uconsole_emulator import require_private_image_host
+        require_private_image_host()
+        from forge_recovery_cleanup import cleanup
+        frozen = copy.deepcopy(reviewed)
+        return self.submit(name, 'recovery_cleanup', lambda: cleanup(output, frozen),
+                           target_identity=frozen['machine_id'], context={
+                               'staging_sha256': frozen['staging_sha256'],
+                               'public_permissions_authorized': False})
+
     def prepare_backup_source(self, name, reviewed, output):
         """Owner-only offline preparation; never acquires recovery authority."""
         import copy

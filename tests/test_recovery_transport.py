@@ -1,4 +1,4 @@
-from contextlib import nullcontext
+from contextlib import nullcontext, contextmanager
 import hashlib
 import json
 import unittest
@@ -52,6 +52,29 @@ class RecoveryTransportTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 perform(self.plan, 'apply', 'e'*32, 'f'*64)
             lock.assert_not_called()
+
+    def test_owner_guard_brackets_removal_inside_target_lock(self):
+        calls = []
+        @contextmanager
+        def lock(path):
+            calls.append('lock')
+            yield
+            calls.append('unlock')
+        def remove(*args):
+            calls.append('remove')
+            return dict(status='removed', sha256='d'*64, size=123)
+        with patch('forge_recovery_ssh.target_lock', lock), \
+                patch('forge_recovery_ssh.target_policy'), patch('forge_recovery_ssh.remove', remove):
+            perform(self.plan, 'restore', 'e'*32, self.digest, guard=lambda: calls.append('guard'))
+        self.assertEqual(calls, ['lock', 'guard', 'remove', 'guard', 'unlock'])
+
+    def test_failed_owner_guard_prevents_removal(self):
+        def guard(): raise ValueError('boot files changed')
+        with patch('forge_recovery_ssh.target_lock', return_value=nullcontext()), \
+                patch('forge_recovery_ssh.remove') as remove:
+            with self.assertRaisesRegex(ValueError, 'boot files changed'):
+                perform(self.plan, 'restore', 'e'*32, self.digest, guard=guard)
+        remove.assert_not_called()
 
     def test_fencing_does_not_require_private_policy_or_mutate_image(self):
         with patch('forge_recovery_ssh.target_lock', return_value=nullcontext()), \

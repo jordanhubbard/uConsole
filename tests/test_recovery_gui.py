@@ -886,6 +886,33 @@ class RecoveryPanelTests(unittest.TestCase):
         self.assertEqual(self.owner.grants, frozenset())
         with self.assertRaises(ValueError): self.owner.call('return_recovery_to_normal', {'workspace': 'gui'})
 
+    def test_cleanup_is_owner_only_and_retains_private_mount_policy(self):
+        import test_recovery_cleanup
+        f = test_recovery_cleanup.RecoveryCleanupTests()
+        f.setUp()
+        self.addCleanup(f.doCleanups)
+        with patch('forge_recovery_cleanup.cleanup', return_value=dict(status='cleaned-staging-and-owned-image')) as cleaned:
+            self.panel.cleanup_recovery(f.frozen, f.output)
+            self.assertFalse(self.panel.close())
+            self.owner.jobs[self.panel.job][2].result(timeout=5)
+            self.panel.poll()
+            cleaned.assert_called_once_with(f.output, f.frozen)
+        self.assertIn('permissions remain private', self.panel.status.get())
+        self.assertEqual(self.owner.grants, frozenset())
+        with self.assertRaises(ValueError): self.owner.call('cleanup_recovery', {'workspace': 'gui'})
+
+    def test_declined_cleanup_does_not_submit(self):
+        import test_recovery_cleanup
+        f = test_recovery_cleanup.RecoveryCleanupTests()
+        f.setUp()
+        self.addCleanup(f.doCleanups)
+        with patch('forge_recovery_gui.filedialog.askdirectory', side_effect=[str(f.f.directory), str(f.output.parent)]), \
+                patch('forge_recovery_gui.simpledialog.askstring', side_effect=[f.f.pin, f.f.boot['boot_id']]), \
+                patch('forge_recovery_gui.messagebox.askyesno', return_value=False), \
+                patch.object(self.owner, 'cleanup_recovery') as submit:
+            self.panel.cleanup_button.invoke()
+        submit.assert_not_called()
+
     def test_declined_normal_reboot_does_not_submit(self):
         import test_normal_return
         f = test_normal_return.NormalReturnTests()

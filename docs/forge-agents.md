@@ -319,6 +319,18 @@ owner-only, not MCP methods. Successful return disables stale RAM-session
 controls; it does not claim application behavior, filesystem health or cleanup.
 Keep failed evidence and the private boot mount; cleanup follows verified return.
 
+**Clean up recovery artifacts…** is owner-only and requires the sealed staging
+pin and verified new normal-boot UUID. It restores the four staging phases in
+reverse order using their original journals, skipping only confirmed restores.
+Uncertain attempts require explicit reconciliation, never automatic retry.
+After all nine boot-file preimages match, the original publication journal
+removes only its owned private recovery image. The target rechecks those
+preimages and the exact boot under the image operation's exclusion lock.
+The receipt verifies image absence and a stable normal boot, but does not grant
+agent authority, reboot, write root bytes or restore public FAT permissions.
+The private mount remains in place: restoring its original policy requires a
+separate credential-artifact inventory and subsequent mount verification.
+
 For a completed retained backup, **Prepare retained backup source…** is an
 owner-only, host-only action. Select the private backup directory and its
 owner-recorded canonical `acceptance.json` SHA-256, then review the card size,

@@ -49,14 +49,17 @@ def target_policy(plan):
     verify_mount(json.loads(observed.stdout), plan['boot_source'], True)
 
 
-def perform(plan, direction, nonce, digest):
+def perform(plan, direction, nonce, digest, *, guard=None):
     validate(plan)
     expected_digest = hashlib.sha256((json.dumps(plan, sort_keys=True, indent=2) + '\n').encode()).hexdigest()
     if digest != expected_digest or not isinstance(nonce, str) or not re.fullmatch('[0-9a-f]{32}', nonce):
         raise ValueError('Invalid recovery request binding')
     if direction not in ('apply', 'restore', 'inspect', 'fence-apply', 'fence-restore'):
         raise ValueError('Invalid recovery operation')
+    if guard is not None and not callable(guard):
+        raise ValueError('Installed owner guard must be callable')
     with target_lock('/run/lock/uconsole-forge-target.lock'):
+        if guard is not None: guard()
         if direction.startswith('fence-'):
             if (plan['schema'] != 2 or os.geteuid() != 0 or
                     Path('/etc/machine-id').read_text().strip() != plan['machine_id']):
@@ -84,6 +87,7 @@ def perform(plan, direction, nonce, digest):
             args = (plan['destination'], plan['sha256'], plan['size'], plan['stage_token'])
             result = publish(plan['source'], *args) if direction == 'apply' else remove(*args)
             target_policy(plan)  # Policy drift after an effect remains uncertain.
+            if guard is not None: guard()
             response = acknowledgement(plan, direction, nonce, digest)
             if any(result[name] != response[name] for name in ('status', 'sha256', 'size')):
                 raise RuntimeError('Unexpected image primitive outcome')
