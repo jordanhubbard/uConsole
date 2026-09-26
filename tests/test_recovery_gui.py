@@ -113,6 +113,29 @@ class RecoveryPanelTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.owner.call('recovery_check_backup_filesystems', {'workspace': 'gui'})
 
+    def test_export_lineage_is_owner_only_and_does_not_grant_deployment(self):
+        reviewed = dict(source_sha256='a'*64)
+        with patch('forge_derivative_prepare.prepare', return_value=dict(
+                status='prepared-export-derivative', target_contacted=False)) as worker:
+            self.panel.prepare_derivative(reviewed, self.path/'derivative')
+            self.owner.jobs[self.panel.job][2].result(timeout=5)
+            self.panel.poll()
+            worker.assert_called_once()
+        self.assertIn('physical boot remain unqualified', self.panel.status.get())
+        self.assertEqual(self.owner.grants, frozenset())
+        with self.assertRaises(ValueError):
+            self.owner.call('recovery_prepare_export_derivative', {'workspace': 'gui'})
+
+    def test_declined_export_review_does_not_submit(self):
+        with patch('forge_recovery_gui.filedialog.askdirectory', return_value=str(self.path)), \
+                patch('forge_recovery_gui.filedialog.askopenfilename', return_value=str(self.path/'image.img')), \
+                patch('forge_recovery_gui.simpledialog.askstring', return_value='c'*64), \
+                patch('forge_derivative_prepare.inputs', return_value=dict(source_sha256='c'*64)), \
+                patch('forge_recovery_gui.messagebox.askyesno', return_value=False), \
+                patch.object(self.owner, 'prepare_export_derivative') as submit:
+            self.panel.derivative_dialog()
+            submit.assert_not_called()
+
     def discover_builder(self):
         self.discovery = dict(host='fixture', kernel='6.12.62-v8+', boot=dict(
             machine_id='c'*32, boot_id='11111111-2222-3333-4444-555555555555',

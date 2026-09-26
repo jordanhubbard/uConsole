@@ -236,6 +236,20 @@ restoration of a damaged original. Copies and checker diagnostics remain for
 review, including failures. This host-only action does not renew recovery
 leases. Guided deploy/restore policy authoring remains unfinished.
 
+After editing, stopping and exporting a guest, **Verify exported image lineage…**
+selects the original backup, its prepared root-source directory and manifest
+pin, and the private exported image. Review those inputs before confirmation.
+Workbench checks the entire original archive and export and accepts only root
+partition changes: all bytes outside the root, including the partition table
+and boot files, must be identical. It retains the changed-chunk map and pinned
+rollback lineage under `derivative/`, without copying, mounting or changing
+either image. The original backup remains the restore source, not the enhanced
+image. Changed file identity, a mismatched original manifest, incomplete source
+evidence or protected-byte changes fail with evidence retained. This owner-only
+action has no MCP deployment grant, target contact or lease renewal. A verified
+derivative is not proof of filesystem health or native boot; those and explicit
+deployment approval remain separate gates.
+
 The same owner preparation is available from a checkout:
 
 ```sh

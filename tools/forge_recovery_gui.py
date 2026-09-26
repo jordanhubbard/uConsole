@@ -101,6 +101,8 @@ class RecoveryPanel:
         self.health_button = ttk.Button(offline, text='Check retained backup filesystems…',
                                        command=lambda: self.source_dialog(health=True))
         self.health_button.pack(side='left', padx=4)
+        self.derivative_button = ttk.Button(offline, text='Verify exported image lineage…', command=self.derivative_dialog)
+        self.derivative_button.pack(side='left', padx=4)
         self.choice = ttk.Combobox(self.window, textvariable=self.selected, state='readonly', width=50)
         self.choice.pack(padx=12, pady=4)
         self.choice.bind('<<ComboboxSelected>>', lambda event: self.review())
@@ -147,6 +149,7 @@ class RecoveryPanel:
         self.tryboot_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.source_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.health_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
+        self.derivative_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         if not self.pending:
             self.review()
 
@@ -619,6 +622,45 @@ class RecoveryPanel:
                          'Verifying retained backup bytes and root chunks. ') + 'No target contact or lease renewal.')
         self.timer = self.window.after(100, self.poll)
 
+    def derivative_dialog(self):
+        if self.job or self.pending:
+            return
+        try:
+            from forge_derivative_prepare import inputs
+            backup = filedialog.askdirectory(parent=self.window, title='Original retained card backup')
+            if not backup: return
+            source = filedialog.askdirectory(parent=self.window, title='Original root source directory (contains manifest.json)')
+            if not source: return
+            pin = simpledialog.askstring('Original source pin', 'Owner-recorded canonical SHA-256 of manifest.json:',
+                                         parent=self.window)
+            if not pin: return
+            image = filedialog.askopenfilename(parent=self.window, title='Private exported edited card image')
+            if not image: return
+            reviewed = inputs(backup, source, pin.strip(), image)
+            parent = filedialog.askdirectory(parent=self.window, title='Storage parent for export-lineage evidence')
+            if not parent: return
+            if not messagebox.askyesno('Verify export against rollback source',
+                    f"Export: {image}\nBackup: {backup}\nOriginal manifest: {reviewed['source_sha256']}\n\n"
+                    'Read the full export and original archive. Only root-partition changes are accepted; '
+                    'partition layout and all protected bytes must match. No image copy, filesystem check, '
+                    'target contact, lease renewal or deployment approval occurs. Keep the export stopped '
+                    'and unchanged; retain the original backup for rollback.', parent=self.window):
+                return
+            import uuid
+            self.prepare_derivative(reviewed, Path(parent)/('export-lineage-'+uuid.uuid4().hex))
+        except Exception as exc:
+            self.status.set('Export verification not submitted: ' + str(exc))
+
+    def prepare_derivative(self, reviewed, output):
+        if self.job or self.pending:
+            raise ValueError('Finish the current job or review before verifying an export')
+        submitted = self.controller.prepare_export_derivative(self.workspace, reviewed, output)
+        self.job, self.job_kind = submitted['job_id'], 'prepare-derivative'
+        self.preparation_output = Path(output)
+        self.refresh()
+        self.status.set('Verifying export lineage against retained rollback bytes. No target contact or lease renewal.')
+        self.timer = self.window.after(100, self.poll)
+
     def load_policy(self, filename):
         if self.job:
             raise ValueError('Wait for the recovery job before reviewing another policy')
@@ -689,6 +731,11 @@ class RecoveryPanel:
         self.job = None
         self.refresh()
         self.show(result)
+        if self.job_kind == 'prepare-derivative':
+            self.status.set(result['status'] + f': export-lineage evidence at {self.preparation_output}. '
+                            'Only root-partition changes qualify. Filesystem health and physical boot remain unqualified; '
+                            'no target contact, lease renewal or deployment approval occurred.')
+            return
         if self.job_kind == 'check-health':
             checked = result.get('result') or {}
             outcome = ('Filesystem checks passed.' if checked.get('filesystem_consistency_qualified') is True else

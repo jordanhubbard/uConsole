@@ -339,6 +339,17 @@ class Controller:
                            context={'backup_acceptance_sha256': frozen['acceptance_sha256'],
                                     'target_contacted': False, 'repair_authorized': False})
 
+    def prepare_export_derivative(self, name, reviewed, output):
+        """Owner-only offline export lineage; no target or deployment grant."""
+        import copy
+        from uconsole_emulator import require_private_image_host
+        require_private_image_host()
+        from forge_derivative_prepare import prepare
+        frozen = copy.deepcopy(reviewed)
+        return self.submit(name, 'recovery_prepare_export_derivative', lambda: prepare(output, frozen),
+                           context={'original_manifest_sha256': frozen['source_sha256'],
+                                    'target_contacted': False})
+
     def submit_recovery(self, name, job):
         self.require('target-recovery')
         registry = self.recovery_jobs
