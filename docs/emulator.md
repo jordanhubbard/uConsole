@@ -457,8 +457,12 @@ guest boot artifacts.
 bind only to loopback. `--ssh-port` creates a USB network substitute and forwards
 to guest port 22; it does not enable SSH or provision credentials.
 
-`run --display gtk` and `run --display sdl` open the same generic QEMU
-framebuffer locally. The guest's built-in `bcm2708_fb` driver is configured for
+Use `run --display gtk` on Linux or `run --display cocoa` on macOS to open
+the generic QEMU framebuffer locally; `--display sdl` is also available when
+the selected QEMU build includes SDL. Workbench's display selector offers these
+backends, and the desktop recorder selects Cocoa on macOS rather than assuming
+GTK is installed. Use `qemu-system-aarch64 -display help` with your selected
+binary to check its compiled backends. The guest's built-in `bcm2708_fb` driver is configured for
 a 1280×720 logical display, matching the uConsole's landscape presentation. The
 physical panel is natively 720×1280 and mounted with a 90-degree rotation; this
 surrogate deliberately presents the already-rotated logical size and does not

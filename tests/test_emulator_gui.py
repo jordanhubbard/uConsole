@@ -43,6 +43,18 @@ class WorkbenchTests(unittest.TestCase):
         gc.collect()
         self.temporary.cleanup()
 
+    def test_display_selector_includes_native_macos_backend_and_keeps_headless_default(self):
+        pending = [self.root]
+        matches = []
+        while pending:
+            widget = pending.pop()
+            pending.extend(widget.winfo_children())
+            if widget.winfo_class() == 'TCombobox' and str(widget['textvariable']) == str(self.app.display):
+                matches.append(widget)
+        self.assertEqual(len(matches), 1)
+        self.assertIn('cocoa', matches[0]['values'])
+        self.assertEqual(self.app.display.get(), 'none')
+
     def test_editor_saves_exact_content_and_tracks_unsaved_edits(self):
         path = Path(self.temporary.name) / 'example.txt'
         self.app.filename = path

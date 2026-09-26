@@ -218,6 +218,18 @@ class MCPTests(unittest.TestCase):
         self.assertEqual(result['status'], 'completed')
         self.assertEqual(result['result'], {'answer': 42})
 
+    def test_native_cocoa_display_reaches_gui_owned_boot_job(self):
+        self.controller.grants = frozenset({'boot', 'force-stop'})
+        with patch.object(self.controller, 'submit', return_value={'job_id': 'fixture'}) as submit, \
+                patch.object(self.controller, 'boot') as boot:
+            self.controller.submit_boot('test', mode='desktop', display='cocoa')
+            self.assertEqual(submit.call_args.kwargs['context']['display'], 'cocoa')
+            submit.call_args.args[2]()
+            self.assertEqual(boot.call_args.kwargs['display'], 'cocoa')
+        with patch.object(self.controller, 'submit') as submit, self.assertRaises(ValueError):
+            self.controller.submit_boot('test', display='unexpected')
+        submit.assert_not_called()
+
     def test_adc_reference_wire_validation_dispatch_and_history_context(self):
         self.initialize()
         self.controller.grants = frozenset({'boot', 'force-stop'})

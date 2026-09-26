@@ -32,6 +32,12 @@ SURROGATE_WIDTH = 1280
 SURROGATE_HEIGHT = 720
 SURROGATE_DEPTH = 32
 SURROGATE_SCHEMA = 16
+DISPLAY_BACKENDS = ('none', 'gtk', 'sdl', 'cocoa')
+
+
+def native_display():
+    """Preferred local QEMU window, not a claim that a custom build includes it."""
+    return 'cocoa' if sys.platform == 'darwin' else 'gtk'
 
 
 def digest(path):
@@ -671,7 +677,7 @@ def parser():
     launch.add_argument('--modem-at-port', type=int,
                         help='split-device surrogate for one optional modem AT serial port')
     launch.add_argument('--vnc-display', type=int)
-    launch.add_argument('--display', choices=['none', 'gtk', 'sdl'], default='none',
+    launch.add_argument('--display', choices=DISPLAY_BACKENDS, default='none',
                         help='optional local QEMU framebuffer window (not DSI emulation)')
     launch.add_argument('--pause', action='store_true')
     launch.add_argument('--scenario', type=Path,

@@ -10,7 +10,7 @@ import sys
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
-from uconsole_emulator import BUILD_ROOT, DEFAULT, ROOT, SURROGATE_SCHEMA, parser, command, qmp
+from uconsole_emulator import BUILD_ROOT, DEFAULT, ROOT, SURROGATE_SCHEMA, DISPLAY_BACKENDS, parser, command, qmp
 from uconsole_agent import ANSI, context_markdown, inspect as agent_inspect, load_tasks
 from forge_scenario import Scenario, PROPERTIES, validate_value
 from forge_replay import Replay
@@ -77,7 +77,7 @@ class Workbench:
         self.mode = tk.StringVar(value='maintenance')
         ttk.Combobox(toolbar, textvariable=self.mode, values=['maintenance', 'normal', 'desktop'], state='readonly', width=14).pack(side='left')
         self.display = tk.StringVar(value='none')
-        ttk.Combobox(toolbar, textvariable=self.display, values=['none', 'gtk', 'sdl'],
+        ttk.Combobox(toolbar, textvariable=self.display, values=DISPLAY_BACKENDS,
                      state='readonly', width=7).pack(side='left', padx=2)
         for label, action in [('Start', self.start), ('Pause', lambda: self.control('stop')),
                               ('Resume', lambda: self.control('cont')), ('Power off', self.poweroff),

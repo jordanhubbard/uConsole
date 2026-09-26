@@ -8,6 +8,24 @@ These results establish a usable development environment,
 
 ## Inputs
 
+### macOS native display backend correction (2026-09-26)
+
+Puck's Homebrew QEMU reports Cocoa but no GTK/SDL; the separately built patched
+QEMU reports Cocoa and SDL but no GTK. The recorder previously hard-coded GTK,
+and Workbench/CLI validation omitted Cocoa entirely. Display choices now share
+one definition including Cocoa, while the recorder chooses Cocoa on macOS and
+GTK elsewhere. The existing headless default remains unchanged.
+
+The 123 focused emulator, controller, Workbench GUI and recorder tests pass on
+Linux and native macOS. A separate native probe starts the patched QEMU with
+`-display cocoa`, checks `query-display-options` returns Cocoa and
+`query-status` reports the deliberately paused machine, then exits via QMP.
+Evidence: `build/emulator/macos-cocoa-probe-20260926.log`. No guest booted in that
+probe; it does **not** establish guest desktop interaction or onboarding.
+The complete suites subsequently pass 1,527 tests on Linux (one skip) and native
+macOS (80 skips), plus ShellCheck; retained logs are
+`full-tests-cocoa-display-20260926.log` and `macos-full-cocoa-display-20260926.log`.
+
 ### Native x86_64 desktop observation procedure (2026-09-26)
 
 The package workflow has an opt-in manual `capture_public_desktop` input. It

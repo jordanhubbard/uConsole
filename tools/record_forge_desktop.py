@@ -24,6 +24,7 @@ import uuid
 from uconsole_workbench import Workbench
 from forge_keyboard import commands_snapshot
 from forge_keyboard_host import HostKeys, contacts
+from uconsole_emulator import native_display
 
 
 def firmware_chord(keys):
@@ -223,7 +224,7 @@ def main():
         root.after(50, poll)
 
     app.mode.set('desktop')
-    app.display.set('gtk')
+    app.display.set(native_display())
     app.keyboard.set(options.keyboard)
     threading.Thread(target=read_commands, daemon=True).start()
     root.after(50, poll)

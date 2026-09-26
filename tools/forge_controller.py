@@ -25,7 +25,7 @@ from forge_targets import TargetTransactions
 from forge_guest_jobs import GuestJobCancelled
 from uconsole_agent import GuestTransferCancelled
 from forge_workspace import WorkspaceLock, sha256
-from uconsole_emulator import ROOT, parser, read_config, wait_for_log
+from uconsole_emulator import ROOT, DISPLAY_BACKENDS, parser, read_config, wait_for_log
 
 
 GRANTS = ('image-write', 'guest-exec', 'transfer', 'boot', 'force-stop', 'host-task', 'device-control', 'target-write', 'target-recovery')
@@ -457,7 +457,7 @@ class Controller:
         """Shared boot job; snapshot only supported local launch settings."""
         self.require('boot')
         self.require('force-stop')
-        if mode not in ('maintenance', 'normal', 'desktop') or display not in ('none', 'gtk', 'sdl'):
+        if mode not in ('maintenance', 'normal', 'desktop') or display not in DISPLAY_BACKENDS:
             raise ValueError('Unsupported boot mode or display')
         if any(type(port) is not int or not 1 <= port <= 65535 for port in (qmp_port, serial_port)):
             raise ValueError('Boot ports must be integers in 1..65535')

@@ -116,12 +116,19 @@ class EmulatorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             workspace = Path(directory)
             (workspace / 'machine.json').write_text(json.dumps({'root': 'PARTUUID=12345678-02'}))
-            local = emulator.parser().parse_args(['--workspace', directory, 'run', '--display', 'gtk'])
-            self.assertEqual(emulator.command(local)[emulator.command(local).index('-display') + 1], 'gtk')
+            for backend in emulator.DISPLAY_BACKENDS:
+                local = emulator.parser().parse_args(['--workspace', directory, 'run', '--display', backend])
+                self.assertEqual(emulator.command(local)[emulator.command(local).index('-display') + 1], backend)
             conflict = emulator.parser().parse_args([
                 '--workspace', directory, 'run', '--display', 'sdl', '--vnc-display', '1'])
             with self.assertRaisesRegex(ValueError, 'cannot be combined'):
                 emulator.command(conflict)
+
+    def test_native_display_uses_cocoa_on_macos_without_changing_headless_default(self):
+        for platform, backend in (('darwin', 'cocoa'), ('linux', 'gtk')):
+            with patch.object(emulator.sys, 'platform', platform):
+                self.assertEqual(emulator.native_display(), backend)
+                self.assertEqual(emulator.parser().parse_args(['run']).display, 'none')
 
     def test_adc_reference_profile_is_explicit_and_does_not_edit_guest_files(self):
         with tempfile.TemporaryDirectory() as directory:
