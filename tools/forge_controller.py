@@ -328,6 +328,17 @@ class Controller:
                            context={'backup_acceptance_sha256': frozen['acceptance_sha256'],
                                     'target_contacted': False})
 
+    def check_backup_filesystems(self, name, reviewed, output):
+        """Owner-only retained-copy checks; never repairs or contacts a target."""
+        import copy
+        from uconsole_emulator import require_private_image_host
+        require_private_image_host()
+        from forge_backup_source import check_filesystems
+        frozen = copy.deepcopy(reviewed)
+        return self.submit(name, 'recovery_check_backup_filesystems', lambda: check_filesystems(output, frozen),
+                           context={'backup_acceptance_sha256': frozen['acceptance_sha256'],
+                                    'target_contacted': False, 'repair_authorized': False})
+
     def submit_recovery(self, name, job):
         self.require('target-recovery')
         registry = self.recovery_jobs

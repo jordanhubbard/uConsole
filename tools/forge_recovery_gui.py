@@ -98,6 +98,9 @@ class RecoveryPanel:
         offline.pack(padx=12, pady=4)
         self.source_button = ttk.Button(offline, text='Prepare retained backup source…', command=self.source_dialog)
         self.source_button.pack(side='left')
+        self.health_button = ttk.Button(offline, text='Check retained backup filesystems…',
+                                       command=lambda: self.source_dialog(health=True))
+        self.health_button.pack(side='left', padx=4)
         self.choice = ttk.Combobox(self.window, textvariable=self.selected, state='readonly', width=50)
         self.choice.pack(padx=12, pady=4)
         self.choice.bind('<<ComboboxSelected>>', lambda event: self.review())
@@ -143,6 +146,7 @@ class RecoveryPanel:
         self.privacy_verify_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.tryboot_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.source_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
+        self.health_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         if not self.pending:
             self.review()
 
@@ -569,7 +573,7 @@ class RecoveryPanel:
         self.status.set('Reading offline SD identity and preparing a backup-only policy. No lease or backup yet.')
         self.timer = self.window.after(100, self.poll)
 
-    def source_dialog(self):
+    def source_dialog(self, *, health=False):
         if self.job or self.pending:
             return
         try:
@@ -582,28 +586,37 @@ class RecoveryPanel:
             reviewed = inputs(directory, pin.strip())
             parent = filedialog.askdirectory(parent=self.window, title='Storage parent for offline source evidence')
             if not parent: return
-            if not messagebox.askyesno('Verify retained backup source',
-                    f"Read this retained backup twice?\n\n{directory}\n"
+            if health:
+                from forge_recovery_archive import RESERVE_BYTES
+                effect = (f"Needs at least {2 * reviewed['card']['bytes'] + RESERVE_BYTES:,} free bytes. "
+                          'Retains a complete image plus partition copies and read-only FAT/ext4 checker logs. '
+                          'No repairs, mounts or deployment approval. Nonzero checker results remain visible as errors. ')
+            else:
+                effect = ('Creates range hashes and a root-chunk manifest, not another card image. '
+                          'Filesystem health and deployment approval remain separate. ')
+            if not messagebox.askyesno('Check backup filesystems' if health else 'Verify retained backup source',
+                    f"Read this retained backup?\n\n{directory}\n"
                     f"Card bytes: {reviewed['card']['bytes']}\nCard SHA-256: {reviewed['card']['sha256']}\n"
                     f"Plan SHA-256: {reviewed['plan_sha256']}\n\n"
-                    'Creates range hashes and a root-chunk manifest, not another card image. '
-                    'No target contact, lease renewal, filesystem repair or write approval occurs. '
-                    'This does not keep a recovery boot alive; manage that session separately. '
-                    'Filesystem health and deployment approval remain separate.', parent=self.window):
+                    + effect + 'No target contact, lease renewal, filesystem repair or write approval occurs. '
+                    'This does not keep a recovery boot alive; manage that session separately.', parent=self.window):
                 return
             import uuid
-            self.prepare_source(reviewed, Path(parent)/('backup-source-'+uuid.uuid4().hex))
+            prefix = 'backup-health-' if health else 'backup-source-'
+            self.prepare_source(reviewed, Path(parent)/(prefix+uuid.uuid4().hex), health=health)
         except Exception as exc:
             self.status.set('Backup source not submitted: ' + str(exc))
 
-    def prepare_source(self, reviewed, output):
+    def prepare_source(self, reviewed, output, *, health=False):
         if self.job or self.pending:
             raise ValueError('Finish the current job or review before preparing a source')
-        submitted = self.controller.prepare_backup_source(self.workspace, reviewed, output)
-        self.job, self.job_kind = submitted['job_id'], 'prepare-source'
+        action = self.controller.check_backup_filesystems if health else self.controller.prepare_backup_source
+        submitted = action(self.workspace, reviewed, output)
+        self.job, self.job_kind = submitted['job_id'], 'check-health' if health else 'prepare-source'
         self.preparation_output = Path(output)
         self.refresh()
-        self.status.set('Verifying retained backup bytes and root chunks. No target contact or lease renewal.')
+        self.status.set(('Checking private filesystem copies without repair. ' if health else
+                         'Verifying retained backup bytes and root chunks. ') + 'No target contact or lease renewal.')
         self.timer = self.window.after(100, self.poll)
 
     def load_policy(self, filename):
@@ -676,6 +689,13 @@ class RecoveryPanel:
         self.job = None
         self.refresh()
         self.show(result)
+        if self.job_kind == 'check-health':
+            checked = result.get('result') or {}
+            outcome = ('Filesystem checks passed.' if checked.get('filesystem_consistency_qualified') is True else
+                       'Filesystem health is NOT qualified; inspect retained errors and checker logs.')
+            self.status.set(result['status'] + f': backup filesystem evidence at {self.preparation_output}. '
+                            + outcome + ' No repair, target contact, lease renewal or restore approval occurred.')
+            return
         if self.job_kind == 'prepare-source':
             self.status.set(result['status'] + f': backup-source evidence at {self.preparation_output}. '
                             'Byte verification is not filesystem health or restore approval. '

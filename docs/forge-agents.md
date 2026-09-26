@@ -220,7 +220,21 @@ permissions fail closed with evidence retained; an existing output is never
 overwritten. This action neither checks/repairs filesystem health nor contacts
 the target, renews a recovery lease, or grants restore/release authority. Do not
 rely on offline preparation to keep an unleased recovery boot alive. Filesystem
-inspection and guided deploy/restore policy preparation remain separate work.
+inspection and guided deploy/restore policy preparation are separate steps.
+
+**Check retained backup filesystems…** takes the same pinned backup and a new
+output directory. Confirmation displays the storage requirement: twice the
+card's byte length plus a reserve. Workbench refuses insufficient space or
+missing checkers before creating output. It materializes a byte-verified private
+`image/image.img`, copies both partitions, and runs read-only FAT/ext4 checkers
+on their file descriptors without mounting or repairing anything. The checked
+image can be imported into a separate forge workspace; the retained archive
+remains the rollback source. `health/acceptance.json` and the displayed health
+pin feed separate restore review. A completed job with nonzero checker results
+explicitly reports **NOT qualified**; it does not silently repair or approve
+restoration of a damaged original. Copies and checker diagnostics remain for
+review, including failures. This host-only action does not renew recovery
+leases. Guided deploy/restore policy authoring remains unfinished.
 
 The same owner preparation is available from a checkout:
 

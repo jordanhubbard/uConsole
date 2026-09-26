@@ -98,6 +98,21 @@ class RecoveryPanelTests(unittest.TestCase):
             self.panel.source_dialog()
             submit.assert_not_called()
 
+    def test_backup_health_errors_are_not_displayed_as_healthy(self):
+        reviewed = dict(acceptance_sha256='a'*64)
+        for qualified in (False, True):
+            with self.subTest(qualified=qualified), patch('forge_backup_source.check_filesystems', return_value=dict(
+                    status='checked-backup-filesystems', filesystem_consistency_qualified=qualified)) as worker:
+                self.panel.prepare_source(reviewed, self.path/'health-output', health=True)
+                self.owner.jobs[self.panel.job][2].result(timeout=5)
+                self.panel.poll()
+                worker.assert_called_once()
+                self.assertIn('checks passed' if qualified else 'NOT qualified', self.panel.status.get())
+                self.assertIn('No repair', self.panel.status.get())
+        self.assertEqual(self.owner.grants, frozenset())
+        with self.assertRaises(ValueError):
+            self.owner.call('recovery_check_backup_filesystems', {'workspace': 'gui'})
+
     def discover_builder(self):
         self.discovery = dict(host='fixture', kernel='6.12.62-v8+', boot=dict(
             machine_id='c'*32, boot_id='11111111-2222-3333-4444-555555555555',

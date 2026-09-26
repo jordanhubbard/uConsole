@@ -1,12 +1,16 @@
 import json
+import gzip
 from pathlib import Path
+import shutil
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from forge_backup_source import inputs, prepare
+from forge_backup_source import check_filesystems, inputs, prepare
 from forge_recovery_restore_source import digest, validate
 import test_recovery_archive_hash
+import test_recovery_filesystems
 
 
 class BackupSourceTests(unittest.TestCase):
@@ -75,3 +79,70 @@ class BackupSourceTests(unittest.TestCase):
             with self.assertRaises(ValueError): prepare(self.output, self.reviewed)
         self.assertFalse((self.output/'acceptance.json').exists())
         self.assertTrue((self.output/'failure.json').exists())
+
+
+@unittest.skipUnless(test_recovery_filesystems.HOST_CHECKERS, 'Filesystem checkers required')
+class BackupFilesystemPreparationTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+
+    def fixture(self, *, real=False):
+        fixture = test_recovery_filesystems.RecoveryFilesystemTests()
+        image, backup, plan, _, size = fixture.fixture(self.root, real=real)
+        plan['source'] = dict(device=plan['device'], length_bytes=size)
+        archive = backup/'card.img.gz'
+        with (image/'image.img').open('rb') as source, gzip.open(archive, 'wb') as output:
+            shutil.copyfileobj(source, output)
+        archive.chmod(0o600)
+        receipt = json.loads((backup/'acceptance.json').read_text())
+        receipt['compressed_bytes'] = archive.stat().st_size
+        (backup/'plan.json').write_text(json.dumps(plan))
+        (backup/'acceptance.json').write_text(json.dumps(receipt))
+        return backup, inputs(backup, digest(receipt))
+
+    def test_low_space_and_missing_tools_refuse_before_output(self):
+        _, reviewed = self.fixture()
+        output = self.root/'checked'
+        with patch('forge_backup_source.shutil.disk_usage', return_value=SimpleNamespace(free=0)):
+            with self.assertRaisesRegex(OSError, 'free bytes'): check_filesystems(output, reviewed)
+        with patch('forge_backup_source.filesystem_tool', return_value=None):
+            with self.assertRaisesRegex(RuntimeError, 'make deps'): check_filesystems(output, reviewed)
+        self.assertFalse(output.exists())
+
+    def test_nonzero_checks_are_retained_not_health_or_authority(self):
+        backup, reviewed = self.fixture()
+        before = (backup/'card.img.gz').read_bytes()
+        result = check_filesystems(self.root/'checked', reviewed)
+        self.assertEqual(result['status'], 'checked-backup-filesystems')
+        self.assertFalse(result['filesystem_consistency_qualified'])
+        self.assertTrue(any(result['check_returncodes'].values()))
+        self.assertEqual((backup/'card.img.gz').read_bytes(), before)
+        for key in ('repair_performed', 'target_contacted', 'target_written', 'lease_acquired',
+                    'restore_authorized', 'normal_boot_release_authorized'):
+            self.assertIs(result[key], False)
+        health = json.loads((self.root/'checked/health/acceptance.json').read_text())
+        self.assertEqual(digest(health), result['health_sha256'])
+        with self.assertRaises(FileExistsError): check_filesystems(self.root/'checked', reviewed)
+
+    def test_failed_checker_retains_partial_copies_and_no_outer_acceptance(self):
+        _, reviewed = self.fixture()
+        output = self.root/'checked'
+        with patch('forge_recovery_filesystems.run_check', side_effect=RuntimeError('checker failed')):
+            with self.assertRaises(RuntimeError): check_filesystems(output, reviewed)
+        self.assertTrue((output/'failure.json').exists())
+        self.assertTrue((output/'image/image.img').exists())
+        self.assertTrue((output/'health/root.img').exists())
+        self.assertFalse((output/'acceptance.json').exists())
+
+    @unittest.skipUnless(test_recovery_filesystems.filesystem_tool('mkfs.fat') and
+                         test_recovery_filesystems.filesystem_tool('mke2fs'), 'Filesystem makers required')
+    def test_real_fat_ext4_checks_match_restore_health_contract(self):
+        _, reviewed = self.fixture(real=True)
+        result = check_filesystems(self.root/'checked', reviewed)
+        self.assertEqual(result['check_returncodes'], dict(boot=0, root=0))
+        self.assertTrue(result['filesystem_consistency_qualified'])
+        from forge_recovery_restore_dispatch import read_health
+        health = read_health(self.root/'checked/health', result['health_sha256'], dict(card=reviewed['card']))
+        self.assertTrue(health['filesystem_consistency_qualified'])
