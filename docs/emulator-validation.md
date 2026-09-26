@@ -8,6 +8,33 @@ These results establish a usable development environment,
 
 ## Inputs
 
+### Native macOS guest desktop lifecycle (2026-09-26)
+
+The actual Workbench recorder on Puck, using the Cocoa fix at `015aa4d`, now
+completes the public factory guest's account setup and 1280x720 desktop loop.
+Mouse input launches Terminal; keyboard input runs
+`echo cocoa desktop input verified`, whose output is visually confirmed.
+Keyboard-requested `sudo reboot` returns to the desktop with the same `forgeproof`
+account and a new boot ID (`e345b814-b2b8-4146-a2bd-ffbdff94a271` to
+`bd5300a5-568b-42bc-bdf1-4694438be3c2`). Terminal can again be mouse-launched.
+Keyboard-requested `sudo poweroff` logs powerdown, and Workbench reports QEMU
+exit zero. The recorder finishes without forced cleanup. Independent stopped
+checks verify a clean/checksummed primary root superblock and unchanged public
+raw backing SHA-256 `a7b0a2bfa86a45150af1ae70a94ed432718bfec90ffdef54952564bd34f0d788`.
+This is not a full filesystem check.
+
+Evidence is retained privately in `build/emulator/macos-cocoa-desktop-20260926/`:
+`acceptance.json`, `stopped-verification.json`, recorder/serial logs and reviewed
+frames. The native workspace remains `/private/tmp/uconsole-cocoa-desktop.BzSGs2OP/workspace`.
+The unmodified factory kernel warns that `i2c-22` lacks an atomic transfer handler
+in the AXP poweroff path. Successful shutdown therefore does not establish a
+warning-free kernel or the separately tested atomic-I2C enhancement. Initial
+form focus needed an interactive correction; one malformed recorder command
+was rejected and subsequently corrected. Neither is hidden by the acceptance.
+The framebuffer and generic keyboard/mouse remain surrogates, not DSI/GPU or
+STM32 composite fidelity. This public fixture is separate from the private
+physical enhanced-image deployment and rollback gates.
+
 ### macOS native display backend correction (2026-09-26)
 
 Puck's Homebrew QEMU reports Cocoa but no GTK/SDL; the separately built patched
