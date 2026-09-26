@@ -27,6 +27,7 @@ class Workbench:
     def __init__(self, root, workspace, qmp_port=4444, serial_port=4445, *,
                  host_task_policy=None, host_task_sha256=None,
                  target_policy=None, target_policy_sha256=None,
+                 recovery_policy=None, recovery_policy_sha256=None,
                  agent_socket=None, agent_grants=(), agent_files_root=None):
         self.root, self.workspace = root, workspace.resolve()
         self.qmp_port, self.serial_port = qmp_port, serial_port
@@ -50,6 +51,9 @@ class Workbench:
         self.target_policy, self.target_policy_sha256 = target_policy, target_policy_sha256
         if bool(target_policy) != bool(target_policy_sha256):
             raise ValueError('Target policy and approved SHA-256 must be provided together')
+        self.recovery_policy, self.recovery_policy_sha256 = recovery_policy, recovery_policy_sha256
+        if bool(recovery_policy) != bool(recovery_policy_sha256):
+            raise ValueError('Recovery policy and approved SHA-256 must be provided together')
         self.host_task_policy, self.host_task_sha256 = host_task_policy, host_task_sha256
         if bool(host_task_policy) != bool(host_task_sha256):
             raise ValueError('Host-task policy and approved SHA-256 must be provided together')
@@ -63,7 +67,7 @@ class Workbench:
         self.guest_label = ''
         self.shutdown_requested = False
         self.decoder = codecs.getincrementaldecoder('utf-8')(errors='replace')
-        if host_task_policy or target_policy:
+        if host_task_policy or target_policy or recovery_policy:
             self.job_controller()  # Verify the explicit startup approval before exposing tasks.
         root.title(f'uConsole CM4 Workbench — {self.workspace.name} — partial hardware emulation')
         root.geometry('1100x760')
@@ -207,7 +211,7 @@ class Workbench:
         self.append(f'Agent attachment: {path}; workspace gui; grants: {sorted(grants)}\n')
 
     def agent_operation(self, tool, args, invoke):
-        if tool in ('host_tasks', 'target_transactions', 'job_history'):
+        if tool in ('host_tasks', 'target_transactions', 'recovery_jobs', 'job_history'):
             return invoke()
         self.require_no_replay()
         if self.lifecycle is not None or self.display_setup is not None:
@@ -744,6 +748,8 @@ class Workbench:
                 grants += ('host-task',)
             if self.target_policy:
                 grants += ('target-write',)
+            if self.recovery_policy:
+                grants += ('target-recovery',)
             self.controller = Controller({'gui': self.workspace}, grants=grants,
                                          files_root=self.agent_files_root,
                                          history=self.lifecycle_path,
@@ -751,6 +757,8 @@ class Workbench:
                                          host_task_sha256=self.host_task_sha256,
                                          target_policy=self.target_policy,
                                          target_policy_sha256=self.target_policy_sha256,
+                                         recovery_policy=self.recovery_policy,
+                                         recovery_policy_sha256=self.recovery_policy_sha256,
                                          keyboard_oracle=default_oracle(ROOT, BUILD_ROOT))
         return self.controller
 
@@ -1115,6 +1123,8 @@ def main():
     p.add_argument('--host-task-policy-sha256', help='Explicitly approved SHA-256 of that policy')
     p.add_argument('--target-policy', type=Path, help='Owner-approved physical transactions; workspace ID gui')
     p.add_argument('--target-policy-sha256', help='Approved SHA-256 of physical transaction policy')
+    p.add_argument('--recovery-policy', type=Path, help='Owner-approved prepared recovery jobs; workspace ID gui')
+    p.add_argument('--recovery-policy-sha256', help='Approved SHA-256 of recovery policy')
     p.add_argument('--agent-socket', type=Path, help='Opt-in private Unix socket for coding agents; workspace ID gui')
     p.add_argument('--agent-allow', action='append', choices=GRANTS, default=[])
     p.add_argument('--agent-files-root', type=Path, help='Owner-approved files root for attached agents')
@@ -1123,12 +1133,15 @@ def main():
         p.error('--host-task-policy and --host-task-policy-sha256 must be supplied together')
     if bool(args.target_policy) != bool(args.target_policy_sha256):
         p.error('--target-policy and --target-policy-sha256 must be supplied together')
+    if bool(args.recovery_policy) != bool(args.recovery_policy_sha256):
+        p.error('--recovery-policy and --recovery-policy-sha256 must be supplied together')
     if not args.agent_socket and (args.agent_allow or args.agent_files_root):
         p.error('--agent-allow and --agent-files-root require --agent-socket')
     root = tk.Tk()
     Workbench(root, args.workspace, args.qmp_port, args.serial_port,
               host_task_policy=args.host_task_policy, host_task_sha256=args.host_task_policy_sha256,
               target_policy=args.target_policy, target_policy_sha256=args.target_policy_sha256,
+              recovery_policy=args.recovery_policy, recovery_policy_sha256=args.recovery_policy_sha256,
               agent_socket=args.agent_socket, agent_grants=args.agent_allow, agent_files_root=args.agent_files_root)
     root.mainloop()
 

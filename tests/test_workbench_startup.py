@@ -9,6 +9,18 @@ import uconsole_workbench as workbench
 
 
 class NativeStartup(unittest.TestCase):
+    def test_recovery_policy_pair_required_before_tk_and_forwarded(self):
+        argv = ['uconsole-workbench', '--recovery-policy', '/owner/policy.json']
+        with patch.object(sys, 'argv', argv), patch.object(workbench.tk, 'Tk') as tk, \
+                patch('sys.stderr'), self.assertRaises(SystemExit):
+            workbench.main()
+        tk.assert_not_called()
+        with patch.object(sys, 'argv', argv + ['--recovery-policy-sha256', 'a'*64]), \
+                patch.object(workbench.tk, 'Tk'), patch.object(workbench, 'Workbench') as app:
+            workbench.main()
+        self.assertEqual(app.call_args.kwargs['recovery_policy'], Path('/owner/policy.json'))
+        self.assertEqual(app.call_args.kwargs['recovery_policy_sha256'], 'a'*64)
+
     def test_appkit_option_preserved_for_tk(self):
         for value in ('YES', 'NO'):
             argv = ['uconsole-workbench', '-ApplePersistenceIgnoreState', value]

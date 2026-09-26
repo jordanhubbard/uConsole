@@ -106,6 +106,10 @@ TOOLS = [
          ['workspace'], True),
     tool('host_tasks', 'List owner-approved host-task snapshots bound to this workspace; listing grants no execution authority.',
          {'workspace': WORKSPACE}, ['workspace'], True),
+    tool('recovery_jobs', 'List owner-approved recovery jobs and pins. Listing grants no execution authority.',
+         {'workspace': WORKSPACE}, ['workspace'], True),
+    tool('recovery_job', 'Run one fixed owner-approved recovery action. Requires target-recovery; no host/path overrides or running cancellation. Poll job; failure can mean uncertain disk changes. Never automatically retry.',
+         {'workspace': WORKSPACE, 'job': NAME}, ['workspace', 'job']),
     tool('target_transactions', 'List owner-approved physical target transaction IDs and digests; no host paths or backup contents.',
          {'workspace': WORKSPACE}, ['workspace'], True),
     tool('target_recovery_inspect', 'Read-only SSH recovery prerequisites for a pinned target. Requires target-write authority for remote execution. No boot-file contents or recovery-readiness claim; poll the returned job.',
@@ -278,10 +282,13 @@ def main():
     arguments.add_argument('--keyboard-oracle', type=Path, help='Owner-selected firmware oracle executable')
     arguments.add_argument('--target-policy', type=Path, help='Owner-reviewed physical transaction policy')
     arguments.add_argument('--target-policy-sha256', help='SHA-256 of approved target policy bytes')
+    arguments.add_argument('--recovery-policy', type=Path, help='Owner-reviewed recovery job policy')
+    arguments.add_argument('--recovery-policy-sha256', help='SHA-256 of approved recovery policy bytes')
     args = arguments.parse_args()
     if args.connect:
         if (args.allow or args.files_root or args.history or args.host_task_policy or
-                args.host_task_policy_sha256 or args.keyboard_oracle or args.target_policy or args.target_policy_sha256):
+                args.host_task_policy_sha256 or args.keyboard_oracle or args.target_policy or args.target_policy_sha256 or
+                args.recovery_policy or args.recovery_policy_sha256):
             arguments.error('--connect cannot set owner grants, files root, history or host-task policy')
         from forge_local import relay_stdio
         relay_stdio(args.connect, sys.stdin.fileno(), sys.stdout.fileno())
@@ -297,6 +304,7 @@ def main():
                             host_task_policy=args.host_task_policy,
                             host_task_sha256=args.host_task_policy_sha256,
                             target_policy=args.target_policy, target_policy_sha256=args.target_policy_sha256,
+                            recovery_policy=args.recovery_policy, recovery_policy_sha256=args.recovery_policy_sha256,
                             keyboard_oracle=args.keyboard_oracle or default_oracle())
     try:
         Server(controller).serve(sys.stdin.buffer, sys.stdout)

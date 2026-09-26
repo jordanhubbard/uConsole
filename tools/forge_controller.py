@@ -28,7 +28,7 @@ from forge_workspace import WorkspaceLock, sha256
 from uconsole_emulator import ROOT, parser, read_config, wait_for_log
 
 
-GRANTS = ('image-write', 'guest-exec', 'transfer', 'boot', 'force-stop', 'host-task', 'device-control', 'target-write')
+GRANTS = ('image-write', 'guest-exec', 'transfer', 'boot', 'force-stop', 'host-task', 'device-control', 'target-write', 'target-recovery')
 
 
 class JobCancelled(Exception):
@@ -98,7 +98,8 @@ def tail_file(path, limit=65536):
 class Controller:
     def __init__(self, workspaces, grants=(), files_root=None, *, history=None,
                  host_task_policy=None, host_task_sha256=None, keyboard_oracle=None,
-                 target_policy=None, target_policy_sha256=None):
+                 target_policy=None, target_policy_sha256=None,
+                 recovery_policy=None, recovery_policy_sha256=None):
         self.workspaces = {}
         for name, path in workspaces.items():
             if not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', name):
@@ -118,6 +119,11 @@ class Controller:
         self.targets = TargetTransactions(target_policy, target_policy_sha256, self.workspaces) if target_policy else None
         if 'target-write' in self.grants and not self.targets:
             raise ValueError('The target-write grant requires an explicitly approved policy')
+        if bool(recovery_policy) != bool(recovery_policy_sha256):
+            raise ValueError('Recovery policy path and approved SHA-256 must be provided together')
+        self.recovery_jobs = self.load_recovery_policy(recovery_policy, recovery_policy_sha256) if recovery_policy else None
+        if 'target-recovery' in self.grants and not self.recovery_jobs:
+            raise ValueError('The target-recovery grant requires an explicitly approved policy')
         self.history = History(history) if history else None
         self.session = uuid.uuid4().hex
         self.runtimes = {}
@@ -175,6 +181,34 @@ class Controller:
                                   'detail': runtime.guest_channel_error if runtime else None},
                 'coverage': 'Partial CM4. Surrogate display/input/networking; no physical hardware qualification.',
                 'restore_pending': (path / 'restore-pending.json').exists()}
+
+    def load_recovery_policy(self, path, digest):
+        # Keep POSIX-only recovery dependencies out of portable controller imports.
+        from uconsole_emulator import require_private_image_host
+        require_private_image_host()
+        from forge_recovery_jobs import RecoveryJobs
+        return RecoveryJobs(path, digest, self.workspaces)
+
+    def approve_recovery_policy(self, path, digest):
+        """Local owner action only; clients cannot approve or replace policy."""
+        approved = self.load_recovery_policy(path, digest)
+        with self.mutex:
+            if self.busy:
+                raise ValueError('Wait for controller jobs before changing recovery approval')
+            self.recovery_jobs = approved
+            self.grants = self.grants | {'target-recovery'}
+
+    def submit_recovery(self, name, job):
+        self.require('target-recovery')
+        registry = self.recovery_jobs
+        approved = registry.get(job, name)
+        def execute():
+            from forge_recovery_jobs import execute
+            return execute(approved)
+        return self.submit(name, 'recovery_' + approved.operation, execute,
+                           target_identity=approved.machine_id, context={
+                               'recovery_job': approved.name, 'policy_sha256': registry.sha256,
+                               'session_sha256': approved.session_pin})
 
     def approve_target_policy(self, path, digest):
         """Local owner action only; deliberately absent from call()/MCP."""
@@ -746,6 +780,11 @@ class Controller:
             return self.cancel(args['job_id'])
         name = args['workspace']
         self.workspace(name)
+        if tool == 'recovery_jobs':
+            return {'jobs': self.recovery_jobs.describe(name) if self.recovery_jobs else [],
+                    'execution_granted': 'target-recovery' in self.grants}
+        if tool == 'recovery_job':
+            return self.submit_recovery(name, args['job'])
         if tool == 'target_transactions':
             return {'transactions': self.targets.describe(name) if self.targets else [],
                     'execution_granted': 'target-write' in self.grants}

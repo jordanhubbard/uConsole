@@ -7,7 +7,7 @@ Disconnecting a client never releases the controller or cancels accepted jobs.
 from pathlib import Path
 
 
-READ_ONLY = frozenset(('workspace_inspect', 'host_tasks', 'target_transactions', 'job_history', 'job_status', 'power_query', 'audio_query', 'modem_query'))
+READ_ONLY = frozenset(('workspace_inspect', 'host_tasks', 'target_transactions', 'recovery_jobs', 'job_history', 'job_status', 'power_query', 'audio_query', 'modem_query'))
 REQUIRED = {
     'boot': ('boot', 'force-stop'), 'stop': ('boot',),
     'pause': ('boot',), 'resume': ('boot',),
@@ -20,6 +20,7 @@ REQUIRED = {
     'screenshot': ('transfer',), 'host_task': ('host-task',),
     'target_transition': ('target-write',),
     'target_recovery_inspect': ('target-write',),
+    'recovery_job': ('target-recovery',),
     **{name: ('image-write',) for name in (
         'checkpoint', 'restore', 'recover', 'refresh_boot', 'configure_display', 'export', 'prepare')},
 }
@@ -119,6 +120,8 @@ this session. The owning Controller still serializes all accepted work.
             result = dict(result, execution_granted='host-task' in self.grants)
         if tool == 'target_transactions':
             result = dict(result, execution_granted='target-write' in self.grants)
+        if tool == 'recovery_jobs':
+            result = dict(result, execution_granted='target-recovery' in self.grants)
         if 'job_id' in result:
             # Retired jobs remain readable, but never confer cancellation authority.
             # Bound connection bookkeeping along with the owner's live-job cache.

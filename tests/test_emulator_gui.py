@@ -118,6 +118,44 @@ class WorkbenchTests(unittest.TestCase):
         serial.close.assert_not_called()
         self.assertIsNone(self.app.agent_job)
 
+    def test_recovery_attachment_tracks_job_and_readonly_listing_during_other_work(self):
+        from forge_client import ClientSession
+        from types import SimpleNamespace
+        owner = self.app.job_controller()
+        approved = SimpleNamespace(operation='reconcile-root', machine_id='c'*32,
+                                   name='proof', session_pin='b'*64)
+        registry = MagicMock(sha256='a'*64)
+        registry.get.return_value = approved
+        registry.describe.return_value = [{'name': 'proof'}]
+        with patch.object(owner, 'load_recovery_policy', return_value=registry):
+            owner.approve_recovery_policy('/owner/policy', 'a'*64)
+        readonly = ClientSession(owner, ['gui'], dispatch=self.app.agent_operation)
+        self.app.lifecycle = 'unrelated-job'
+        self.assertFalse(readonly.call('recovery_jobs', {'workspace': 'gui'})['execution_granted'])
+        self.app.lifecycle = None
+        entered, finish = threading.Event(), threading.Event()
+        def execute(job):
+            entered.set()
+            if not finish.wait(5): raise TimeoutError('recovery fixture')
+            return {'root_written': False}
+        client = ClientSession(owner, ['gui'], ['target-recovery'], dispatch=self.app.agent_operation)
+        with patch('forge_recovery_jobs.execute', side_effect=execute):
+            submitted = client.call('recovery_job', {'workspace': 'gui', 'job': 'proof'})
+            try:
+                self.assertTrue(entered.wait(2))
+                self.assertEqual(self.app.agent_job, submitted['job_id'])
+                with patch('uconsole_workbench.messagebox.showinfo') as dialog:
+                    self.app.close()
+                    dialog.assert_called_once()
+                client.close()
+                self.assertFalse(owner.jobs[submitted['job_id']][2].done())
+            finally:
+                finish.set()
+                owner.jobs[submitted['job_id']][2].result(timeout=5)
+        self.app.poll_agent()
+        self.assertIsNone(self.app.agent_job)
+        self.assertIn('recovery_reconcile-root completed', self.app.status.get())
+
     def test_agent_boot_completion_exposes_exact_owner_runtime(self):
         owner = self.app.job_controller()
         runtime = MagicMock()

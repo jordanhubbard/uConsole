@@ -46,6 +46,53 @@ is an application boundary, not an OS sandbox against other local processes.
 | `image-write` | Prepare, checkpoint, restore, recover, refresh boot files and export |
 | `host-task` | Run fixed tasks from a separately reviewed, digest-pinned owner policy |
 | `device-control` | Change modeled power/modem state, inject keyboard input, or connect/disconnect audio and modem USB surrogates in an owned VM |
+| `target-recovery` | Run fixed prepared recovery jobs from a separately reviewed policy; never implied by `target-write` |
+
+### Prepared recovery jobs (advanced)
+
+The owner may pass `--recovery-policy /absolute/policy.json` and
+`--recovery-policy-sha256 SHA256` to either Workbench or the standalone MCP
+server. Standalone execution additionally requires `--allow target-recovery`;
+Workbench attachment requires `--agent-allow target-recovery`. Attachment mode
+(`--connect`) cannot supply policies or increase grants. Policies are never
+auto-discovered from a guest or workspace.
+
+`recovery_jobs` lists approved IDs, operations and pins, without credential or
+backup paths. `recovery_job` accepts only `workspace` and `job`; poll the returned
+job ID. Read-only clients do not inherit the owner's recovery permission.
+Jobs serialize with other operations on the same workspace or pinned physical
+machine. Running recovery jobs cannot be cancelled. Disconnect does not cancel
+accepted work or authorize a reboot.
+
+This is an advanced prepared-session interface, **not yet a complete guided
+hardware deployment workflow**. The owner must already have a private,
+digest-pinned physical recovery session and the operation's validated backup,
+health and plan journals. No tool here stages recovery firmware, adopts a live
+lease, releases the recovery hold, or reboots the target. Public physical image
+deployment qualification remains open.
+
+Policy schema 1 contains a `jobs` object with 1–64 named entries. Each entry has
+exactly `workspace`, `machine_id` (the normal system's 32-hex identity), `session`,
+`session_sha256`, `key`, `known_hosts`, `operation`, and `arguments`. All paths are
+absolute, owner-selected host paths; all pins are explicit SHA-256 digests.
+The private session binds the recovery host, pinned credentials, hardware serial,
+kernel, boot UUID and lease owner. Only physical sessions are accepted here.
+
+| Operation | Exact argument fields |
+| --- | --- |
+| `backup-card` | `cid`, `disk_id`, `device` (only `/dev/mmcblk0`), `destination` |
+| `restore-root` | `journal`, `plan_sha256`, `source_directory`, `health_directory`, `health_sha256`, `accept_filesystem_errors` (boolean) |
+| `deploy-root` | `journal`, `plan_sha256`, `source_directory`, `health_directory`, `health_sha256` |
+| `reconcile-root` | `journal`, `plan_sha256` |
+| `retry-lease` | No fields |
+
+An uncertain result must not be automatically retried. Existing backup destinations
+and attempted root dispatches are preserved and rejected for redispatch.
+Reconciliation is a separate owner-approved observation job, not a retry or hold
+release. A pending lease renewal blocks other actions: only an explicitly approved
+`retry-lease` job can replay its exact original request, without extending its
+deadline. Host journals and the original backup remain authoritative evidence;
+historical job success does not establish current boot identity or lease validity.
 
 Disconnect waits for accepted jobs, attempts clean maintenance shutdown, then
 may force-stop owned VMs under the explicit `force-stop` grant. Normal/desktop
