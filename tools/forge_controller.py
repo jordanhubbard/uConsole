@@ -317,6 +317,17 @@ class Controller:
                                'enrollment_sha256': source.acceptance_pin,
                                'session_sha256': source.session_pin, 'policy_approved': False})
 
+    def prepare_backup_source(self, name, reviewed, output):
+        """Owner-only offline preparation; never acquires recovery authority."""
+        import copy
+        from uconsole_emulator import require_private_image_host
+        require_private_image_host()
+        from forge_backup_source import prepare
+        frozen = copy.deepcopy(reviewed)
+        return self.submit(name, 'recovery_prepare_backup_source', lambda: prepare(output, frozen),
+                           context={'backup_acceptance_sha256': frozen['acceptance_sha256'],
+                                    'target_contacted': False})
+
     def submit_recovery(self, name, job):
         self.require('target-recovery')
         registry = self.recovery_jobs

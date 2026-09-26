@@ -59,6 +59,45 @@ class RecoveryPanelTests(unittest.TestCase):
         self.assertIn('--recovery-policy', self.panel.details.get('1.0', 'end'))
         self.assertEqual(self.owner.jobs, {})
 
+    def test_offline_source_job_is_owner_only_and_retained_on_status_error(self):
+        entered, finish = threading.Event(), threading.Event()
+        reviewed = dict(acceptance_sha256='a'*64)
+        def prepare(output, frozen):
+            entered.set()
+            if not finish.wait(5): raise TimeoutError('fixture blocked')
+            return dict(status='prepared-backup-root-source', target_contacted=False)
+        with patch('forge_backup_source.prepare', side_effect=prepare) as worker:
+            self.panel.prepare_source(reviewed, self.path/'source-output')
+            job = self.panel.job
+            try:
+                self.assertTrue(entered.wait(2))
+                self.assertIn('disabled', self.panel.source_button.state())
+                self.assertFalse(self.panel.close())
+                with self.assertRaises(ValueError):
+                    self.panel.prepare_source(reviewed, self.path/'other-output')
+                with patch.object(self.owner, 'job', side_effect=ConnectionError('status unavailable')):
+                    self.panel.poll()
+                self.assertEqual(self.panel.job, job)
+            finally:
+                finish.set()
+            self.owner.jobs[job][2].result(timeout=5)
+            worker.assert_called_once()
+        self.panel.poll()
+        self.assertIn('not filesystem health', self.panel.status.get())
+        self.assertEqual(self.owner.grants, frozenset())
+        with self.assertRaises(ValueError):
+            self.owner.call('recovery_prepare_backup_source', {'workspace': 'gui'})
+
+    def test_declined_offline_source_review_does_not_submit(self):
+        reviewed = dict(card=dict(bytes=512, sha256='a'*64), plan_sha256='b'*64)
+        with patch('forge_recovery_gui.filedialog.askdirectory', return_value=str(self.path)), \
+                patch('forge_recovery_gui.simpledialog.askstring', return_value='c'*64), \
+                patch('forge_backup_source.inputs', return_value=reviewed), \
+                patch('forge_recovery_gui.messagebox.askyesno', return_value=False), \
+                patch.object(self.owner, 'prepare_backup_source') as submit:
+            self.panel.source_dialog()
+            submit.assert_not_called()
+
     def discover_builder(self):
         self.discovery = dict(host='fixture', kernel='6.12.62-v8+', boot=dict(
             machine_id='c'*32, boot_id='11111111-2222-3333-4444-555555555555',

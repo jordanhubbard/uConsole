@@ -205,7 +205,22 @@ before approval. Drafting neither creates a backup nor grants root-write access.
 It refuses a busy session, uncertain renewal, changed boot/card/credentials, or
 output overlapping the enrolled session. Retain failure evidence; do not reset
 the lease journal. Policy authoring is owner-only and absent from MCP. This
-step does not provide recovery-image bootstrap or a complete deploy/restore wizard.
+step does not provide a complete deploy/restore wizard.
+
+For a completed retained backup, **Prepare retained backup source…** is an
+owner-only, host-only action. Select the private backup directory and its
+owner-recorded canonical `acceptance.json` SHA-256, then review the card size,
+card digest and plan pin before confirmation. Workbench reads the complete
+compressed archive twice: first to derive independent range hashes, then to
+verify every root chunk against those bytes. It preserves the original archive
+and creates only small private evidence records, not another full-card copy.
+The resulting `source/manifest.json` and its displayed pin can feed separately
+reviewed restore preparation. Changed receipts, archive identity, checksum or
+permissions fail closed with evidence retained; an existing output is never
+overwritten. This action neither checks/repairs filesystem health nor contacts
+the target, renews a recovery lease, or grants restore/release authority. Do not
+rely on offline preparation to keep an unleased recovery boot alive. Filesystem
+inspection and guided deploy/restore policy preparation remain separate work.
 
 The same owner preparation is available from a checkout:
 

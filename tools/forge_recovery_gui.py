@@ -94,6 +94,10 @@ class RecoveryPanel:
         self.privacy_verify_button.pack(side='left', padx=4)
         self.tryboot_button = ttk.Button(privacy, text='Boot recovery and enroll…', command=lambda: self.enroll_dialog(tryboot=True))
         self.tryboot_button.pack(side='left', padx=4)
+        offline = ttk.Frame(self.window)
+        offline.pack(padx=12, pady=4)
+        self.source_button = ttk.Button(offline, text='Prepare retained backup source…', command=self.source_dialog)
+        self.source_button.pack(side='left')
         self.choice = ttk.Combobox(self.window, textvariable=self.selected, state='readonly', width=50)
         self.choice.pack(padx=12, pady=4)
         self.choice.bind('<<ComboboxSelected>>', lambda event: self.review())
@@ -138,6 +142,7 @@ class RecoveryPanel:
         self.privacy_reboot_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.privacy_verify_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.tryboot_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
+        self.source_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         if not self.pending:
             self.review()
 
@@ -564,6 +569,43 @@ class RecoveryPanel:
         self.status.set('Reading offline SD identity and preparing a backup-only policy. No lease or backup yet.')
         self.timer = self.window.after(100, self.poll)
 
+    def source_dialog(self):
+        if self.job or self.pending:
+            return
+        try:
+            from forge_backup_source import inputs
+            directory = filedialog.askdirectory(parent=self.window, title='Completed retained card backup')
+            if not directory: return
+            pin = simpledialog.askstring('Backup receipt pin', 'Owner-recorded canonical SHA-256 of acceptance.json:',
+                                         parent=self.window)
+            if not pin: return
+            reviewed = inputs(directory, pin.strip())
+            parent = filedialog.askdirectory(parent=self.window, title='Storage parent for offline source evidence')
+            if not parent: return
+            if not messagebox.askyesno('Verify retained backup source',
+                    f"Read this retained backup twice?\n\n{directory}\n"
+                    f"Card bytes: {reviewed['card']['bytes']}\nCard SHA-256: {reviewed['card']['sha256']}\n"
+                    f"Plan SHA-256: {reviewed['plan_sha256']}\n\n"
+                    'Creates range hashes and a root-chunk manifest, not another card image. '
+                    'No target contact, lease renewal, filesystem repair or write approval occurs. '
+                    'This does not keep a recovery boot alive; manage that session separately. '
+                    'Filesystem health and deployment approval remain separate.', parent=self.window):
+                return
+            import uuid
+            self.prepare_source(reviewed, Path(parent)/('backup-source-'+uuid.uuid4().hex))
+        except Exception as exc:
+            self.status.set('Backup source not submitted: ' + str(exc))
+
+    def prepare_source(self, reviewed, output):
+        if self.job or self.pending:
+            raise ValueError('Finish the current job or review before preparing a source')
+        submitted = self.controller.prepare_backup_source(self.workspace, reviewed, output)
+        self.job, self.job_kind = submitted['job_id'], 'prepare-source'
+        self.preparation_output = Path(output)
+        self.refresh()
+        self.status.set('Verifying retained backup bytes and root chunks. No target contact or lease renewal.')
+        self.timer = self.window.after(100, self.poll)
+
     def load_policy(self, filename):
         if self.job:
             raise ValueError('Wait for the recovery job before reviewing another policy')
@@ -634,6 +676,11 @@ class RecoveryPanel:
         self.job = None
         self.refresh()
         self.show(result)
+        if self.job_kind == 'prepare-source':
+            self.status.set(result['status'] + f': backup-source evidence at {self.preparation_output}. '
+                            'Byte verification is not filesystem health or restore approval. '
+                            'No target contact or lease renewal occurred; retain all failure evidence.')
+            return
         if self.job_kind == 'tryboot-enroll':
             if result['status'] == 'completed' and result['result'].get('status') == 'recovery-boot-enrolled-not-leased':
                 self.enrollment_ready = (self.enrollment_candidate, result['result']['enrollment'])
