@@ -50,6 +50,7 @@ class RecoveryPanel:
         self.job_kind = 'recovery'
         self.preparation_output = None
         self.enrollment_candidate = self.enrollment_ready = None
+        self.build_host = self.build_candidate = None
         self.window = tk.Toplevel(parent)
         self.window.title('Physical recovery — prepared jobs')
         self.selected = tk.StringVar()
@@ -71,6 +72,12 @@ class RecoveryPanel:
         self.approve_button = ttk.Button(controls, text='Approve reviewed policy…', command=self.approve)
         self.approve_button.pack(side='left', padx=4)
         self.approve_button.state(['disabled'])
+        builder = ttk.Frame(self.window)
+        builder.pack(padx=12, pady=4)
+        self.discover_build_button = ttk.Button(builder, text='Discover build target…', command=self.discover_build_dialog)
+        self.discover_build_button.pack(side='left')
+        self.build_button = ttk.Button(builder, text='Build private recovery image…', command=self.build_dialog)
+        self.build_button.pack(side='left', padx=4)
         self.choice = ttk.Combobox(self.window, textvariable=self.selected, state='readonly', width=50)
         self.choice.pack(padx=12, pady=4)
         self.choice.bind('<<ComboboxSelected>>', lambda event: self.review())
@@ -106,6 +113,8 @@ class RecoveryPanel:
         self.backup_button.state(['!disabled'] if self.enrollment_ready and not self.job and not self.pending else ['disabled'])
         self.approve_button.state(['!disabled'] if self.pending and not self.job else ['disabled'])
         self.recheck_button.state(['!disabled'] if self.job else ['disabled'])
+        self.discover_build_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
+        self.build_button.state(['!disabled'] if self.build_candidate and not self.job and not self.pending else ['disabled'])
         if not self.pending:
             self.review()
 
@@ -129,6 +138,69 @@ class RecoveryPanel:
                 self.load_policy(Path(filename))
             except Exception as exc:
                 self.status.set('Policy review failed: ' + str(exc))
+
+    def discover_build_dialog(self):
+        if self.job or self.pending:
+            return
+        host = simpledialog.askstring('Native recovery builder', 'Normal SSH target (user@hostname):', parent=self.window)
+        if not host:
+            return
+        if not messagebox.askyesno('Read native build identity',
+                f'Read the normal boot identity and kernel from {host}? No files will be staged or built.', parent=self.window):
+            return
+        try:
+            self.discover_builder(host)
+        except Exception as exc:
+            self.status.set('Discovery not submitted: ' + str(exc))
+
+    def discover_builder(self, host):
+        if self.job or self.pending:
+            raise ValueError('Finish the current job or review before discovery')
+        submitted = self.controller.discover_recovery_builder(self.workspace, host)
+        self.build_host, self.build_candidate = host, None
+        self.job, self.job_kind = submitted['job_id'], 'discover-builder'
+        self.refresh()
+        self.status.set('Reading normal target identity. Keep Workbench open; no build has been requested.')
+        self.timer = self.window.after(100, self.poll)
+
+    def build_dialog(self):
+        if self.job or self.pending or not self.build_candidate:
+            return
+        import copy
+        candidate = copy.deepcopy(self.build_candidate)
+        credentials = filedialog.askdirectory(parent=self.window,
+            title='Private credentials: wpa.conf, authorized_keys, ssh_host_ed25519_key')
+        if not credentials:
+            return
+        parent = filedialog.askdirectory(parent=self.window, title='Parent directory for private recovery image and evidence')
+        if not parent:
+            return
+        self.show(candidate)
+        if not messagebox.askyesno('Build private recovery image',
+                f'Build on {candidate["host"]} using kernel {candidate["kernel"]}?\n'
+                f'Confirmed boot: {candidate["boot"]["boot_id"]}\n\n'
+                'This sends the selected credentials and builder sources over SSH, uses sudo, and creates private target scratch '
+                'and host output. Requires installed native build dependencies. It does not publish, alter boot files, reboot, '
+                'or qualify fallback. Keep Workbench open. On failure retain both journals; do not automatically retry.', parent=self.window):
+            return
+        try:
+            if self.build_candidate != candidate:
+                raise ValueError('Discovery changed during confirmation; review again')
+            import uuid
+            self.build_image(candidate, Path(credentials), Path(parent)/('recovery-build-'+uuid.uuid4().hex))
+        except Exception as exc:
+            self.status.set('Build not submitted: ' + str(exc))
+
+    def build_image(self, candidate, credentials, output):
+        if self.job or self.pending or candidate != self.build_candidate:
+            raise ValueError('Build requires the reviewed idle discovery')
+        submitted = self.controller.build_recovery_image(self.workspace, candidate, credentials, output)
+        self.build_candidate = None
+        self.job, self.job_kind = submitted['job_id'], 'build-image'
+        self.preparation_output = Path(output)
+        self.refresh()
+        self.status.set('Native build accepted. Keep Workbench open; no publication or reboot is authorized.')
+        self.timer = self.window.after(100, self.poll)
 
     def prepare_dialog(self):
         if self.job or self.pending:
@@ -333,6 +405,17 @@ class RecoveryPanel:
         self.job = None
         self.refresh()
         self.show(result)
+        if self.job_kind == 'discover-builder':
+            if result['status'] == 'completed':
+                self.build_candidate = dict(result['result'], host=self.build_host)
+                self.build_button.state(['!disabled'])
+                self.show(self.build_candidate)
+            self.status.set(result['status'] + ': read-only discovery. Review identity, then separately choose Build private recovery image.')
+            return
+        if self.job_kind == 'build-image':
+            self.status.set(result['status'] + f': private build evidence at {self.preparation_output}. '
+                            'Not published or boot-qualified. Retain failed host/target journals; do not automatically retry.')
+            return
         if self.job_kind == 'enroll-session':
             if result['status'] == 'completed' and result['result'].get('status') == 'enrolled-not-leased':
                 self.enrollment_ready = (self.enrollment_candidate, result['result'])

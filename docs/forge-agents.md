@@ -66,6 +66,28 @@ existing clients' grants. Select a job, review it, then explicitly confirm
 retrieval fails, use **Recheck job status**, not another submission. The result
 panel retains failures and makes no implicit rollback or boot-release claim.
 
+**Discover build target…** reads a normal SSH target's boot identity and kernel
+without changing the target. Review that identity, then choose **Build private
+recovery image…** to select private credentials (`wpa.conf`, `authorized_keys`,
+`ssh_host_ed25519_key`) and a host output parent. After separate confirmation,
+Workbench sends fixed builder sources and those credentials over SSH, uses
+noninteractive sudo on the native ARM64 target, and builds in exclusive private
+scratch. Matching kernel modules and native build dependencies must already be
+installed; this action does not install packages. Discovery and building run as
+foreground controller jobs without blocking the GUI. Keep Workbench open and
+recheck an accepted job rather than submitting again after a status error.
+
+The host retains a private image, its verified transfer checksum, and build
+evidence. The target retains its private scratch and logs. Build failure retains
+both locations, consumes the displayed discovery, and performs no automatic
+retry. A successful build is **not published or boot-qualified**: neither action
+writes boot files, changes selectors, reboots, approves recovery policies, grants
+agents authority, or replaces whole-card backup and fallback qualification.
+These owner controls are deliberately absent from MCP. The build backend and
+GUI have fixture coverage; physical native-build qualification of this workflow
+is still pending. Publication/bootstrap and guided deploy/restore remain separate
+unfinished steps.
+
 **Prepare boot staging…** is an owner-only normal-SSH preparation step, not an
 agent permission or a staging action. Select an acknowledged private recovery
 image publication journal, its plan pin, a reviewed matched-firmware bundle and

@@ -59,6 +59,96 @@ class RecoveryPanelTests(unittest.TestCase):
         self.assertIn('--recovery-policy', self.panel.details.get('1.0', 'end'))
         self.assertEqual(self.owner.jobs, {})
 
+    def discover_builder(self):
+        self.discovery = dict(host='fixture', kernel='6.12.62-v8+', boot=dict(
+            machine_id='c'*32, boot_id='11111111-2222-3333-4444-555555555555',
+            cmdline='root=PARTUUID=21965b0c-02 rw', tryboot=0, partition=1))
+        with patch('forge_recovery_build.discover', return_value=self.discovery):
+            self.panel.discover_builder('fixture')
+            job = self.panel.job
+            result = self.owner.jobs[job][2].result(timeout=5)
+            self.assertNotIn('host', result)
+        self.panel.poll()
+        self.assertEqual(self.panel.build_candidate, self.discovery)
+
+    def test_builder_discovery_and_build_are_separate_owner_jobs(self):
+        self.assertIn('disabled', self.panel.build_button.state())
+        self.discover_builder()
+        self.assertNotIn('disabled', self.panel.build_button.state())
+        entered, finish = threading.Event(), threading.Event()
+        def build(output, discovered, credentials):
+            entered.set()
+            if not finish.wait(5): raise TimeoutError('fixture blocked')
+            return dict(status='built-not-published', publication_performed=False)
+        with patch('forge_recovery_build.build', side_effect=build) as worker:
+            self.panel.build_image(self.discovery, self.path/'credentials', self.path/'output')
+            job = self.panel.job
+            try:
+                self.assertTrue(entered.wait(2))
+                self.assertFalse(self.panel.close())
+                self.assertIsNone(self.panel.build_candidate)
+                self.assertIn('disabled', self.panel.discover_build_button.state())
+                with self.assertRaises(ValueError):
+                    self.panel.build_image(self.discovery, self.path/'credentials', self.path/'another')
+                with patch.object(self.owner, 'job', side_effect=ConnectionError('status lost')):
+                    self.panel.poll()
+                self.assertEqual(self.panel.job, job)
+            finally:
+                finish.set()
+            self.owner.jobs[job][2].result(timeout=5)
+            worker.assert_called_once()
+        self.panel.poll()
+        self.assertIn('Not published or boot-qualified', self.panel.status.get())
+        self.assertEqual(self.owner.grants, frozenset())
+        self.assertIn('disabled', self.panel.build_button.state())
+
+    def test_failed_native_build_does_not_enable_replay(self):
+        self.discover_builder()
+        with patch('forge_recovery_build.build', side_effect=RuntimeError('native failure')) as worker:
+            self.panel.build_image(self.discovery, self.path/'credentials', self.path/'output')
+            with self.assertRaises(RuntimeError): self.owner.jobs[self.panel.job][2].result(timeout=5)
+            self.panel.poll()
+            self.panel.build_dialog()
+            worker.assert_called_once()
+        self.assertIsNone(self.panel.build_candidate)
+        self.assertIn('failed', self.panel.status.get())
+
+    def test_declined_builder_discovery_and_build_do_not_submit(self):
+        with patch('forge_recovery_gui.simpledialog.askstring', return_value='fixture'), \
+                patch('forge_recovery_gui.messagebox.askyesno', return_value=False), \
+                patch.object(self.owner, 'discover_recovery_builder') as submit:
+            self.panel.discover_build_dialog()
+            submit.assert_not_called()
+        self.discover_builder()
+        with patch('forge_recovery_gui.filedialog.askdirectory', return_value=str(self.path)), \
+                patch('forge_recovery_gui.messagebox.askyesno', return_value=False), \
+                patch.object(self.owner, 'build_recovery_image') as submit:
+            self.panel.build_dialog()
+            submit.assert_not_called()
+
+    def test_changed_discovery_during_build_confirmation_refused(self):
+        self.discover_builder()
+        def change(*args, **kwargs):
+            self.panel.build_candidate = None
+            return True
+        with patch('forge_recovery_gui.filedialog.askdirectory', return_value=str(self.path)), \
+                patch('forge_recovery_gui.messagebox.askyesno', side_effect=change), \
+                patch.object(self.owner, 'build_recovery_image') as submit:
+            self.panel.build_dialog()
+            submit.assert_not_called()
+        self.assertIn('changed during confirmation', self.panel.status.get())
+
+    def test_build_controls_blocked_by_pending_policy_and_absent_from_clients(self):
+        self.panel.load_policy(self.policy)
+        with patch.object(self.owner, 'discover_recovery_builder') as submit:
+            self.panel.discover_build_dialog()
+            with self.assertRaises(ValueError): self.panel.discover_builder('fixture')
+            submit.assert_not_called()
+        client = ClientSession(self.owner, ['gui'])
+        for name in ('discover_recovery_builder', 'build_recovery_image'):
+            with self.assertRaises((ValueError, PermissionError)):
+                client.call(name, {'workspace': 'gui'})
+
     def test_review_is_local_and_never_displays_credential_contents(self):
         with patch.object(RecoveryProbe, '_observe', side_effect=AssertionError('unexpected SSH')):
             self.panel.load_policy(self.policy)

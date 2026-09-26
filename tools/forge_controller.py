@@ -200,6 +200,30 @@ class Controller:
                                'publication_sha256': publication_pin, 'firmware_sha256': bundle_pin,
                                'staging_authorized': False})
 
+    def discover_recovery_builder(self, name, host):
+        """Owner-only read-only discovery; omit the host address from job history."""
+        from uconsole_emulator import require_private_image_host
+        require_private_image_host()
+        from forge_recovery_build import discover
+        def inspect():
+            observed = discover(host)
+            return {key: observed[key] for key in ('boot', 'kernel')}
+        return self.submit(name, 'recovery_discover_builder', inspect)
+
+    def build_recovery_image(self, name, discovered, credentials, output):
+        """Owner-only private native build, never an agent grant or publication."""
+        from uconsole_emulator import require_private_image_host
+        require_private_image_host()
+        import copy
+        from forge_boot_observation import normal_boot
+        from forge_recovery_build import build
+        frozen = copy.deepcopy(discovered)
+        normal_boot(frozen['boot'], frozen['boot']['machine_id'])
+        return self.submit(name, 'recovery_build_image', lambda: build(output, frozen, credentials),
+                           target_identity=frozen['boot']['machine_id'], context={
+                               'boot_id': frozen['boot']['boot_id'], 'publication_authorized': False,
+                               'reboot_authorized': False})
+
     def approve_recovery_policy(self, path, digest):
         """Local owner action only; clients cannot approve or replace policy."""
         approved = self.load_recovery_policy(path, digest)
