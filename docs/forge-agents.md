@@ -255,6 +255,21 @@ attempts; read-only enrollment of an observed fresh boot is separate from
 rebooting it again. Host/worker-boundary tests are not physical qualification
 of this new control.
 
+**Prepare reconciliation…** authors an observation-only policy from the current
+enrollment and an explicitly selected `hold` or `root` attempt journal and plan
+pin. It validates the original dispatch (including pinned source health for
+root attempts), rejects an active journal/session lock or uncertain lease, and
+preserves the original acceptance even when it is uncertain. An explicitly
+enrolled new boot is allowed; the old lease and completion are never adopted.
+Preparation is entirely offline and does not approve or execute anything.
+Review the resulting `reconcile-hold` or `reconcile-root` policy separately,
+then approve and run it. Execution uses the existing fenced inspection and
+independent full-card hash workers. Hold inspection may unmount the exact stale
+boot mount, flushing prior pending boot writes; it does not rewrite selectors.
+Neither operation retries root writes, repairs a filesystem, reboots, or grants
+normal-boot release. This preparation control is owner-only, not an MCP method;
+authorized agents may execute only the separately owner-approved job ID.
+
 For a completed retained backup, **Prepare retained backup source…** is an
 owner-only, host-only action. Select the private backup directory and its
 owner-recorded canonical `acceptance.json` SHA-256, then review the card size,

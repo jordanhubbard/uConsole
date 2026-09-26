@@ -116,6 +116,8 @@ class RecoveryPanel:
         self.hold_button.pack(side='left')
         self.held_reboot_button = ttk.Button(transitions, text='Reboot into held recovery…', command=self.held_reboot_dialog)
         self.held_reboot_button.pack(side='left', padx=4)
+        self.reconcile_prepare_button = ttk.Button(transitions, text='Prepare reconciliation…', command=self.reconcile_dialog)
+        self.reconcile_prepare_button.pack(side='left', padx=4)
         self.choice = ttk.Combobox(self.window, textvariable=self.selected, state='readonly', width=50)
         self.choice.pack(padx=12, pady=4)
         self.choice.bind('<<ComboboxSelected>>', lambda event: self.review())
@@ -152,6 +154,7 @@ class RecoveryPanel:
         self.hash_button.state(['!disabled'] if self.enrollment_ready and not self.job and not self.pending else ['disabled'])
         self.hold_button.state(['!disabled'] if self.enrollment_ready and not self.job and not self.pending else ['disabled'])
         self.held_reboot_button.state(['!disabled'] if self.enrollment_ready and not self.job and not self.pending else ['disabled'])
+        self.reconcile_prepare_button.state(['!disabled'] if self.enrollment_ready and not self.job and not self.pending else ['disabled'])
         self.approve_button.state(['!disabled'] if self.pending and not self.job else ['disabled'])
         self.recheck_button.state(['!disabled'] if self.job else ['disabled'])
         self.discover_build_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
@@ -696,6 +699,50 @@ class RecoveryPanel:
         self.status.set('Guarded held reboot accepted. Keep Workbench open; no retry or root-write authority.')
         self.timer = self.window.after(100, self.poll)
 
+    def reconcile_dialog(self):
+        if self.job or self.pending or not self.enrollment_ready:
+            return
+        try:
+            from forge_backup_policy import inputs as enrolled
+            from forge_recovery_bootplan import digest
+            from forge_reconcile_policy import inputs
+            (directory, key, known), accepted = self.enrollment_ready
+            source = enrolled(directory, digest(accepted), key, known)
+            kind = simpledialog.askstring('Reconciliation kind',
+                'Enter hold for a selector attempt, or root for deployment/restoration. Neither retries a write.',
+                parent=self.window)
+            if not kind: return
+            journal = filedialog.askdirectory(parent=self.window, title='Original attempted plan journal')
+            if not journal: return
+            pin = simpledialog.askstring('Original plan pin', 'Owner-recorded plan.json SHA-256:', parent=self.window)
+            if not pin: return
+            reviewed = inputs(source, journal, pin.strip(), kind.strip())
+            parent = filedialog.askdirectory(parent=self.window, title='Parent for unapproved reconciliation policy')
+            if not parent: return
+            if not messagebox.askyesno('Prepare observation policy only',
+                    f"Original boot: {reviewed['original_boot_id']}\nObserved session: {source.boot_id}\n"
+                    f"Plan: {pin.strip()}\n\n"
+                    'Prepare an unapproved reconciliation policy without contacting the device or renewing a lease. '
+                    'Later, separately approved execution fences the old worker, inspects held files and hashes the card. '
+                    'Hold reconciliation may unmount an exact stale boot mount and flush prior pending writes. '
+                    'It never retries a root write, repairs filesystems, reboots or releases normal boot. '
+                    'Keep the original attempt and its uncertainty intact.', parent=self.window):
+                return
+            import uuid
+            self.prepare_reconciliation(source, reviewed, Path(parent)/('reconciliation-policy-'+uuid.uuid4().hex))
+        except Exception as exc:
+            self.status.set('Reconciliation draft not submitted: ' + str(exc))
+
+    def prepare_reconciliation(self, source, reviewed, output):
+        if self.job or self.pending:
+            raise ValueError('Finish the current job or review before preparing reconciliation')
+        submitted = self.controller.prepare_recovery_reconciliation(self.workspace, source, reviewed, output)
+        self.job, self.job_kind = submitted['job_id'], 'prepare-reconciliation'
+        self.preparation_output = Path(output)
+        self.refresh()
+        self.status.set('Preparing an observation-only policy offline. No target contact, lease renewal or write retry.')
+        self.timer = self.window.after(100, self.poll)
+
     def source_dialog(self, *, health=False):
         if self.job or self.pending:
             return
@@ -922,6 +969,7 @@ class RecoveryPanel:
                 self.hash_button.state(['!disabled'])
                 self.hold_button.state(['!disabled'])
                 self.held_reboot_button.state(['!disabled'])
+                self.reconcile_prepare_button.state(['!disabled'])
             self.status.set(result['status'] + f': recovery boot evidence at {self.preparation_output}. '
                             'New session is not leased; no root writes authorized. Promptly approve its next job; '
                             'held boots require independent hold reconciliation before deployment. '
@@ -964,12 +1012,14 @@ class RecoveryPanel:
                 self.hash_button.state(['!disabled'])
                 self.hold_button.state(['!disabled'])
                 self.held_reboot_button.state(['!disabled'])
+                self.reconcile_prepare_button.state(['!disabled'])
             self.status.set(result['status'] + f': enrollment evidence at {self.preparation_output}. '
                             'Only enrolled-not-leased is a completed binding; use its session directory and pin '
                             'in a separately reviewed job policy, or choose Prepare backup job. No lease, reboot or grant was acquired.')
             return
-        if self.job_kind in ('prepare-backup', 'prepare-hash', 'prepare-hold'):
-            kind = {'prepare-backup': 'Backup', 'prepare-hash': 'Hash', 'prepare-hold': 'Hold'}[self.job_kind]
+        if self.job_kind in ('prepare-backup', 'prepare-hash', 'prepare-hold', 'prepare-reconciliation'):
+            kind = {'prepare-backup': 'Backup', 'prepare-hash': 'Hash', 'prepare-hold': 'Hold',
+                    'prepare-reconciliation': 'Reconciliation'}[self.job_kind]
             if result['status'] == 'completed':
                 try:
                     filename = self.preparation_output/'policy.json'
@@ -978,7 +1028,8 @@ class RecoveryPanel:
                     self.load_policy(filename)
                     self.status.set(kind + '-only draft ready for review. Approve separately, then run the selected job. '
                                     + {'Backup': 'No backup exists yet.', 'Hash': 'No full-card hashes captured yet.',
-                                       'Hold': 'No hold installed, lease renewed or deployment approved.'}[kind])
+                                       'Hold': 'No hold installed, lease renewed or deployment approved.',
+                                       'Reconciliation': 'No observation run, lease renewed, write retried or hold released.'}[kind])
                 except Exception as exc:
                     self.status.set(kind + ' draft review failed: ' + str(exc))
             else:

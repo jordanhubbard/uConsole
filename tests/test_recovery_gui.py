@@ -738,6 +738,40 @@ class RecoveryPanelTests(unittest.TestCase):
         remote.assert_not_called()
         submit.assert_not_called()
 
+    def test_reconciliation_draft_enters_separate_review_without_grants(self):
+        import test_reconcile_policy
+        fixture = test_reconcile_policy.ReconcilePolicyTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        with patch.object(RecoveryProbe, '_observe') as remote:
+            self.panel.prepare_reconciliation(fixture.source, fixture.reviewed(), fixture.output)
+            self.owner.jobs[self.panel.job][2].result(timeout=5)
+        remote.assert_not_called()
+        self.panel.poll()
+        self.assertIsNotNone(self.panel.pending)
+        self.assertIsNone(self.owner.recovery_jobs)
+        self.assertEqual(self.owner.grants, frozenset())
+        self.assertIn('reconcile-hold', self.panel.details.get('1.0', 'end'))
+        self.assertIn('No observation run', self.panel.status.get())
+        with self.assertRaises(ValueError): self.owner.call('prepare_recovery_reconciliation', {'workspace': 'gui'})
+
+    def test_declined_reconciliation_draft_does_not_submit(self):
+        import test_reconcile_policy
+        fixture = test_reconcile_policy.ReconcilePolicyTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        self.panel.enrollment_ready = ((fixture.source.directory, fixture.source.probe.key,
+                                       fixture.source.probe.known_hosts), fixture.f.f.enrollment.accepted)
+        self.panel.refresh()
+        with patch('forge_recovery_gui.filedialog.askdirectory', side_effect=[str(fixture.journal), str(fixture.f.f.root)]), \
+                patch('forge_recovery_gui.simpledialog.askstring', side_effect=['hold', fixture.pin]), \
+                patch('forge_recovery_gui.messagebox.askyesno', return_value=False), \
+                patch.object(RecoveryProbe, '_observe') as remote, \
+                patch.object(self.owner, 'prepare_recovery_reconciliation') as submit:
+            self.panel.reconcile_prepare_button.invoke()
+        remote.assert_not_called()
+        submit.assert_not_called()
+
     def test_declined_backup_draft_has_no_target_contact(self):
         import test_backup_policy
         fixture = test_backup_policy.BackupPolicyTests()

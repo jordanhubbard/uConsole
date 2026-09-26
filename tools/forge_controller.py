@@ -351,6 +351,19 @@ class Controller:
                                'session_sha256': source.session_pin, 'staging_sha256': frozen['staging_sha256'],
                                'source_manifest_sha256': frozen['manifest_sha256'], 'policy_approved': False})
 
+    def prepare_recovery_reconciliation(self, name, source, reviewed, output):
+        """Owner-only observation-policy drafting, never an old-write retry."""
+        import copy
+        from uconsole_emulator import require_private_image_host
+        require_private_image_host()
+        from forge_reconcile_policy import prepare
+        frozen = copy.deepcopy(reviewed)
+        return self.submit(name, 'recovery_prepare_reconciliation_policy',
+                           lambda: prepare(output, source, frozen, name),
+                           target_identity=source.machine_id, context={
+                               'session_sha256': source.session_pin, 'plan_sha256': frozen['plan_sha256'],
+                               'policy_approved': False})
+
     def prepare_backup_source(self, name, reviewed, output):
         """Owner-only offline preparation; never acquires recovery authority."""
         import copy
