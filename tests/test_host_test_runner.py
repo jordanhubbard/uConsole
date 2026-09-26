@@ -19,8 +19,26 @@ class HostTestRunnerTests(unittest.TestCase):
             source = ('import sys; sys.path.insert(0, '+repr(str(Path(__file__).resolve().parents[1]/'tools'))+'); '
                 'from run_host_tests import main; main('+repr(['discover', '-s', str(root), '-v'])+
                 ', dump_after='+repr(interval)+')')
-            return subprocess.run([sys.executable, '-c', source], capture_output=True,
-                                  text=True, timeout=15, env=dict(os.environ))
+            try:
+                return subprocess.run([sys.executable, '-c', source], capture_output=True,
+                                      text=True, timeout=15, env=dict(os.environ))
+            except subprocess.TimeoutExpired as exc:
+                # TimeoutExpired's normal traceback omits captured diagnostics.
+                # Keep the child's periodic stacks when investigating a CI stall.
+                def text(value):
+                    return value.decode('utf-8', errors='replace') if isinstance(value, bytes) else value or ''
+                self.fail('Runner fixture timed out after 15 seconds\nstdout:\n'+text(exc.stdout)+
+                          '\nstderr:\n'+text(exc.stderr))
+
+    def test_timeout_retains_child_diagnostics(self):
+        error = subprocess.TimeoutExpired('fixture', 15, output=b'child output',
+                                         stderr=b'child traceback\xff')
+        with patch('subprocess.run', side_effect=error):
+            with self.assertRaises(AssertionError) as caught:
+                self.fixture('self.assertTrue(True)')
+        self.assertIn('child output', str(caught.exception))
+        self.assertIn('child traceback', str(caught.exception))
+        self.assertIn('timed out after 15 seconds', str(caught.exception))
 
     def test_success_preserves_unittest_exit_and_count(self):
         result = self.fixture('self.assertTrue(True)')
