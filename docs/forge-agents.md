@@ -345,6 +345,20 @@ This owner-only action does not remount or reboot: current permissions stay
 private, and original effective permissions are not qualified until a subsequent
 fresh mount is independently verified.
 
+**Reboot for original permissions…** completes that final transition only after
+an acknowledged original-fstab restoration. The original privacy transaction and
+plan pin reconstruct the retained cleanup evidence, including after a panel
+restart. The target checks the original fstab, all restored boot preimages,
+effective private mount and unchanged artifact inventory under its exclusion
+lock before one reboot. A durable one-use claim prevents resubmission.
+**Verify original permissions…** is read-only and can finish observation after
+an uncertain reboot without repeating it. It requires a different normal boot
+with the original root, effective original FAT masks and non-root readability,
+restored file contents and unchanged inventory. The expected FAT mode change is
+accounted for explicitly. These controls are owner-only and grant no MCP access;
+successful mount verification does not imply filesystem health or native
+application qualification.
+
 For a completed retained backup, **Prepare retained backup source…** is an
 owner-only, host-only action. Select the private backup directory and its
 owner-recorded canonical `acceptance.json` SHA-256, then review the card size,

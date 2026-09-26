@@ -426,6 +426,17 @@ class Controller:
                            target_identity=frozen['cleanup']['machine_id'], context={
                                'plan_sha256': frozen['plan_sha256'], 'reboot_requested': False})
 
+    def verify_original_boot_mount(self, name, reviewed, *, reboot=False):
+        """Owner-only final reboot or read-only original-permissions verification."""
+        import copy
+        from uconsole_emulator import require_private_image_host
+        require_private_image_host()
+        from forge_boot_mount_restore import verify
+        frozen = copy.deepcopy(reviewed)
+        return self.submit(name, 'recovery_verify_original_mount', lambda: verify(frozen, reboot=reboot),
+                           target_identity=frozen['cleanup']['machine_id'], context={
+                               'plan_sha256': frozen['plan_sha256'], 'reboot_requested': reboot})
+
     def prepare_backup_source(self, name, reviewed, output):
         """Owner-only offline preparation; never acquires recovery authority."""
         import copy

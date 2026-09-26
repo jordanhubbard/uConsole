@@ -941,6 +941,34 @@ class RecoveryPanelTests(unittest.TestCase):
         submit.assert_not_called()
         self.assertEqual(confirm.call_args.kwargs['default'], 'no')
 
+    def test_original_mount_verification_is_owner_only(self):
+        import test_boot_mount_restore
+        f = test_boot_mount_restore.OriginalMountTests()
+        f.setUp()
+        self.addCleanup(f.doCleanups)
+        with patch('forge_boot_mount_restore.verify', return_value=dict(status='verified-original-boot-mount')) as verified:
+            self.panel.verify_original_mount(f.frozen)
+            self.assertFalse(self.panel.close())
+            self.owner.jobs[self.panel.job][2].result(timeout=5)
+            self.panel.poll()
+            verified.assert_called_once_with(f.frozen, reboot=False)
+        self.assertIn('never repeat reboot', self.panel.status.get())
+        self.assertEqual(self.owner.grants, frozenset())
+        with self.assertRaises(ValueError): self.owner.call('verify_original_boot_mount', {'workspace': 'gui'})
+
+    def test_declined_final_reboot_does_not_submit(self):
+        import test_boot_mount_restore
+        f = test_boot_mount_restore.OriginalMountTests()
+        f.setUp()
+        self.addCleanup(f.doCleanups)
+        with patch('forge_recovery_gui.filedialog.askdirectory', return_value=str(f.f.journal)), \
+                patch('forge_recovery_gui.simpledialog.askstring', return_value=f.f.pin), \
+                patch('forge_recovery_gui.messagebox.askyesno', return_value=False) as confirm, \
+                patch.object(self.owner, 'verify_original_boot_mount') as submit:
+            self.panel.original_mount_reboot_button.invoke()
+        submit.assert_not_called()
+        self.assertEqual(confirm.call_args.kwargs['default'], 'no')
+
     def test_declined_normal_reboot_does_not_submit(self):
         import test_normal_return
         f = test_normal_return.NormalReturnTests()

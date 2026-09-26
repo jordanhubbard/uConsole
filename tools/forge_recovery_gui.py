@@ -143,6 +143,12 @@ class RecoveryPanel:
         self.privacy_restore_button = ttk.Button(restoration, text='Restore original boot-mount policy…',
                                                  command=self.privacy_restore_dialog)
         self.privacy_restore_button.pack(side='left')
+        self.original_mount_reboot_button = ttk.Button(restoration, text='Reboot for original permissions…',
+                                                       command=lambda: self.original_mount_dialog(reboot=True))
+        self.original_mount_reboot_button.pack(side='left', padx=4)
+        self.original_mount_verify_button = ttk.Button(restoration, text='Verify original permissions…',
+                                                       command=self.original_mount_dialog)
+        self.original_mount_verify_button.pack(side='left', padx=4)
         self.choice = ttk.Combobox(self.window, textvariable=self.selected, state='readonly', width=50)
         self.choice.pack(padx=12, pady=4)
         self.choice.bind('<<ComboboxSelected>>', lambda event: self.review())
@@ -193,7 +199,8 @@ class RecoveryPanel:
         self.privacy_reboot_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.privacy_verify_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.tryboot_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
-        for button in (self.normal_reboot_button, self.normal_verify_button, self.cleanup_button, self.privacy_restore_button):
+        for button in (self.normal_reboot_button, self.normal_verify_button, self.cleanup_button, self.privacy_restore_button,
+                       self.original_mount_reboot_button, self.original_mount_verify_button):
             button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.source_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.health_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
@@ -1014,6 +1021,36 @@ class RecoveryPanel:
         self.status.set('Checking boot artifacts and restoring original fstab. No reboot or remount.')
         self.timer = self.window.after(100, self.poll)
 
+    def original_mount_dialog(self, *, reboot=False):
+        if self.job or self.pending: return
+        try:
+            from forge_boot_mount_restore import inputs
+            directory = filedialog.askdirectory(parent=self.window, title='Original privacy transaction journal')
+            if not directory: return
+            pin = simpledialog.askstring('Original privacy plan pin', 'Canonical SHA-256 of original privacy plan.json:', parent=self.window)
+            if not pin: return
+            reviewed = inputs(directory, pin.strip())
+            question = (f"Reboot {reviewed['plan']['host']} once to restore original boot permissions?\n\n"
+                        'The worker rechecks original fstab, boot preimages, private mount and artifact inventory before reboot. '
+                        'A timeout never permits another reboot. Keep physical recovery access available. '
+                        if reboot else f"Read-only verification of original permissions at {reviewed['plan']['host']}?\n\n"
+                        'No reboot, remount or file writes will occur. ')
+            question += ('Verification requires a new normal boot, effective original FAT permissions and non-root access, '
+                         'unchanged boot inventory and restored preimages. This does not qualify filesystem health or application behavior.')
+            if not messagebox.askyesno('Original boot permissions', question, parent=self.window, default='no'): return
+            self.verify_original_mount(reviewed, reboot=reboot)
+        except Exception as exc:
+            self.status.set('Original permissions verification not submitted: '+str(exc))
+
+    def verify_original_mount(self, reviewed, *, reboot=False):
+        if self.job or self.pending: raise ValueError('Finish the current job or review before mount verification')
+        submitted = self.controller.verify_original_boot_mount(self.workspace, reviewed, reboot=reboot)
+        self.job, self.job_kind = submitted['job_id'], 'verify-original-mount'
+        self.preparation_output = Path(reviewed['journal'])
+        self.refresh()
+        self.status.set('Verifying a fresh normal boot and original mount permissions. No automatic reboot retry.')
+        self.timer = self.window.after(100, self.poll)
+
     def source_dialog(self, *, health=False):
         if self.job or self.pending:
             return
@@ -1207,6 +1244,11 @@ class RecoveryPanel:
         self.job = None
         self.refresh()
         self.show(result)
+        if self.job_kind == 'verify-original-mount':
+            self.status.set(result['status'] + f': final mount evidence under {self.preparation_output}. '
+                            'After uncertain reboot use read-only Verify original permissions; never repeat reboot. '
+                            'Mount verification does not qualify filesystem health or application behavior.')
+            return
         if self.job_kind == 'restore-privacy':
             self.status.set(result['status'] + f': original-policy evidence at {self.preparation_output}. '
                             'Current mount remains private; original permissions need fresh-mount verification. '
