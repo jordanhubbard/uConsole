@@ -100,6 +100,19 @@ claim and evidence; never delete them to reset a sequence or automatically retry
 Only `enrolled-not-leased` denotes a completed local binding, not a live lease
 or qualified fallback. This owner action is deliberately absent from MCP.
 
+After successful enrollment in this panel, **Prepare backup job…** asks where
+to retain the future full-card archive and its evidence. It checks the sealed
+enrollment and credentials, locks the local session without renewing its lease,
+and reads the offline SD identity and geometry twice on that exact RAM boot.
+The result is a private policy containing only `backup-card`. Workbench opens
+it for review; **Approve reviewed policy…** and running the selected job remain
+separate owner actions. Check the observed card identity and archive destination
+before approval. Drafting neither creates a backup nor grants root-write access.
+It refuses a busy session, uncertain renewal, changed boot/card/credentials, or
+output overlapping the enrolled session. Retain failure evidence; do not reset
+the lease journal. Policy authoring is owner-only and absent from MCP. This
+step does not provide recovery-image bootstrap or a complete deploy/restore wizard.
+
 The same owner preparation is available from a checkout:
 
 ```sh

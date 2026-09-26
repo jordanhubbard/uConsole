@@ -8,6 +8,24 @@ These results establish a usable development environment,
 
 ## Inputs
 
+### Owner-side backup policy drafting (2026-09-26)
+
+The recovery panel can now turn its completed enrollment into a backup-only
+policy draft using pinned, read-only SD inventory. It holds only the local
+session lock, checks card geometry twice on the pinned boot, and opens the
+result in the existing review panel without approval, lease renewal, archive
+creation, reboot or write grants. Busy/uncertain sessions, changed credentials,
+card or boot, and overlapping output paths (including a parent symlink alias)
+fail closed. Declining the GUI confirmation makes no target contact.
+
+All 23 focused backend/panel tests pass on native macOS in
+`build/emulator/macos-backup-policy-tests-20260926.log`, using fixture
+`/private/tmp/uconsole-backup-draft.4CwPuqu9`. The complete Linux Xvfb suite
+passes 1,566 tests (one skip) plus ShellCheck in
+`build/emulator/full-tests-backup-policy-20260926.log`. These tests use controlled
+SSH observations; the active physical deployment was left untouched. This is
+not physical qualification of the new GUI or completion of the guided workflow.
+
 ### Recorder UART/QMP backpressure correction (2026-09-26)
 
 The second x86 desktop trial, `36243425771` at `c54e5d2`, again failed after

@@ -55,6 +55,7 @@ class RecoveryPanelTests(unittest.TestCase):
     def test_unconfigured_panel_does_not_enable_actions(self):
         self.assertIn('disabled', self.panel.run_button.state())
         self.assertIn('disabled', self.panel.approve_button.state())
+        self.assertIn('disabled', self.panel.backup_button.state())
         self.assertIn('--recovery-policy', self.panel.details.get('1.0', 'end'))
         self.assertEqual(self.owner.jobs, {})
 
@@ -224,6 +225,44 @@ class RecoveryPanelTests(unittest.TestCase):
         remote.assert_not_called()
         submit.assert_not_called()
         self.assertEqual(self.owner.jobs, {})
+
+    def test_backup_draft_enters_review_without_approval_or_backup(self):
+        import test_backup_policy
+        fixture = test_backup_policy.BackupPolicyTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        with fixture.observe():
+            self.panel.prepare_backup(fixture.source, fixture.output)
+            job = self.panel.job
+            self.assertFalse(self.panel.close())
+            self.owner.jobs[job][2].result(timeout=5)
+        self.panel.poll()
+        self.assertIsNone(self.panel.job)
+        self.assertIsNotNone(self.panel.pending)
+        self.assertIsNone(self.owner.recovery_jobs)
+        self.assertEqual(self.owner.grants, frozenset())
+        self.assertIn('backup-card', self.panel.details.get('1.0', 'end'))
+        self.assertIn('No backup exists yet', self.panel.status.get())
+        self.assertFalse((fixture.output/'card-backup').exists())
+        client = ClientSession(self.owner, ['gui'])
+        with self.assertRaises((ValueError, PermissionError)):
+            client.call('prepare_recovery_backup', {'workspace': 'gui'})
+
+    def test_declined_backup_draft_has_no_target_contact(self):
+        import test_backup_policy
+        fixture = test_backup_policy.BackupPolicyTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        self.panel.enrollment_ready = ((fixture.source.directory, fixture.source.probe.key,
+                                       fixture.source.probe.known_hosts), fixture.accepted)
+        self.panel.refresh()
+        with patch('forge_recovery_gui.filedialog.askdirectory', return_value=str(fixture.root)), \
+                patch('forge_recovery_gui.messagebox.askyesno', return_value=False), \
+                patch.object(RecoveryProbe, '_observe') as remote, \
+                patch.object(self.owner, 'prepare_recovery_backup') as submit:
+            self.panel.backup_button.invoke()
+        remote.assert_not_called()
+        submit.assert_not_called()
 
 
 if __name__ == '__main__':

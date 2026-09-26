@@ -219,6 +219,16 @@ class Controller:
                                'staging_sha256': enrollment.staging_pin,
                                'boot_id': enrollment.boot_id, 'lease_acquired': False})
 
+    def prepare_recovery_backup(self, name, source, output):
+        """Owner-only backup policy authoring; approval/execution are separate."""
+        from uconsole_emulator import require_private_image_host
+        require_private_image_host()
+        from forge_backup_policy import prepare
+        return self.submit(name, 'recovery_prepare_backup_policy', lambda: prepare(output, source, name),
+                           target_identity=source.machine_id, context={
+                               'enrollment_sha256': source.acceptance_pin,
+                               'session_sha256': source.session_pin, 'policy_approved': False})
+
     def submit_recovery(self, name, job):
         self.require('target-recovery')
         registry = self.recovery_jobs

@@ -49,6 +49,7 @@ class RecoveryPanel:
         self.job = self.timer = self.pending = None
         self.job_kind = 'recovery'
         self.preparation_output = None
+        self.enrollment_candidate = self.enrollment_ready = None
         self.window = tk.Toplevel(parent)
         self.window.title('Physical recovery — prepared jobs')
         self.selected = tk.StringVar()
@@ -65,6 +66,8 @@ class RecoveryPanel:
         self.prepare_button.pack(side='left', padx=4)
         self.enroll_button = ttk.Button(controls, text='Enroll recovery session…', command=self.enroll_dialog)
         self.enroll_button.pack(side='left', padx=4)
+        self.backup_button = ttk.Button(controls, text='Prepare backup job…', command=self.backup_dialog)
+        self.backup_button.pack(side='left', padx=4)
         self.approve_button = ttk.Button(controls, text='Approve reviewed policy…', command=self.approve)
         self.approve_button.pack(side='left', padx=4)
         self.approve_button.state(['disabled'])
@@ -100,6 +103,7 @@ class RecoveryPanel:
         self.load_button.state(['disabled'] if self.job else ['!disabled'])
         self.prepare_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
         self.enroll_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
+        self.backup_button.state(['!disabled'] if self.enrollment_ready and not self.job and not self.pending else ['disabled'])
         self.approve_button.state(['!disabled'] if self.pending and not self.job else ['disabled'])
         self.recheck_button.state(['!disabled'] if self.job else ['disabled'])
         if not self.pending:
@@ -219,8 +223,44 @@ class RecoveryPanel:
         submitted = self.controller.enroll_recovery_session(self.workspace, value, output)
         self.job, self.job_kind = submitted['job_id'], 'enroll-session'
         self.preparation_output = Path(output)
+        self.enrollment_candidate = (Path(output), value.probe.key, value.probe.known_hosts)
+        self.enrollment_ready = None
         self.refresh()
         self.status.set('Verifying fresh RAM boot and recording a local session. No lease or target mutation.')
+        self.timer = self.window.after(100, self.poll)
+
+    def backup_dialog(self):
+        if self.job or self.pending or not self.enrollment_ready:
+            return
+        try:
+            from forge_backup_policy import inputs
+            from forge_recovery_bootplan import digest
+            (directory, key, known), accepted = self.enrollment_ready
+            source = inputs(directory, digest(accepted), key, known)
+            parent = filedialog.askdirectory(parent=self.window,
+                title='Storage parent for backup evidence and the later full-card archive',
+                initialdir=str(directory.parent))
+            if not parent: return
+            if not messagebox.askyesno('Prepare backup-only job policy',
+                    f'Read offline SD identity from {source.probe.host}?\n\nBoot: {source.boot_id}\n\n'
+                    'This creates a private backup-only policy draft. It does not acquire a lease, '
+                    'create the archive, approve policy, reboot, or authorize card writes. '
+                    'Review the observed card and destination before separately approving and running the job.',
+                    parent=self.window):
+                return
+            import uuid
+            self.prepare_backup(source, Path(parent)/('recovery-backup-'+uuid.uuid4().hex))
+        except Exception as exc:
+            self.status.set('Backup draft not submitted: ' + str(exc))
+
+    def prepare_backup(self, source, output):
+        if self.job or self.pending:
+            raise ValueError('Finish the current job or review before preparing a backup')
+        submitted = self.controller.prepare_recovery_backup(self.workspace, source, output)
+        self.job, self.job_kind = submitted['job_id'], 'prepare-backup'
+        self.preparation_output = Path(output)
+        self.refresh()
+        self.status.set('Reading offline SD identity and preparing a backup-only policy. No lease or backup yet.')
         self.timer = self.window.after(100, self.poll)
 
     def load_policy(self, filename):
@@ -294,9 +334,25 @@ class RecoveryPanel:
         self.refresh()
         self.show(result)
         if self.job_kind == 'enroll-session':
+            if result['status'] == 'completed' and result['result'].get('status') == 'enrolled-not-leased':
+                self.enrollment_ready = (self.enrollment_candidate, result['result'])
+                self.backup_button.state(['!disabled'])
             self.status.set(result['status'] + f': enrollment evidence at {self.preparation_output}. '
                             'Only enrolled-not-leased is a completed binding; use its session directory and pin '
-                            'in a separately reviewed job policy. No lease, reboot or grant was acquired.')
+                            'in a separately reviewed job policy, or choose Prepare backup job. No lease, reboot or grant was acquired.')
+            return
+        if self.job_kind == 'prepare-backup':
+            if result['status'] == 'completed':
+                try:
+                    filename = self.preparation_output/'policy.json'
+                    if policy_pin(filename) != result['result']['policy_sha256']:
+                        raise ValueError('Backup draft changed after preparation')
+                    self.load_policy(filename)
+                    self.status.set('Backup-only draft ready for review. Approve separately, then run the selected job. No backup exists yet.')
+                except Exception as exc:
+                    self.status.set('Backup draft review failed: ' + str(exc))
+            else:
+                self.status.set('Backup draft failed; evidence retained. No policy approved, lease renewed or backup created.')
             return
         if self.job_kind == 'prepare-staging':
             self.status.set(result['status'] + f': retained preparation artifacts at {self.preparation_output}. '
