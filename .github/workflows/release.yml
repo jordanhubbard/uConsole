@@ -2,6 +2,11 @@ name: Release packages
 
 on:
   workflow_dispatch:
+    inputs:
+      capture_public_desktop:
+        description: 'Record the public factory guest desktop on Linux x86_64 (not an automatic desktop pass)'
+        type: boolean
+        default: false
   pull_request:
   push:
     tags:
@@ -62,6 +67,9 @@ jobs:
           if [[ "$RUNNER_OS" == Linux ]]; then
             sudo apt-get update
             sudo apt-get install -y python3-tk xvfb ninja-build pkg-config libglib2.0-dev libpixman-1-dev libslirp-dev
+            if [[ '${{ inputs.capture_public_desktop }}' == true && '${{ matrix.target }}' == linux-x86_64 ]]; then
+              sudo apt-get install -y libgtk-3-dev
+            fi
           else
             brew install python-tk ninja pkg-config glib pixman libslirp
           fi
@@ -97,6 +105,45 @@ jobs:
           python3 "$resources/tools/test_emulator_watchdog.py" > "$evidence/watchdog.log" 2>&1
           python3 "$resources/tools/test_emulator_pmic.py" > "$evidence/pmic.log" 2>&1
           python3 "$resources/tools/test_emulator_adc_migration.py" > "$evidence/adc-migration.log" 2>&1
+      - name: Record public factory desktop on native x86_64
+        if: github.event_name == 'workflow_dispatch' && inputs.capture_public_desktop && matrix.target == 'linux-x86_64'
+        timeout-minutes: 45
+        shell: bash
+        run: |
+          set -euo pipefail
+          resources="$GITHUB_WORKSPACE/build/native-archive-validation/uconsole-workbench/libexec/uconsole-workbench"
+          export UCONSOLE_BUILD_DIR="$RUNNER_TEMP/uconsole-package-qemu"
+          unset UCONSOLE_ROOT PYTHONPATH
+          factory="$RUNNER_TEMP/uConsole_CM4_v3.1_64bit.img.bz2"
+          workspace="$RUNNER_TEMP/public-factory-desktop"
+          evidence="$GITHUB_WORKSPACE/build/public-desktop-evidence"
+          mkdir -m 700 "$evidence"
+          df -h "$RUNNER_TEMP"
+          # This manufacturer mirror is HTTP. The independently pinned SHA256
+          # is mandatory before any decompression or boot. Never use user images.
+          curl --fail --location --retry 2 --max-time 900 --output "$factory" http://dl.clockworkpi.com/uConsole_CM4_v3.1_64bit.img.bz2
+          printf '%s  %s\n' ef95242cdb0125e8ed08157400a26d4665acddd083481ec2314acd6e073b74ab "$factory" | sha256sum --check
+          cd "$RUNNER_TEMP"
+          /usr/bin/python3 "$resources/tools/uconsole_emulator.py" --workspace "$workspace" prepare "$factory" > "$evidence/prepare.log" 2>&1
+          /usr/bin/python3 "$resources/tools/uconsole_emulator.py" --workspace "$workspace" configure-display --timeout 600 > "$evidence/configure-display.log" 2>&1
+          scenario="$GITHUB_WORKSPACE/build/native-archive-validation/uconsole-workbench/share/doc/uconsole-workbench/scenarios/factory-desktop-capture.json"
+          xvfb-run -a /usr/bin/python3 "$resources/tools/drive_forge_desktop.py" --workspace "$workspace" --scenario "$scenario" --output "$evidence/driver"
+      - name: Retain public desktop observations only
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.capture_public_desktop && matrix.target == 'linux-x86_64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-desktop-linux-x86_64
+          # Explicit allowlist: no disks, account password fixture or user data.
+          path: |
+            build/public-desktop-evidence/**/*.log
+            build/public-desktop-evidence/driver/driver.json
+            ${{ runner.temp }}/public-factory-desktop/desktop-record-*/screen-*.png
+            ${{ runner.temp }}/public-factory-desktop/desktop-record-*/record.json
+            ${{ runner.temp }}/public-factory-desktop/desktop-record-*/console.log
+            ${{ runner.temp }}/public-factory-desktop/serial.log
+            ${{ runner.temp }}/public-factory-desktop/workbench-qemu.log
+            ${{ runner.temp }}/public-factory-desktop/machine.json
+          if-no-files-found: error
       - name: Retain package qualification evidence
         if: always()
         uses: actions/upload-artifact@v4

@@ -8,6 +8,27 @@ These results establish a usable development environment,
 
 ## Inputs
 
+### Native x86_64 desktop observation procedure (2026-09-26)
+
+The package workflow has an opt-in manual `capture_public_desktop` input. It
+downloads only the public CM4 v3.1 factory image, checks the repository-pinned
+SHA256 before decompression, and uses the extracted package's QEMU, desktop
+adapters and real Workbench recorder under Xvfb on a native x86_64 runner.
+The manufacturer mirror is HTTP; the independent checksum is mandatory.
+
+`tools/drive_forge_desktop.py` drives the recorder using a bounded, ordered JSON
+scenario. The initial `factory-desktop-capture.json` samples startup at three,
+six and ten minutes; these times are observations, not readiness assertions.
+The resulting `scenario-recorded` status and a green capture job are **not** a
+desktop qualification pass. Screenshots, guest state, input handling, onboarding
+and clean shutdown still need verification. EOF explicitly force-stops this
+disposable capture guest and records that fact; it is not clean-shutdown proof.
+
+The artifact allowlist retains screenshots and diagnostic logs/receipts, never
+the factory-derived disks or the recorder's password fixture. Do not substitute
+a private hardware image into this hosted workflow. PR and tag jobs do not run
+the opt-in capture; manual jobs cannot publish a release.
+
 ### Recovery and agent integration checkpoint (2026-09-26)
 
 The qualification branch at `7da7984` passes all host and package CI jobs.
