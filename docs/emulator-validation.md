@@ -8,6 +8,31 @@ These results establish a usable development environment,
 
 ## Inputs
 
+### Linux x86_64 desktop after UART/QMP correction (2026-09-26)
+
+The native x86 package/desktop job in run `36245917832`, revision
+`aa2d2204dd6f721766e789a7f257b05250d7f2d3`, completed successfully. Its public
+artifact is retained under `build/emulator/x86-public-onboarding-36245917832/`.
+Visual review confirms Terminal displaying the typed command and its output
+(`screen-94c975fda439440a8b7e7c14e2bce666.png`), the normal desktop after reboot
+(`screen-97cde0e3b0f543639fae462dd62e2f61.png`), and Terminal reopened by mouse
+after reboot (`screen-1c19d18fe7994fe0b473f70ea4405189.png`). Serial markers
+record boot UUIDs `7f900c6c-330a-480c-b0a3-3fa3ddcdae3d` and
+`5972b7ca-7f1e-4a4d-b152-165225c22a78`; the post-reboot output now completes.
+The final status is stopped with QEMU exit 0, and both recorder and driver
+report no forced cleanup. The real diskless backpressure regression also
+passes: 65,536 bytes drained, no replayed input, clean QEMU exit.
+
+This is a reviewed desktop/input/reboot/shutdown pass with the existing stock
+kernel caveat: shutdown emits an atomic-I2C warning through `axp20x_power_off`.
+It is not a warning-free guest, full filesystem check, or physical display/input
+equivalence claim. The separate macOS host-test job in that manual run was
+still running at review time; no whole-workflow success is claimed here.
+Later host/package qualification at `1873d38` passed in run `36246701895`, with
+all three archive hashes and backup-policy module hashes independently checked.
+Extracted Linux ARM64/macOS resources each passed 23 focused backup/panel tests
+without skips; logs are under `build/emulator/qualification-1873d38-20260926/`.
+
 ### Owner-side backup policy drafting (2026-09-26)
 
 The recovery panel can now turn its completed enrollment into a backup-only
