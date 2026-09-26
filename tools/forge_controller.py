@@ -307,6 +307,17 @@ class Controller:
                            target_identity=enrollment.machine_id, context={
                                'staging_sha256': enrollment.staging_pin, 'root_write_authorized': False})
 
+    def reboot_held_recovery(self, name, source, enrollment, directory, pin, output):
+        """Owner-only single reboot of an acknowledged hold, then fresh enrollment."""
+        from uconsole_emulator import require_private_image_host
+        require_private_image_host()
+        from forge_held_reboot import reviewed, boot_and_enroll
+        reviewed(source, enrollment, directory, pin)
+        return self.submit(name, 'recovery_held_reboot_enroll',
+                           lambda: boot_and_enroll(output, source, enrollment, directory, pin),
+                           target_identity=source.machine_id, context={
+                               'plan_sha256': pin, 'root_write_authorized': False})
+
     def prepare_recovery_backup(self, name, source, output):
         """Owner-only backup policy authoring; approval/execution are separate."""
         from uconsole_emulator import require_private_image_host

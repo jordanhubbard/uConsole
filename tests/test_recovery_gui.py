@@ -426,6 +426,45 @@ class RecoveryPanelTests(unittest.TestCase):
         self.assertNotIn('disabled', self.panel.backup_button.state())
         self.assertEqual(self.owner.grants, frozenset())
 
+    def held_fixture(self):
+        import test_held_reboot
+        fixture = test_held_reboot.HeldRebootTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        return fixture
+
+    def test_held_reboot_enrolls_without_grants_or_new_lease(self):
+        fixture = self.held_fixture()
+        enrolled = dict(status='enrolled-not-leased', boot_id=fixture.new_boot)
+        with patch('forge_held_reboot.boot_and_enroll', return_value=dict(
+                status='held-boot-enrolled-not-leased', enrollment=enrolled)) as boot:
+            self.panel.reboot_held(fixture.source, fixture.value, fixture.directory, fixture.pin, fixture.output)
+            self.assertFalse(self.panel.close())
+            self.owner.jobs[self.panel.job][2].result(timeout=5)
+            self.panel.poll()
+            boot.assert_called_once_with(fixture.output, fixture.source, fixture.value, fixture.directory, fixture.pin)
+        self.assertEqual(self.panel.enrollment_ready[0][0], fixture.output/'enrollment')
+        self.assertEqual(self.panel.enrollment_ready[1], enrolled)
+        self.assertNotIn('disabled', self.panel.hash_button.state())
+        self.assertIn('independent hold reconciliation', self.panel.status.get())
+        self.assertEqual(self.owner.grants, frozenset())
+        with self.assertRaises(ValueError): self.owner.call('reboot_held_recovery', {'workspace': 'gui'})
+
+    def test_declined_held_reboot_never_contacts_target(self):
+        fixture = self.held_fixture()
+        self.panel.enrollment_ready = ((fixture.source.directory, fixture.source.probe.key,
+                                       fixture.source.probe.known_hosts), fixture.f.enrollment.accepted)
+        self.panel.refresh()
+        with patch('forge_recovery_gui.filedialog.askdirectory', side_effect=[str(fixture.value.staging),
+                   str(fixture.directory), str(fixture.f.root)]), \
+                patch('forge_recovery_gui.simpledialog.askstring', return_value=fixture.pin), \
+                patch('forge_recovery_gui.messagebox.askyesno', return_value=False), \
+                patch.object(RecoveryProbe, '_observe') as remote, \
+                patch.object(self.owner, 'reboot_held_recovery') as submit:
+            self.panel.held_reboot_button.invoke()
+        remote.assert_not_called()
+        submit.assert_not_called()
+
     def test_declined_tryboot_does_not_submit(self):
         fixture = self.tryboot_fixture()
         value = fixture.value

@@ -238,6 +238,23 @@ Retain uncertain attempts and reconcile them; never redispatch an attempted
 hold. This owner-only authoring route is absent from MCP; existing authorized
 recovery clients may execute only the separately approved job ID.
 
+After an **acknowledged** install-hold, **Reboot into held recovery…** uses the
+existing enrollment, sealed staging and owner-pinned hold plan. It locks the
+existing durable session, refuses uncertain renewals, renews that session, and
+records a one-use reboot claim. On the target, the fixed worker checks the exact
+RAM boot and card layout, holds writer-exclusion locks, checks every held boot
+file and recovery image with a read-only boot mount, unmounts it, and checks the
+live watchdog budget again before one persistent-recovery reboot. It does not
+write the SD card or release the hold. An SSH timeout never permits a retry.
+The first newly verified RAM boot is pinned and enrolled with `tryboot=0`;
+the old lease sequence is never copied or reset. The **new session is not yet
+leased**: promptly approve its next job, and independently reconcile the hold
+before deployment. This owner-only control is not available through MCP and
+does not grant root-write or normal-release authority. Retain all failed
+attempts; read-only enrollment of an observed fresh boot is separate from
+rebooting it again. Host/worker-boundary tests are not physical qualification
+of this new control.
+
 For a completed retained backup, **Prepare retained backup source…** is an
 owner-only, host-only action. Select the private backup directory and its
 owner-recorded canonical `acceptance.json` SHA-256, then review the card size,

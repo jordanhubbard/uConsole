@@ -114,6 +114,8 @@ class RecoveryPanel:
         transitions.pack(padx=12, pady=4)
         self.hold_button = ttk.Button(transitions, text='Prepare recovery hold…', command=self.hold_dialog)
         self.hold_button.pack(side='left')
+        self.held_reboot_button = ttk.Button(transitions, text='Reboot into held recovery…', command=self.held_reboot_dialog)
+        self.held_reboot_button.pack(side='left', padx=4)
         self.choice = ttk.Combobox(self.window, textvariable=self.selected, state='readonly', width=50)
         self.choice.pack(padx=12, pady=4)
         self.choice.bind('<<ComboboxSelected>>', lambda event: self.review())
@@ -149,6 +151,7 @@ class RecoveryPanel:
         self.backup_button.state(['!disabled'] if self.enrollment_ready and not self.job and not self.pending else ['disabled'])
         self.hash_button.state(['!disabled'] if self.enrollment_ready and not self.job and not self.pending else ['disabled'])
         self.hold_button.state(['!disabled'] if self.enrollment_ready and not self.job and not self.pending else ['disabled'])
+        self.held_reboot_button.state(['!disabled'] if self.enrollment_ready and not self.job and not self.pending else ['disabled'])
         self.approve_button.state(['!disabled'] if self.pending and not self.job else ['disabled'])
         self.recheck_button.state(['!disabled'] if self.job else ['disabled'])
         self.discover_build_button.state(['disabled'] if self.job or self.pending else ['!disabled'])
@@ -647,6 +650,52 @@ class RecoveryPanel:
         self.status.set('Compiling pinned hold evidence offline. No target contact, lease renewal or policy approval.')
         self.timer = self.window.after(100, self.poll)
 
+    def held_reboot_dialog(self):
+        if self.job or self.pending or not self.enrollment_ready:
+            return
+        try:
+            from forge_backup_policy import inputs as enrolled
+            from forge_recovery_bootplan import digest
+            from forge_session_enrollment import inputs
+            from forge_held_reboot import reviewed
+            (directory, key, known), accepted = self.enrollment_ready
+            source = enrolled(directory, digest(accepted), key, known)
+            staging = filedialog.askdirectory(parent=self.window, title='Original sealed boot staging')
+            if not staging: return
+            hold = filedialog.askdirectory(parent=self.window, title='Acknowledged install-hold journal (contains plan.json)')
+            if not hold: return
+            pin = simpledialog.askstring('Held recovery reboot', 'Owner-recorded install-hold plan SHA-256:', parent=self.window)
+            if not pin: return
+            value = inputs(staging, accepted['staging_sha256'], source.probe.host, key, known,
+                           source.probe.kernel, source.probe.serial, None, 0)
+            reviewed(source, value, hold, pin.strip())
+            parent = filedialog.askdirectory(parent=self.window, title='Parent for new private held-reboot evidence')
+            if not parent: return
+            if not messagebox.askyesno('Reboot once into persistent recovery',
+                    f'Host: {source.probe.host}\nCurrent RAM boot: {source.boot_id}\nHold plan: {pin.strip()}\n\n'
+                    'Renew the current session lease, verify held boot files and the recovery image read-only, '
+                    'then reboot once and enroll a new persistent RAM boot. Keep physical power-cycle access available. '
+                    'The new session is NOT leased; promptly approve its next job. Independent hold reconciliation '
+                    'is still required before deployment. No root write or normal-boot release is authorized. '
+                    'An uncertain reboot is never repeated; retain its evidence.', parent=self.window):
+                return
+            import uuid
+            self.reboot_held(source, value, hold, pin.strip(), Path(parent)/('held-reboot-'+uuid.uuid4().hex))
+        except Exception as exc:
+            self.status.set('Held reboot not submitted: ' + str(exc))
+
+    def reboot_held(self, source, value, directory, pin, output):
+        if self.job or self.pending:
+            raise ValueError('Finish the current job or review before held reboot')
+        submitted = self.controller.reboot_held_recovery(self.workspace, source, value, directory, pin, output)
+        self.job, self.job_kind = submitted['job_id'], 'held-reboot-enroll'
+        self.preparation_output = Path(output)
+        self.enrollment_candidate = (Path(output)/'enrollment', value.probe.key, value.probe.known_hosts)
+        self.enrollment_ready = None
+        self.refresh()
+        self.status.set('Guarded held reboot accepted. Keep Workbench open; no retry or root-write authority.')
+        self.timer = self.window.after(100, self.poll)
+
     def source_dialog(self, *, health=False):
         if self.job or self.pending:
             return
@@ -864,14 +913,18 @@ class RecoveryPanel:
                             'Byte verification is not filesystem health or restore approval. '
                             'No target contact or lease renewal occurred; retain all failure evidence.')
             return
-        if self.job_kind == 'tryboot-enroll':
-            if result['status'] == 'completed' and result['result'].get('status') == 'recovery-boot-enrolled-not-leased':
+        if self.job_kind in ('tryboot-enroll', 'held-reboot-enroll'):
+            expected = ('held-boot-enrolled-not-leased' if self.job_kind == 'held-reboot-enroll'
+                        else 'recovery-boot-enrolled-not-leased')
+            if result['status'] == 'completed' and result['result'].get('status') == expected:
                 self.enrollment_ready = (self.enrollment_candidate, result['result']['enrollment'])
                 self.backup_button.state(['!disabled'])
                 self.hash_button.state(['!disabled'])
                 self.hold_button.state(['!disabled'])
+                self.held_reboot_button.state(['!disabled'])
             self.status.set(result['status'] + f': recovery boot evidence at {self.preparation_output}. '
-                            'No lease held or root writes authorized. After successful enrollment, prepare/approve/run the backup promptly. '
+                            'New session is not leased; no root writes authorized. Promptly approve its next job; '
+                            'held boots require independent hold reconciliation before deployment. '
                             'Unleased recovery can expire; retain any failed attempt and never automatically reboot again.')
             return
         if self.job_kind == 'verify-privacy':
@@ -910,6 +963,7 @@ class RecoveryPanel:
                 self.backup_button.state(['!disabled'])
                 self.hash_button.state(['!disabled'])
                 self.hold_button.state(['!disabled'])
+                self.held_reboot_button.state(['!disabled'])
             self.status.set(result['status'] + f': enrollment evidence at {self.preparation_output}. '
                             'Only enrolled-not-leased is a completed binding; use its session directory and pin '
                             'in a separately reviewed job policy, or choose Prepare backup job. No lease, reboot or grant was acquired.')
