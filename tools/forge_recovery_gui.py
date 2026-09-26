@@ -184,8 +184,7 @@ class RecoveryPanel:
                     ('pin', 'Owner-recorded staging acceptance SHA-256:'),
                     ('host', 'Pinned recovery hostname or IP (port 2222, no username):'),
                     ('kernel', 'Expected native kernel release:'),
-                    ('serial', 'Expected 16-digit hexadecimal hardware serial:'),
-                    ('boot', 'Independently observed NEW recovery boot UUID:')):
+                    ('serial', 'Expected 16-digit hexadecimal hardware serial:')):
                 fields[name] = simpledialog.askstring('Fresh recovery session', prompt, parent=self.window)
                 if not fields[name]: return
             selected = simpledialog.askinteger('Recovery boot selection',
@@ -200,10 +199,10 @@ class RecoveryPanel:
             if not parent: return
             from forge_session_enrollment import inputs, summary
             value = inputs(staging, fields['pin'], fields['host'], key, known,
-                           fields['kernel'], fields['serial'], fields['boot'], selected)
+                           fields['kernel'], fields['serial'], None, selected)
             self.show(summary(value))
             if not messagebox.askyesno('Verify and enroll fresh recovery boot',
-                    f'Read recovery identity from {value.probe.host}:2222?\n\nBoot: {value.boot_id}\n\n'
+                    f'Read recovery identity from {value.probe.host}:2222 and pin its new RAM boot UUID?\n\n'
                     'Use this only for a fresh boot with no existing host lease owner. This is not a way to '
                     'recover a lost session. The sealed staging supplies the owner; it will not be guessed. '
                     'No lease, reboot, disk write or agent grant is performed. Failed enrollment retains its '

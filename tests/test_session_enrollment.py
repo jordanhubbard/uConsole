@@ -1,4 +1,5 @@
 import copy
+from dataclasses import replace
 import json
 from pathlib import Path
 import sys
@@ -35,8 +36,9 @@ class SessionEnrollmentTests(unittest.TestCase):
         self.observation = dict(ram.record, cmdline='root=/dev/ram0 rdinit=/init uconsole.recovery=1 '
             'uconsole.forge_trial='+self.value.probe.nonce+' uconsole.recovery_owner='+self.value.owner+
             ' uconsole.recovery_lease=1 uconsole.recovery_watchdog=1')
-        self.records = [self.observation, dict(identity=self.observation, bootloader=dict(tryboot=1, partition=1)),
-                        self.observation]
+        self.records = [copy.deepcopy(self.observation),
+                        dict(identity=copy.deepcopy(self.observation), bootloader=dict(tryboot=1, partition=1)),
+                        copy.deepcopy(self.observation)]
 
     def observe(self):
         return patch.object(RecoveryProbe, '_observe', side_effect=copy.deepcopy(self.records))
@@ -58,6 +60,34 @@ class SessionEnrollmentTests(unittest.TestCase):
         self.assertEqual(result['binding_sha256'], digest(binding))
         self.assertNotIn(self.value.owner, json.dumps(result))
         self.assertNotIn('private fixture credential', json.dumps(result))
+
+    def test_discovery_pins_verified_boot_without_manual_uuid(self):
+        value = inputs(self.stage, self.pin, 'fixture', self.root/'key', self.root/'known_hosts',
+                       self.value.probe.kernel, self.value.probe.serial, None, 1)
+        with self.observe() as remote:
+            result = prepare(self.output, value)
+        self.assertEqual(remote.call_count, 3)
+        self.assertEqual(result['boot_id'], self.boot)
+        self.assertTrue((self.output/'discovery.json').exists())
+        self.assertEqual(json.loads((self.output/'session/binding.json').read_text())['boot_id'], self.boot)
+        self.assertFalse(result['lease_acquired'])
+
+    def test_discovery_does_not_follow_a_second_boot(self):
+        records = copy.deepcopy(self.records)
+        records[1]['identity']['boot_id'] = '99999999-1234-1234-1234-123456789abc'
+        with patch.object(RecoveryProbe, '_observe', side_effect=records) as remote:
+            with self.assertRaisesRegex(ValueError, 'boot UUID differs'):
+                prepare(self.output, replace(self.value, boot_id=None))
+        self.assertEqual(remote.call_count, 2)
+        self.assertFalse((self.output/'session').exists())
+
+    def test_discovery_refuses_existing_claim_after_one_read_only_probe(self):
+        with self.observe(): prepare(self.output, self.value)
+        with self.observe() as remote:
+            with self.assertRaises(FileExistsError):
+                prepare(self.root/'duplicate', replace(self.value, boot_id=None))
+        self.assertEqual(remote.call_count, 1)
+        self.assertFalse((self.root/'duplicate/session').exists())
 
     def test_duplicate_boot_claim_and_output_never_repeat_ssh(self):
         with self.observe(): prepare(self.output, self.value)

@@ -215,7 +215,7 @@ class RecoveryPanelTests(unittest.TestCase):
         with patch('forge_recovery_gui.filedialog.askdirectory', side_effect=[str(fixture.stage), str(fixture.root)]), \
                 patch('forge_recovery_gui.filedialog.askopenfilename', side_effect=[str(value.probe.key), str(value.probe.known_hosts)]), \
                 patch('forge_recovery_gui.simpledialog.askstring', side_effect=[fixture.pin, value.probe.host,
-                    value.probe.kernel, value.probe.serial, value.boot_id]), \
+                    value.probe.kernel, value.probe.serial]), \
                 patch('forge_recovery_gui.simpledialog.askinteger', return_value=1), \
                 patch('forge_recovery_gui.messagebox.askyesno', return_value=False), \
                 patch.object(RecoveryProbe, '_observe') as remote, \

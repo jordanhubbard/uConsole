@@ -30,6 +30,17 @@ These use controlled SSH observations, not the active physical recovery target.
 The new UI is not yet physically qualified and does not complete bootstrap
 provisioning or the end-to-end guided workflow.
 
+The follow-up removes manual boot-UUID entry: after owner confirmation,
+Workbench reads the UUID from the pinned target's verified RAM identity and
+uses that exact UUID for all subsequent checks. It refuses to follow a second
+boot or replace an existing claim. Explicit-UUID backend callers remain
+supported. All 24 focused tests pass on Linux and native macOS in
+`build/emulator/session-discovery-tests-20260926.log` and
+`build/emulator/macos-session-discovery-tests-20260926.log`. No discovery request
+renews a lease or grants target authority.
+The full Linux suite then passed 1,552 tests (one skip) plus ShellCheck, retained
+in `build/emulator/full-tests-session-discovery-20260926.log`.
+
 ### Live coding-agent image round trip through packaged MCP (2026-09-26)
 
 The coding agent in this session exercised the actual macOS archive from

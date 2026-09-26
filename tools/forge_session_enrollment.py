@@ -1,5 +1,5 @@
 """Owner-only fresh RAM-session enrollment; no lease acquisition or target writes."""
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import os
 from pathlib import Path
 
@@ -16,7 +16,7 @@ class Enrollment:
     staging: Path
     staging_pin: str
     probe: RecoveryProbe
-    boot_id: str
+    boot_id: str | None
     tryboot: int
     owner: str
     machine_id: str
@@ -32,7 +32,8 @@ def inputs(staging, pin, host, key, known_hosts, kernel, serial, boot_id, tryboo
         raise ValueError('Enrollment requires a new recovery boot, not the staged normal boot')
     request = reviewed['request']
     probe = RecoveryProbe(host, key, known_hosts, request['nonce'], kernel, serial)
-    binding(probe, boot_id, request['lease_owner'])
+    if boot_id is not None:
+        binding(probe, boot_id, request['lease_owner'])
     return Enrollment(staging, pin, probe, boot_id, tryboot, request['lease_owner'],
                       reviewed['acceptance']['machine_id'])
 
@@ -60,6 +61,19 @@ def prepare(output, value):
     output.mkdir(mode=0o700)
     fd = private_directory(output)
     try:
+        before = None
+        if value.boot_id is None:
+            # Discovery is read-only and precedes any lease or job approval.
+            # Once observed, pin this exact UUID for every subsequent check.
+            write_record(fd, 'discovery-request.json', summary(value))
+            before = value.probe.inspect()
+            write_record(fd, 'discovery.json', before)
+            if boot_binding(before['observation']) != (value.probe.nonce, value.owner, 'physical'):
+                raise ValueError('Recovery boot lease owner differs from sealed staging')
+            observed_boot = before['verification']['boot_id']
+            if observed_boot == reviewed['original_boot']['boot_id']:
+                raise ValueError('Enrollment requires a new recovery boot, not the staged normal boot')
+            value = replace(value, boot_id=observed_boot)
         stage_fd = private_directory(value.staging)
         try:
             write_record(stage_fd, 'session-enrollment-'+value.boot_id+'.json',
@@ -69,7 +83,8 @@ def prepare(output, value):
             os.close(stage_fd)
         write_record(fd, 'request.json', dict(summary(value),
                      binding=binding(value.probe, value.boot_id, value.owner)))
-        before = value.probe.inspect(expected_boot_id=value.boot_id)
+        if before is None:
+            before = value.probe.inspect(expected_boot_id=value.boot_id)
         write_record(fd, 'before.json', before)
         if boot_binding(before['observation']) != (value.probe.nonce, value.owner, 'physical'):
             raise ValueError('Recovery boot lease owner differs from sealed staging')
