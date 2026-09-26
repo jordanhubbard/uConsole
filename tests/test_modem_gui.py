@@ -1,6 +1,8 @@
 """Exercise desktop state transitions without USB access or privilege elevation."""
+import gc
 import importlib.util
 import os
+import sys
 from pathlib import Path
 import tempfile
 import unittest
@@ -12,7 +14,8 @@ except ImportError:
     tk = None
 
 
-@unittest.skipUnless(tk is not None and os.environ.get('DISPLAY'), 'requires Tk and a display (make check-gui)')
+@unittest.skipUnless(tk is not None and (os.environ.get('DISPLAY') or sys.platform == 'darwin'),
+                     'requires Tk and a display (make check-gui)')
 class ModemGuiTest(unittest.TestCase):
     def setUp(self):
         script = Path(__file__).resolve().parents[1] / 'Code/scripts/uconsole-modem-gui.py'
@@ -21,9 +24,16 @@ class ModemGuiTest(unittest.TestCase):
         spec.loader.exec_module(self.module)
         self.root = tk.Tk()
         self.app = self.module.Updater(self.root)
-        self.addCleanup(self.root.destroy)
+        self.addCleanup(self.close_gui)
         self.app.package.set('/firmware with spaces')
         self.app.serial.set('SERIAL')
+
+    def close_gui(self):
+        self.root.destroy()
+        self.app = self.root = None
+        # Tcl interpreters must be finalized on the creating thread, not
+        # during garbage collection triggered by a later worker test.
+        gc.collect()
 
     def enabled(self):
         return str(self.app.flash_button['state']) == 'normal'

@@ -60,11 +60,11 @@ install_deps() {
 
 find_tk_python() {
     local candidate resolved
-    for candidate in "${PYTHON:-}" python3 /usr/bin/python3 /opt/homebrew/bin/python3; do
+    for candidate in "${PYTHON:-}" python3 /usr/bin/python3 /opt/homebrew/bin/python3 /opt/homebrew/bin/python3.12; do
         [[ -n $candidate ]] || continue
         resolved=$(command -v "$candidate" 2>/dev/null || true)
         [[ -n $resolved ]] || continue
-        if "$resolved" -c 'import tkinter' >/dev/null 2>&1; then
+        if "$resolved" -c 'import sys; sys.version_info >= (3, 12) or sys.exit(1); import tkinter' >/dev/null 2>&1; then
             printf '%s\n' "$resolved"
             return 0
         fi
@@ -80,33 +80,58 @@ set -euo pipefail
 prefix=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 export UCONSOLE_ROOT="$prefix/libexec/uconsole-workbench"
 export UCONSOLE_BUILD_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/uconsole-workbench"
-for candidate in "${PYTHON:-}" python3 /usr/bin/python3 /opt/homebrew/bin/python3; do
+tool=uconsole_workbench.py
+probe='import sys; sys.version_info >= (3, 12) or sys.exit(1); import tkinter'
+if [[ ${0##*/} == uconsole-mcp ]]; then
+    tool=uconsole_mcp.py
+    probe='import sys; sys.version_info >= (3, 12) or sys.exit(1); import json'
+fi
+for candidate in "${PYTHON:-}" python3 /usr/bin/python3 /opt/homebrew/bin/python3 /opt/homebrew/bin/python3.12; do
     [[ -n $candidate ]] || continue
     resolved=$(command -v "$candidate" 2>/dev/null || true)
-    if [[ -n $resolved ]] && "$resolved" -c 'import tkinter' >/dev/null 2>&1; then
-        exec "$resolved" "$UCONSOLE_ROOT/tools/uconsole_workbench.py" "$@"
+    if [[ -n $resolved ]] && "$resolved" -c "$probe" >/dev/null 2>&1; then
+        exec "$resolved" "$UCONSOLE_ROOT/tools/$tool" "$@"
     fi
 done
-printf 'uconsole-workbench: no Python 3 interpreter with tkinter found; run make deps\n' >&2
+printf '%s: Python 3.12+ is required (with Tk for Workbench); run make deps or set PYTHON to a compatible interpreter\n' "${0##*/}" >&2
 exit 1
 EOF
     chmod 0755 "$stage/bin/uconsole-workbench"
+    cp "$stage/bin/uconsole-workbench" "$stage/bin/uconsole-mcp"
 }
 
 build_ide() {
     local -a compile
+    local stage_parent
     command -v python3 >/dev/null 2>&1 || fail 'python3 is required; run make deps'
+    python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)' >/dev/null 2>&1 || fail 'building Workbench requires Python 3.12+ on PATH'
     command -v cc >/dev/null 2>&1 || fail 'a C compiler is required; run make deps'
     python3 -m compileall -q "$root/tools"
-    rm -rf -- "$stage"
+    # Never clean/reuse a stage left by sudo install or another package build.
+    # Keep completed stages available for inspection and build a fresh one.
+    mkdir -p "$build_dir/ide/$target"
+    stage_parent=$(mktemp -d "$build_dir/ide/$target/build.XXXXXX")
+    stage=$stage_parent/uconsole-workbench
     mkdir -p "$stage/libexec/uconsole-workbench/tools" \
         "$stage/libexec/uconsole-workbench/Code/patch/qemu" \
         "$stage/share/doc/uconsole-workbench" \
         "$stage/share/uconsole-keyboard-flash"
     cp "$root"/tools/*.py "$stage/libexec/uconsole-workbench/tools/"
     cp "$root"/Code/patch/qemu/*.patch "$stage/libexec/uconsole-workbench/Code/patch/qemu/"
+    cp "$root"/Code/patch/qemu/*.[ch] \
+        "$stage/libexec/uconsole-workbench/Code/patch/qemu/"
+    cp -R "$root/Code/uconsole_keyboard" "$stage/libexec/uconsole-workbench/Code/"
     cp "$root/uconsole-tasks.json" "$stage/libexec/uconsole-workbench/"
-    cp "$root/docs/emulator.md" "$root/README.md" "$stage/share/doc/uconsole-workbench/"
+    cp "$root/docs/emulator.md" "$root/docs/emulator-validation.md" \
+        "$root/docs/emulator-device-plan.md" "$root/docs/forge-agents.md" \
+        "$root/docs/keyboard-usb-contract.md" \
+        "$root/README.md" "$stage/share/doc/uconsole-workbench/"
+    cp -R "$root/skills" "$stage/share/doc/uconsole-workbench/"
+    cp -R "$root/docs/scenarios" "$stage/share/doc/uconsole-workbench/"
+    make -C "$root" keyboard-oracle BUILD_DIR="$build_dir"
+    mkdir -p "$stage/libexec/uconsole-workbench/bin"
+    install -m 0755 "$build_dir/keyboard-oracle/keyboard-oracle" \
+        "$stage/libexec/uconsole-workbench/bin/keyboard-oracle"
     compile=(cc)
     if [[ -n ${CPPFLAGS:-} ]]; then
         read -r -a flags <<< "$CPPFLAGS"
@@ -128,17 +153,22 @@ build_ide() {
     printf 'Built uConsole Workbench for %s in %s\n' "$target" "$stage"
 }
 
-package_ide() {
-    build_ide
+populate_flash_bundle() {
+    local firmware flash_archive temp
     firmware=$build_dir/firmware/uconsole_keyboard.ino.bin
-    if [[ ! -s $firmware ]]; then
+    if [[ ! -s $firmware ]] || ! python3 "$root/tools/firmware_manifest.py" check "$build_dir"; then
         make -C "$root" firmware BUILD_DIR="$build_dir"
     fi
     flash_archive=$(python3 "$root/tools/package_flash.py" "$build_dir" | tail -1)
     temp=$(mktemp -d)
-    trap 'rm -rf -- "$temp"' EXIT
     tar -xzf "$flash_archive" -C "$temp"
     cp -R "$temp/uconsole_keyboard_flash/." "$stage/share/uconsole-keyboard-flash/"
+    rm -rf -- "$temp"
+}
+
+package_ide() {
+    build_ide
+    populate_flash_bundle
     output=$build_dir/uconsole-workbench-$target.tar.gz
     tar -czf "$output" -C "$(dirname "$stage")" "$(basename "$stage")"
     printf '%s\n' "$output"
@@ -146,11 +176,13 @@ package_ide() {
 
 install_ide() {
     build_ide
+    populate_flash_bundle
     install -d "$destdir$prefix/bin" "$destdir$prefix/libexec" "$destdir$prefix/share"
     cp -R "$stage/libexec/uconsole-workbench" "$destdir$prefix/libexec/"
     cp -R "$stage/share/doc" "$destdir$prefix/share/"
     cp -R "$stage/share/uconsole-keyboard-flash" "$destdir$prefix/share/"
     install -m 0755 "$stage/bin/uconsole-workbench" "$destdir$prefix/bin/uconsole-workbench"
+    install -m 0755 "$stage/bin/uconsole-mcp" "$destdir$prefix/bin/uconsole-mcp"
     printf 'Installed uConsole Workbench under %s%s\n' "$destdir" "$prefix"
 }
 

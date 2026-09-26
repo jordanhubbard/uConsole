@@ -5,17 +5,26 @@ from pathlib import Path
 import shutil
 import struct
 import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
 
 from tools.package_flash import package
+from tools.firmware_manifest import FQBN, record
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / 'Bin/uconsole_keyboard_flash'
 
 
 class FlashTest(unittest.TestCase):
+    def test_package_import_in_clean_interpreter(self):
+        subprocess.run([sys.executable, '-I', '-c',
+                        'import sys; sys.path.insert(0, sys.argv[1]); '
+                        'from tools.package_flash import package; '
+                        'from tools.firmware_manifest import WorkspaceLock', str(ROOT)],
+                       check=True, capture_output=True)
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -152,6 +161,7 @@ class PackageTest(unittest.TestCase):
         self.build = Path(self.tmp.name)
         (self.build / 'firmware').mkdir()
         (self.build / 'firmware/uconsole_keyboard.ino.bin').write_bytes(b'firmware')
+        record(self.build, FQBN, {'fixture': 'synthetic firmware for packaging tests'})
 
     def write_helper(self, header):
         helper = self.build / 'upload-reset.elf'
@@ -167,6 +177,7 @@ class PackageTest(unittest.TestCase):
         self.assertEqual(output.name, 'uconsole_keyboard_flash-linux-aarch64.tar.gz')
         with tarfile.open(output) as archive:
             self.assertIn('uconsole_keyboard_flash/upload-reset', archive.getnames())
+            self.assertIn('uconsole_keyboard_flash/provenance.json', archive.getnames())
 
     def test_macos_arm64_release_bundle(self):
         header = bytearray(20)
@@ -175,6 +186,36 @@ class PackageTest(unittest.TestCase):
         self.write_helper(header)
         output = package(self.build)
         self.assertEqual(output.name, 'uconsole_keyboard_flash-macos-arm64.tar.gz')
+
+    def test_staged_install_contains_firmware_bundle_and_source(self):
+        destination = self.build / 'install root'
+        env = dict(os.environ, BUILD_DIR=str(self.build), DESTDIR=str(destination),
+                   PREFIX='/usr/local')
+        result = subprocess.run(['bash', str(ROOT / 'scripts/platform.sh'), 'install'],
+                                cwd=ROOT, env=env, capture_output=True, text=True,
+                                timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        installed = destination / 'usr/local'
+        self.assertEqual(
+            (installed / 'share/uconsole-keyboard-flash/uconsole_keyboard.ino.bin').read_bytes(),
+            b'firmware')
+        self.assertTrue(
+            (installed / 'libexec/uconsole-workbench/Code/uconsole_keyboard/uconsole_keyboard.ino').is_file())
+        for name in ('emulator.md', 'emulator-validation.md', 'emulator-device-plan.md',
+                     'keyboard-usb-contract.md'):
+            self.assertTrue((installed / 'share/doc/uconsole-workbench' / name).is_file(), name)
+        self.assertTrue((installed / 'share/doc/uconsole-workbench/skills/uconsole-forge/SKILL.md').is_file())
+        self.assertEqual(
+            (installed / 'share/doc/uconsole-workbench/skills/uconsole-forge/references/audio.md').read_bytes(),
+            (ROOT / 'skills/uconsole-forge/references/audio.md').read_bytes())
+        request = {'jsonrpc': '2.0', 'id': 1, 'method': 'initialize', 'params': {
+            'protocolVersion': '2025-11-25', 'capabilities': {},
+            'clientInfo': {'name': 'installed-test', 'version': '1'}}}
+        mcp = subprocess.run([str(installed / 'bin/uconsole-mcp'), '--workspace', f'test={self.build}'],
+                             input=json.dumps(request) + '\n', text=True, capture_output=True,
+                             cwd=destination, timeout=10)
+        self.assertEqual(mcp.returncode, 0, mcp.stderr)
+        self.assertEqual(json.loads(mcp.stdout)['result']['serverInfo']['name'], 'uconsole-forge')
 
 
 if __name__ == '__main__':

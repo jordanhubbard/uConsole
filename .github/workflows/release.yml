@@ -1,6 +1,8 @@
 name: Release packages
 
 on:
+  workflow_dispatch:
+  pull_request:
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
@@ -26,7 +28,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: keyboard-firmware
-          path: build/firmware/uconsole_keyboard.ino.bin
+          path: |
+            build/firmware/uconsole_keyboard.ino.bin
+            build/firmware/provenance.json
           if-no-files-found: error
 
   packages:
@@ -52,6 +56,15 @@ jobs:
         with:
           name: keyboard-firmware
           path: build/firmware
+      - name: Install native package qualification dependencies
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            sudo apt-get update
+            sudo apt-get install -y python3-tk xvfb ninja-build pkg-config libglib2.0-dev libpixman-1-dev libslirp-dev
+          else
+            brew install python-tk ninja pkg-config glib pixman libslirp
+          fi
       - name: Build and package uConsole Workbench
         run: |
           make package
@@ -63,6 +76,36 @@ jobs:
           fi
           python3 -m unittest tests.test_keyboard_flash -v
           test "$(find build -maxdepth 1 -name 'uconsole-workbench-*.tar.gz' | wc -l | tr -d ' ')" = 1
+      - name: Qualify extracted native archive and GUI
+        shell: bash
+        run: |
+          archive=build/uconsole-workbench-${{ matrix.target }}.tar.gz
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            xvfb-run -a python3 tools/validate_native_archive.py --archive "$archive" --output build/native-archive-validation --gui --preferred-python /usr/bin/python3
+          else
+            python3 tools/validate_native_archive.py --archive "$archive" --output build/native-archive-validation --gui --preferred-python /opt/homebrew/bin/python3
+          fi
+      - name: Build and test QEMU using only extracted package resources
+        shell: bash
+        run: |
+          resources="$GITHUB_WORKSPACE/build/native-archive-validation/uconsole-workbench/libexec/uconsole-workbench"
+          evidence="$GITHUB_WORKSPACE/build/native-archive-validation"
+          export UCONSOLE_BUILD_DIR="$RUNNER_TEMP/uconsole-package-qemu"
+          unset UCONSOLE_ROOT PYTHONPATH
+          cd "$RUNNER_TEMP"
+          python3 "$resources/tools/build_emulator_qemu.py" --jobs 4 > "$evidence/qemu-build.log" 2>&1
+          python3 "$resources/tools/test_emulator_watchdog.py" > "$evidence/watchdog.log" 2>&1
+          python3 "$resources/tools/test_emulator_pmic.py" > "$evidence/pmic.log" 2>&1
+          python3 "$resources/tools/test_emulator_adc_migration.py" > "$evidence/adc-migration.log" 2>&1
+      - name: Retain package qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qualification-${{ matrix.target }}
+          path: |
+            build/native-archive-validation/native-archive-acceptance.json
+            build/native-archive-validation/*.log
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         with:
           name: uconsole-workbench-${{ matrix.target }}
@@ -71,6 +114,7 @@ jobs:
 
   publish:
     name: Publish GitHub release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     needs: packages
     runs-on: ubuntu-24.04
     permissions:
