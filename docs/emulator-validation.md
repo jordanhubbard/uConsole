@@ -47,6 +47,27 @@ the factory-derived disks or the recorder's password fixture. Do not substitute
 a private hardware image into this hosted workflow. PR and tag jobs do not run
 the opt-in capture; manual jobs cannot publish a release.
 
+Run `36238221019` at `e2c1b64` completed this capture on native Linux x86_64.
+Visual inspection of the 600-second frame shows the 1280x720 Raspberry Pi
+desktop welcome screen. Retained evidence is
+`build/emulator/x86-public-desktop-36238221019/`, including `review.json`.
+The public compressed image SHA-256 is
+`ef95242cdb0125e8ed08157400a26d4665acddd083481ec2314acd6e073b74ab`;
+the raw backing image is
+`a7b0a2bfa86a45150af1ae70a94ed432718bfec90ffdef54952564bd34f0d788`.
+No input was sent, and the recorder force-stopped the disposable guest at EOF.
+This closes graphical-startup observation only, not desktop qualification.
+
+The optional `desktop_scenario=onboarding` recipe now records account creation,
+mouse-launched Terminal, typed output, boot IDs around a requested reboot and
+keyboard-requested poweroff. It is derived from the manually observed native
+Mac interaction, not yet an x86 pass. Its scheduled inputs assume the pinned
+factory UI at 1280x720; they are not readiness detection. Inspect screenshots,
+serial results and terminal receipts before accepting any interaction. `finish`
+requires Workbench to have released its guest and rejects forced cleanup.
+Only the disposable public-image workflow uses this recipe; it never contacts
+the physical uConsole or installs a replacement desktop in the image.
+
 ### Recovery and agent integration checkpoint (2026-09-26)
 
 The qualification branch at `7da7984` passes all host and package CI jobs.

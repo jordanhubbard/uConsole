@@ -25,6 +25,19 @@ class DesktopDriverTests(unittest.TestCase):
                  {'at_seconds': 30, 'request': {'action': 'capture'}}]
         self.assertEqual(self.load(steps), steps)
 
+    def test_repository_scenarios(self):
+        directory = Path(__file__).resolve().parents[1] / 'docs/scenarios'
+        capture = scenario(directory / 'factory-desktop-capture.json')
+        onboarding = scenario(directory / 'factory-desktop-onboarding.json')
+        self.assertEqual(capture[-1]['request']['action'], 'capture')
+        self.assertEqual(onboarding[-1]['request']['action'], 'finish')
+        self.assertEqual(sum(step['request']['action'] == 'type-secret'
+                             for step in onboarding), 2)
+        self.assertTrue(any(step['request'].get('text') == 'sudo reboot'
+                            for step in onboarding))
+        self.assertTrue(any(step['request'].get('text') == 'sudo poweroff'
+                            for step in onboarding))
+
     def test_invalid(self):
         for steps in ([], [{'at_seconds': True, 'request': {'action': 'capture'}}],
                       [{'at_seconds': 1501, 'request': {'action': 'capture'}}],

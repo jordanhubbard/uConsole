@@ -7,6 +7,13 @@ on:
         description: 'Record the public factory guest desktop on Linux x86_64 (not an automatic desktop pass)'
         type: boolean
         default: false
+      desktop_scenario:
+        description: 'Public disposable guest recording recipe; screenshots require review'
+        type: choice
+        options:
+          - capture
+          - onboarding
+        default: capture
   pull_request:
   push:
     tags:
@@ -107,7 +114,7 @@ jobs:
           python3 "$resources/tools/test_emulator_adc_migration.py" > "$evidence/adc-migration.log" 2>&1
       - name: Record public factory desktop on native x86_64
         if: github.event_name == 'workflow_dispatch' && inputs.capture_public_desktop && matrix.target == 'linux-x86_64'
-        timeout-minutes: 45
+        timeout-minutes: 60
         shell: bash
         run: |
           set -euo pipefail
@@ -126,7 +133,12 @@ jobs:
           cd "$RUNNER_TEMP"
           /usr/bin/python3 "$resources/tools/uconsole_emulator.py" --workspace "$workspace" prepare "$factory" > "$evidence/prepare.log" 2>&1
           /usr/bin/python3 "$resources/tools/uconsole_emulator.py" --workspace "$workspace" configure-display --timeout 600 > "$evidence/configure-display.log" 2>&1
-          scenario="$GITHUB_WORKSPACE/build/native-archive-validation/uconsole-workbench/share/doc/uconsole-workbench/scenarios/factory-desktop-capture.json"
+          case '${{ inputs.desktop_scenario }}' in
+            capture|'') recipe=factory-desktop-capture.json ;;
+            onboarding) recipe=factory-desktop-onboarding.json ;;
+            *) echo 'Unknown desktop scenario' >&2; exit 1 ;;
+          esac
+          scenario="$GITHUB_WORKSPACE/build/native-archive-validation/uconsole-workbench/share/doc/uconsole-workbench/scenarios/$recipe"
           xvfb-run -a /usr/bin/python3 "$resources/tools/drive_forge_desktop.py" --workspace "$workspace" --scenario "$scenario" --output "$evidence/driver"
       - name: Retain public desktop observations only
         if: always() && github.event_name == 'workflow_dispatch' && inputs.capture_public_desktop && matrix.target == 'linux-x86_64'
