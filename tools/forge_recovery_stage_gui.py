@@ -47,6 +47,8 @@ def review_dialog(panel):
         panel.approve_button.state(['!disabled'])
         panel.status.set('Sealed staging reviewed locally. Separate approval and per-phase confirmation are required.')
     except Exception as exc:
+        from workbench_diagnostics import report_ui_error
+        report_ui_error(panel.window, 'Review recovery staging', exc)
         panel.pending = None
         panel.approve_button.state(['disabled'])
         panel.status.set(str(exc))
@@ -114,4 +116,6 @@ def reconcile(panel, direction):
         panel.status.set('Reconciling the retained staging attempt; no retry or reboot.')
         panel.timer = panel.window.after(100, panel.poll)
     except Exception as exc:
+        from workbench_diagnostics import report_ui_error
+        report_ui_error(panel.window, 'Reconcile recovery staging', exc)
         panel.status.set(str(exc))

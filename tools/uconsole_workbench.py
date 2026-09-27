@@ -22,6 +22,8 @@ from forge_local import LocalListener
 from forge_history import default_path as history_default_path
 from forge_guest_files import listing_script
 from forge_audio import MODES as AUDIO_MODES
+from workbench_help import Guide, Tooltip, attach_hints
+from workbench_diagnostics import Diagnostics, details_window, report_job_error
 
 class Workbench:
     def __init__(self, root, workspace, qmp_port=4444, serial_port=4445, *,
@@ -30,6 +32,9 @@ class Workbench:
                  recovery_policy=None, recovery_policy_sha256=None,
                  agent_socket=None, agent_grants=(), agent_files_root=None):
         self.root, self.workspace = root, workspace.resolve()
+        self.diagnostics = Diagnostics(self.workspace)
+        root._workbench_diagnostics = self.diagnostics
+        root.report_callback_exception = self.callback_error
         self.qmp_port, self.serial_port = qmp_port, serial_port
         self.process = self.serial = self.log = self.errors = None
         self.runtime = None
@@ -88,7 +93,8 @@ class Workbench:
         agentbar.pack(fill='x')
         image_button = ttk.Menubutton(agentbar, text='Image')
         image_menu = tk.Menu(image_button, tearoff=False)
-        for label, action in [('Create checkpoint', self.checkpoint), ('Restore checkpoint', self.restore_checkpoint),
+        for label, action in [('Import guest image', self.import_image),
+                              ('Create checkpoint', self.checkpoint), ('Restore checkpoint', self.restore_checkpoint),
                               ('Recover interrupted restore', self.recover_image), ('Refresh boot files', self.refresh_image),
                               ('Cancel image job', self.cancel_lifecycle)]:
             image_menu.add_command(label=label, command=lambda fn=action: self.guard(fn))
@@ -190,6 +196,33 @@ class Workbench:
             suffix = ' • bundled source updated; your project was preserved' if source_update else ''
             self.status.set(f'Stopped • {self.workspace} • {firmware}{suffix}')
         root.protocol('WM_DELETE_WINDOW', self.close)
+        menu = tk.Menu(root)
+        help_menu = tk.Menu(menu, tearoff=False)
+        help_menu.add_command(label='User guide (F1)', command=self.show_help)
+        help_menu.add_command(label='Getting started', command=self.show_help)
+        help_menu.add_command(label='Diagnostics', command=lambda: self.guard(self.show_diagnostics))
+        menu.add_cascade(label='Help', menu=help_menu)
+        root.configure(menu=menu)
+        root.bind('<F1>', lambda event: self.show_help())
+        self.help_hints = attach_hints(root, self.show_help)
+        for variable, topic, hint in [
+                (self.mode, 'Boot and display', 'Next boot mode: maintenance, regular system, or surrogate desktop.'),
+                (self.display, 'Boot and display', 'Next boot display backend. “none” means no graphical window.'),
+                (self.keyboard, 'Power and device controls', 'Select USB input devices for the next boot.'),
+                (self.audio, 'Power and device controls', 'Select surrogate USB audio for the next boot.'),
+                (self.modem, 'Power and device controls', 'Select the synthetic modem for the next boot.'),
+                (self.adc_reference, 'Power and device controls', 'Guest ADC supply reference; does not control converter power.'),
+                (self.power_field, 'Power and device controls', 'Live PMIC property to change or query.'),
+                (self.power_value, 'Power and device controls', 'Boolean or integer value for the selected live power field.')]:
+            pending = [root]
+            while pending:
+                widget = pending.pop()
+                pending.extend(widget.winfo_children())
+                if 'textvariable' in widget.keys() and str(widget['textvariable']) == str(variable):
+                    self.help_hints.append(Tooltip(widget, hint + ' Press F1 for help.'))
+                    widget.bind('<F1>', lambda event, name=topic: (self.show_help(name), 'break')[1])
+        if not (self.workspace / 'machine.json').is_file():
+            self.status.set(f'No guest image prepared • Image → Import guest image • F1 for help • {self.workspace}')
         root.after(100, self.poll)
         if agent_socket:
             self.enable_attachment(agent_socket, agent_grants)
@@ -232,6 +265,7 @@ class Workbench:
         if self.agent_job is None:
             return
         result = self.controller.job(self.agent_job)
+        report_job_error(self.root, result)
         if result['status'] not in ('completed', 'failed', 'cancelled'):
             return
         self.agent_job = None
@@ -434,7 +468,55 @@ class Workbench:
         try:
             action()
         except (OSError, ValueError, subprocess.SubprocessError) as exc:
-            messagebox.showerror('uConsole Workbench', str(exc), parent=self.root)
+            self.report_error(getattr(action, '__name__', 'action'), exc)
+
+    def report_error(self, action, exc):
+        details = self.diagnostics.emit('action_failed', action, exc)
+        details_window(self.root, 'uConsole Workbench — Error', details,
+                       lambda: self.show_help('Errors and diagnostics'))
+
+    def callback_error(self, kind, exc, traceback):
+        self.report_error('Tk callback', exc.with_traceback(traceback))
+
+    def show_help(self, topic='Getting started'):
+        guide = getattr(self, 'guide', None)
+        if guide is not None and guide.window.winfo_exists():
+            guide.query.set('')
+            guide.show(topic)
+            guide.window.lift()
+        else:
+            self.guide = Guide(self.root, topic)
+
+    def show_diagnostics(self):
+        details_window(self.root, 'Workbench diagnostics',
+                       f'Log: {self.diagnostics.path}\n\n{self.diagnostics.recent()}',
+                       lambda: self.show_help('Errors and diagnostics'))
+
+    def panel_help(self, window, topic):
+        window.bind('<F1>', lambda event: self.show_help(topic))
+        ttk.Button(window, text='Help (F1)', command=lambda: self.show_help(topic)).pack(anchor='e', padx=8, pady=4)
+
+    def import_image(self):
+        if self.workspace.exists():
+            raise ValueError(f'Import requires a new workspace directory; {self.workspace} already exists. '
+                             'Restart with --workspace /path/to/new-workspace. Existing data is never replaced.')
+        source = filedialog.askopenfilename(parent=self.root, title='Import supported CM4 guest image',
+                                           filetypes=[('CM4 images', '*.img *.bz2'), ('All files', '*')])
+        if not source:
+            return
+        checksum = simpledialog.askstring('Verify image',
+            'Expected SHA-256 (from a trusted source).\nLeave blank only for the pinned official .img.bz2 image.', parent=self.root)
+        if checksum is None:
+            return
+        arguments = ['prepare', source]
+        if checksum.strip():
+            value = checksum.strip().lower()
+            if len(value) != 64 or any(char not in '0123456789abcdef' for char in value):
+                raise ValueError('Expected SHA-256 must contain exactly 64 hexadecimal characters')
+            arguments.extend(['--sha256', value])
+        elif not source.endswith('.bz2'):
+            raise ValueError('A raw/custom image requires an independently verified SHA-256.')
+        self.start_lifecycle(arguments, 'Import')
 
     def append(self, text):
         self.console.configure(state='normal')
@@ -482,6 +564,10 @@ class Workbench:
             raise ValueError('This workbench already owns a running emulator')
         if self.display_setup is not None:
             raise ValueError('Surrogate desktop setup is already running')
+        if not (self.workspace / 'machine.json').is_file():
+            raise ValueError(f'No prepared Linux guest workspace: {self.workspace / "machine.json"} is missing. '
+                             'Use Image → Import guest image, or restart with --workspace pointing at a prepared workspace. '
+                             'The bundled keyboard firmware is not a Linux guest image. Press F1 for Getting started.')
         config = json.loads((self.workspace / 'machine.json').read_text())
         if (self.mode.get() == 'desktop' and
                 config.get('surrogate_desktop', {}).get('schema') != SURROGATE_SCHEMA):
@@ -522,6 +608,7 @@ class Workbench:
             existing.window.lift()
             return
         self.deck = KeyboardDeck(self.root, self.job_controller(), 'gui')
+        self.panel_help(self.deck.window, 'Power and device controls')
 
     def cancel_boot(self):
         if self.boot_job is None:
@@ -535,6 +622,7 @@ class Workbench:
         if self.boot_job is None:
             return
         result = self.controller.job(self.boot_job)
+        report_job_error(self.root, result)
         if result['status'] not in ('completed', 'failed', 'cancelled'):
             return
         self.boot_job = None
@@ -598,6 +686,7 @@ class Workbench:
         if self.replay_job is None:
             return
         result = self.controller.job(self.replay_job)
+        report_job_error(self.root, result)
         if result['status'] not in ('completed', 'failed', 'cancelled'):
             return
         if result['status'] == 'completed':
@@ -634,6 +723,7 @@ class Workbench:
         if self.power_job is None:
             return
         result = self.controller.job(self.power_job)
+        report_job_error(self.root, result)
         if result['status'] not in ('completed', 'failed', 'cancelled'):
             return
         self.power_job = None
@@ -659,6 +749,7 @@ class Workbench:
         if self.control_job is None:
             return
         result = self.controller.job(self.control_job)
+        report_job_error(self.root, result)
         if result['status'] not in ('completed', 'failed', 'cancelled'):
             return
         self.control_job = None
@@ -723,6 +814,7 @@ class Workbench:
             return self.recovery_panel
         from forge_recovery_gui import RecoveryPanel
         self.recovery_panel = RecoveryPanel(self.root, self.job_controller(), 'gui')
+        self.panel_help(self.recovery_panel.window, 'Physical target and recovery')
         return self.recovery_panel
 
     def physical_target(self):
@@ -731,6 +823,7 @@ class Workbench:
             return self.target_panel
         from forge_target_gui import TargetPanel
         self.target_panel = TargetPanel(self.root, self.job_controller(), 'gui')
+        self.panel_help(self.target_panel.window, 'Physical target and recovery')
         return self.target_panel
 
     def modem_controls(self):
@@ -739,6 +832,7 @@ class Workbench:
             return self.modem_panel
         from forge_modem_gui import ModemPanel
         self.modem_panel = ModemPanel(self.root, self.job_controller(), 'gui')
+        self.panel_help(self.modem_panel.window, 'Power and device controls')
         return self.modem_panel
 
     def audio_controls(self):
@@ -747,6 +841,7 @@ class Workbench:
             return self.audio_panel
         from forge_audio_gui import AudioPanel
         self.audio_panel = AudioPanel(self.root, self.job_controller(), 'gui')
+        self.panel_help(self.audio_panel.window, 'Power and device controls')
         return self.audio_panel
 
     def job_controller(self):
@@ -795,6 +890,7 @@ class Workbench:
         if self.host_job is None:
             return
         result = self.controller.job(self.host_job)
+        report_job_error(self.root, result)
         if result['status'] not in ('completed', 'failed', 'cancelled'):
             return
         callback = self.host_callback
@@ -855,6 +951,7 @@ class Workbench:
         if self.guest_job is None:
             return
         result = self.controller.job(self.guest_job)
+        report_job_error(self.root, result)
         if result['status'] not in ('completed', 'failed', 'cancelled'):
             return
         callback = self.guest_callback
@@ -900,6 +997,7 @@ class Workbench:
         if self.transfer is None:
             return
         result = self.controller.job(self.transfer)
+        report_job_error(self.root, result)
         if result['status'] not in ('completed', 'failed', 'cancelled'):
             return
         self.transfer = None
@@ -921,6 +1019,7 @@ class Workbench:
         if self.lifecycle is None:
             return
         result = self.controller.job(self.lifecycle)
+        report_job_error(self.root, result)
         if result['status'] not in ('completed', 'failed', 'cancelled'):
             return
         desktop_setup = self.display_setup == self.lifecycle
@@ -1040,6 +1139,9 @@ class Workbench:
                     pass  # Keep the Runtime until its transfer worker finishes cleanup.
                 else:
                     code = self.process.returncode
+                    if code:
+                        self.diagnostics.emit('emulator_exited', 'QEMU',
+                                              f'Exit status {code}; inspect {self.workspace / "workbench-qemu.log"}')
                     self.release()
                     self.status.set(f'Stopped (exit {code}); see workbench-qemu.log')
         self.root.after(100, self.poll)
@@ -1113,7 +1215,7 @@ class Workbench:
                 self.runtime.control('quit')
                 self.process.wait(timeout=5)
             except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
-                messagebox.showerror('Could not stop QEMU', str(exc), parent=self.root)
+                self.report_error('Stop QEMU', exc)
                 return
             self.release()
         self.close_attachment()
@@ -1151,12 +1253,16 @@ def main():
         p.error('--recovery-policy and --recovery-policy-sha256 must be supplied together')
     if not args.agent_socket and (args.agent_allow or args.agent_files_root):
         p.error('--agent-allow and --agent-files-root require --agent-socket')
-    root = tk.Tk()
-    Workbench(root, args.workspace, args.qmp_port, args.serial_port,
-              host_task_policy=args.host_task_policy, host_task_sha256=args.host_task_policy_sha256,
-              target_policy=args.target_policy, target_policy_sha256=args.target_policy_sha256,
-              recovery_policy=args.recovery_policy, recovery_policy_sha256=args.recovery_policy_sha256,
-              agent_socket=args.agent_socket, agent_grants=args.agent_allow, agent_files_root=args.agent_files_root)
+    try:
+        root = tk.Tk()
+        Workbench(root, args.workspace, args.qmp_port, args.serial_port,
+                  host_task_policy=args.host_task_policy, host_task_sha256=args.host_task_policy_sha256,
+                  target_policy=args.target_policy, target_policy_sha256=args.target_policy_sha256,
+                  recovery_policy=args.recovery_policy, recovery_policy_sha256=args.recovery_policy_sha256,
+                  agent_socket=args.agent_socket, agent_grants=args.agent_allow, agent_files_root=args.agent_files_root)
+    except Exception as exc:
+        Diagnostics(args.workspace).emit('startup_failed', 'initialize', exc)
+        raise
     root.mainloop()
 
 

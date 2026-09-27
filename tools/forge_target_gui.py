@@ -1,4 +1,5 @@
 """Explicit physical-target controls over shared controller transactions."""
+from workbench_diagnostics import report_ui_error, report_job_error
 import hashlib
 import json
 from pathlib import Path
@@ -110,6 +111,7 @@ class TargetPanel:
                 button.state(['!disabled'] if summary.get('kind') == 'recovery-stage' and
                              listing['execution_granted'] and self.job is None else ['disabled'])
         except Exception as exc:
+            report_ui_error(self.window, 'forge_target_gui', exc)
             text = str(exc)
         self.show_details(text)
 
@@ -198,6 +200,7 @@ class TargetPanel:
             self.status.set('Preparing verified backup and review; no target writes.')
             self.timer = self.window.after(100, self.poll)
         except Exception as exc:
+            report_ui_error(self.window, 'forge_target_gui', exc)
             self.status.set(str(exc))
 
     def approve(self):
@@ -247,6 +250,7 @@ class TargetPanel:
             self.review()
             self.status.set(f'Approved, not deployed. Retain policy {directory / filename}; SHA-256 {digest}')
         except Exception as exc:
+            report_ui_error(self.window, 'forge_target_gui', exc)
             self.status.set(str(exc))
 
     def approve_service(self, review):
@@ -319,6 +323,7 @@ class TargetPanel:
             self.status.set(f'Physical {direction} job {self.job}; waiting for acknowledged result.')
             self.timer = self.window.after(100, self.poll)
         except Exception as exc:
+            report_ui_error(self.window, 'forge_target_gui', exc)
             self.status.set(str(exc))
 
     def inspect_recovery(self):
@@ -335,6 +340,7 @@ class TargetPanel:
             self.status.set('Reading approved target prerequisites; no boot changes or readiness claim.')
             self.timer = self.window.after(100, self.poll)
         except Exception as exc:
+            report_ui_error(self.window, 'forge_target_gui', exc)
             self.status.set(str(exc))
 
     def poll(self):
@@ -345,7 +351,9 @@ class TargetPanel:
             return
         try:
             result = self.controller.job(self.job)
+            report_job_error(self.window, result)
         except Exception as exc:
+            report_ui_error(self.window, 'forge_target_gui', exc)
             self.status.set('Job status unavailable; retained job '+self.job+'. Recheck status, do not resubmit: '+str(exc))
             return
         if result['status'] not in ('completed', 'failed', 'cancelled'):
@@ -378,6 +386,7 @@ class TargetPanel:
             try:
                 self.install_service_approval(result['result'])
             except Exception as exc:
+                report_ui_error(self.window, 'forge_target_gui', exc)
                 self.status.set('Target authorization retained; policy registration failed: ' + str(exc))
             return
         self.status.set(f'{result["status"]}: ' + (str(result.get('error', '')) +

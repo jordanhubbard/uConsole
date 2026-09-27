@@ -30,6 +30,7 @@ class WorkbenchTests(unittest.TestCase):
         self.root = tk.Tk()
         self.root.withdraw()
         self.app = Workbench(self.root, Path(self.temporary.name))
+        self.app.diagnostics.path = Path(self.temporary.name) / 'diagnostics/application.jsonl'
 
     def tearDown(self):
         self.app.close_attachment()
@@ -896,9 +897,9 @@ class WorkbenchTests(unittest.TestCase):
             names.selection_set(index)
             button = next(child for child in window.winfo_children()
                           if child.winfo_class() == 'TButton')
-            with patch('uconsole_workbench.messagebox.showerror') as error:
+            with patch('uconsole_workbench.details_window') as error:
                 button.invoke()
-                self.assertIn('not execution authority', error.call_args.args[1])
+                self.assertIn('not execution authority', error.call_args.args[2])
             spawn.assert_not_called()
 
     def configure_host_fixture(self, code):

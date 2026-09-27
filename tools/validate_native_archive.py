@@ -121,8 +121,19 @@ try:
         raise RuntimeError('Native source edit/save mismatch')
     if not (pathlib.Path(app.filename).parent / '.forge-origin.json').is_file():
         raise RuntimeError('Missing user project provenance')
+    app.show_help('Getting started')
+    app.guide.query.set('machine.json')
+    if 'Errors and diagnostics' not in app.guide.matches:
+        raise RuntimeError('Packaged offline guide is missing troubleshooting content')
+    app.diagnostics.path = pathlib.Path(sys.argv[1]).parent / 'diagnostics/application.jsonl'
+    app.guard(app.start)  # No image: exercise the actual error UI and persistence.
+    diagnostic = json.loads(app.diagnostics.path.read_text())
+    if diagnostic['action'] != 'start' or 'machine.json' not in diagnostic['message']:
+        raise RuntimeError('Packaged missing-image diagnostics failed')
+    root.update()
     print(json.dumps({'status':'passed', 'python':sys.version.split()[0],
-                      'tk':root.tk.call('info', 'patchlevel'), 'user_source':str(app.filename)}))
+                      'tk':root.tk.call('info', 'patchlevel'), 'user_source':str(app.filename),
+                      'offline_help': True, 'structured_errors': True}))
 finally:
     if app is not None:
         app.close()

@@ -1,0 +1,163 @@
+"""Offline help and durable, copyable error regression coverage."""
+import gc
+import json
+import os
+from pathlib import Path
+import sys
+import tempfile
+import unittest
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
+from workbench_diagnostics import Diagnostics, report_job_error
+try:
+    from workbench_help import Guide, Tooltip, TOPICS
+except ImportError:
+    Guide = None
+
+
+class DiagnosticsTests(unittest.TestCase):
+    def test_parseable_private_log_with_context_and_escaped_newlines(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'logs/application.jsonl'
+            logger = Diagnostics('/workspace', path)
+            with patch('sys.stderr'):
+                details = logger.emit('action_failed', 'start', ValueError('missing\nmachine.json'))
+            records = path.read_text().splitlines()
+            self.assertEqual(len(records), 1)
+            record = json.loads(records[0])
+            self.assertEqual(record['level'], 'ERROR')
+            self.assertEqual(record['action'], 'start')
+            self.assertEqual(record['workspace'], '/workspace')
+            self.assertEqual(record['message'], 'missing\nmachine.json')
+            self.assertIn(str(path), details)
+            if os.name == 'posix':
+                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+                self.assertEqual(path.parent.stat().st_mode & 0o777, 0o700)
+
+    @unittest.skipUnless(os.name == 'posix', 'POSIX private-file checks')
+    def test_symlink_refused_without_overwriting_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / 'target'
+            target.write_text('preserve')
+            link = Path(directory) / 'application.jsonl'
+            link.symlink_to(target)
+            with patch('sys.stderr'):
+                details = Diagnostics('/workspace', link).emit('action_failed', 'start', ValueError('test'))
+            self.assertIn('Could not persist', details)
+            self.assertEqual(target.read_text(), 'preserve')
+
+    def test_failed_command_logged_once_without_output_payload(self):
+        with tempfile.TemporaryDirectory() as directory:
+            logger = Diagnostics('/workspace', Path(directory) / 'log.jsonl')
+            class Root:
+                _workbench_diagnostics = logger
+            result = {'status': 'completed', 'job_id': 'one',
+                      'result': {'exit_code': 1, 'stdout': 'private output'}}
+            with patch('sys.stderr'):
+                report_job_error(Root(), result)
+                report_job_error(Root(), result)
+            text = logger.recent()
+            self.assertEqual(len(text.splitlines()), 1)
+            self.assertNotIn('private output', text)
+
+
+@unittest.skipUnless(Guide and (os.environ.get('DISPLAY') or sys.platform in ('darwin', 'win32')), 'needs Tk desktop')
+class HelpTests(unittest.TestCase):
+    def setUp(self):
+        import tkinter as tk
+        self.logs = tempfile.TemporaryDirectory()
+        log_path = patch('workbench_diagnostics.default_path',
+                         return_value=Path(self.logs.name) / 'application.jsonl')
+        log_path.start()
+        self.addCleanup(log_path.stop)
+        self.addCleanup(self.logs.cleanup)
+        self.root = tk.Tk()
+        self.root.withdraw()
+
+    def tearDown(self):
+        self.root.destroy()
+        self.root = None
+        gc.collect()
+
+    def test_search_matches_contents_and_empty_results_are_clear(self):
+        guide = Guide(self.root)
+        guide.query.set('machine.json')
+        self.assertIn('Getting started', guide.matches)
+        self.assertIn('Errors and diagnostics', guide.matches)
+        self.assertTrue(guide.body.tag_ranges('match'))
+        guide.query.set('no such topic 12345')
+        self.assertEqual(guide.matches, [])
+        self.assertIn('No matching topics', guide.body.get('1.0', 'end'))
+        guide.query.set('')
+        self.assertEqual(len(guide.matches), len(TOPICS))
+
+    def test_tooltip_cancel_and_destroy(self):
+        from tkinter import ttk
+        button = ttk.Button(self.root, text='Test')
+        tooltip = Tooltip(button, 'Helpful text')
+        tooltip.schedule()
+        self.assertIsNotNone(tooltip.timer)
+        tooltip.hide()
+        self.assertIsNone(tooltip.timer)
+        tooltip.show()
+        self.assertIsNotNone(tooltip.window)
+        button.destroy()
+        self.assertIsNone(tooltip.window)
+
+    def test_missing_workspace_is_logged_and_has_import_guidance(self):
+        from uconsole_workbench import Workbench
+        with tempfile.TemporaryDirectory() as directory:
+            app = Workbench(self.root, Path(directory) / 'new-workspace')
+            app.diagnostics.path = Path(directory) / 'logs/application.jsonl'
+            with patch('uconsole_workbench.details_window') as details, patch('sys.stderr'):
+                app.guard(app.start)
+            self.assertIn('Import guest image', details.call_args.args[2])
+            record = json.loads(app.diagnostics.path.read_text())
+            self.assertEqual(record['action'], 'start')
+            app.show_help('Images and checkpoints')
+            self.assertIn('Import', app.guide.body.get('1.0', 'end'))
+            self.assertIn('No guest image prepared', app.status.get())
+
+    def test_import_submits_verified_image_without_blocking_tk(self):
+        from uconsole_workbench import Workbench
+        with tempfile.TemporaryDirectory() as directory:
+            app = Workbench(self.root, Path(directory) / 'new-workspace')
+            with patch('uconsole_workbench.filedialog.askopenfilename', return_value='/input.img'), \
+                 patch('uconsole_workbench.simpledialog.askstring', return_value='a' * 64), \
+                 patch.object(app, 'start_lifecycle') as submit:
+                app.import_image()
+            submit.assert_called_once_with(['prepare', '/input.img', '--sha256', 'a' * 64], 'Import')
+
+    def test_error_details_can_be_copied_without_screenshots(self):
+        from workbench_diagnostics import details_window
+        window = details_window(self.root, 'Error', 'Complete error details\nsecond line')
+        pending = [window]
+        while pending:
+            widget = pending.pop()
+            pending.extend(widget.winfo_children())
+            if 'text' in widget.keys() and widget['text'] == 'Copy details':
+                widget.invoke()
+                break
+        else:
+            self.fail('Missing copy action')
+        self.assertEqual(self.root.clipboard_get(), 'Complete error details\nsecond line')
+
+    def test_f1_on_start_opens_contextual_topic(self):
+        from uconsole_workbench import Workbench
+        with tempfile.TemporaryDirectory() as directory:
+            app = Workbench(self.root, Path(directory) / 'new-workspace')
+            pending = [self.root]
+            while pending:
+                widget = pending.pop()
+                pending.extend(widget.winfo_children())
+                if 'text' in widget.keys() and widget['text'] == 'Start':
+                    # Invoke the registered binding without depending on WM focus.
+                    binding = widget.bind('<F1>')
+                    self.assertTrue(binding)
+                    command = binding.split('[', 1)[1].split()[0]
+                    self.root.tk.call(command, 'synthetic-event')
+                    break
+            else:
+                self.fail('Missing Start control')
+            self.assertIn('Boot and display', app.guide.body.get('1.0', 'end'))
