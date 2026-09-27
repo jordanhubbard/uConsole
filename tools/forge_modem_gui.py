@@ -1,4 +1,5 @@
 """Nonblocking scenario controls for the owned synthetic composite modem."""
+from workbench_diagnostics import report_ui_error, report_job_error
 import json
 import tkinter as tk
 from tkinter import ttk
@@ -90,6 +91,7 @@ class ModemPanel:
             self.status.set('Waiting for link-synchronized acknowledgement; failure does not imply rollback.')
             self.timer = self.window.after(100, self.poll)
         except Exception as exc:
+            report_ui_error(self.window, 'forge_modem_gui', exc)
             self.status.set(str(exc))
 
     def poll(self):
@@ -100,7 +102,9 @@ class ModemPanel:
             return
         try:
             result = self.controller.job(self.job)
+            report_job_error(self.window, result)
         except Exception as exc:
+            report_ui_error(self.window, 'forge_modem_gui', exc)
             self.status.set(str(exc) + '; use Check job. Do not resubmit an uncertain change.')
             return
         if result['status'] not in ('completed', 'failed', 'cancelled'):

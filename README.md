@@ -32,6 +32,16 @@ tree. The Workbench opens the installed keyboard firmware source at startup,
 and the matching firmware and flashing tools are installed under
 `$PREFIX/share/uconsole-keyboard-flash`.
 
+Inside the application, **Help → User guide** (F1) opens the searchable offline
+guide. Hover over controls for hints, or focus a control and press F1 for its
+topic. **Image → Import guest image** prepares a supported CM4 Linux image;
+the included keyboard firmware is not a guest operating system.
+**Help → Diagnostics** displays the application log and copyable error details.
+Errors are also emitted to stderr as JSON lines and persisted privately at
+`${XDG_STATE_HOME:-$HOME/.local/state}/uconsole-workbench/application.jsonl`.
+Review diagnostic text before sharing it: error messages may contain local paths
+or external-command details. Guest transcripts and job evidence remain separate.
+
 Releases are built by GitHub Actions for Linux x86_64, Linux AArch64, and macOS
 Apple silicon. Each archive contains the IDE, its supporting tools and docs,
 and a native keyboard-flashing bundle. `SHA256SUMS` is published alongside the

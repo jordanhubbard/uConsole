@@ -1,4 +1,5 @@
 """Explicit logical-contact deck; never captures editor or global host input."""
+from workbench_diagnostics import report_ui_error, report_job_error
 import tkinter as tk
 from tkinter import ttk
 from collections import deque
@@ -119,6 +120,7 @@ class KeyboardDeck:
                 self.host_active = True
             self.drain_host()
         except ValueError as exc:
+            report_ui_error(self.window, 'forge_keyboard_gui', exc)
             self.failed = True
             self.status.set(str(exc))
         return 'break'
@@ -176,6 +178,7 @@ class KeyboardDeck:
                 self.host_active = True
             self.drain_host()
         except ValueError as exc:
+            report_ui_error(self.window, 'forge_keyboard_gui', exc)
             self.failed = True
             self.status.set(str(exc))
         return 'break'
@@ -218,6 +221,7 @@ class KeyboardDeck:
                 self.host_active = True
                 self.drain_host()
         except ValueError as exc:
+            report_ui_error(self.window, 'forge_keyboard_gui', exc)
             self.failed = True
             self.status.set(str(exc))
         return 'break'
@@ -234,6 +238,7 @@ class KeyboardDeck:
                 raise ValueError('This deck belongs to an earlier VM; close and reopen it')
             job = self.controller.submit_keyboard(self.workspace, commands)
         except (ValueError, PermissionError) as exc:
+            report_ui_error(self.window, 'forge_keyboard_gui', exc)
             if host:
                 self.failed = True
             self.status.set(str(exc))
@@ -244,6 +249,7 @@ class KeyboardDeck:
 
     def poll(self, held):
         result = self.controller.job(self.job)
+        report_job_error(self.window, result)
         if result['status'] not in ('completed', 'failed', 'cancelled'):
             self.window.after(25, lambda: self.poll(held))
             return

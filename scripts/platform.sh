@@ -124,7 +124,7 @@ build_ide() {
     cp "$root/uconsole-tasks.json" "$stage/libexec/uconsole-workbench/"
     cp "$root/docs/emulator.md" "$root/docs/emulator-validation.md" \
         "$root/docs/emulator-device-plan.md" "$root/docs/forge-agents.md" \
-        "$root/docs/keyboard-usb-contract.md" \
+        "$root/docs/keyboard-usb-contract.md" "$root/docs/workbench-demo-ideas.md" \
         "$root/README.md" "$stage/share/doc/uconsole-workbench/"
     cp -R "$root/skills" "$stage/share/doc/uconsole-workbench/"
     cp -R "$root/docs/scenarios" "$stage/share/doc/uconsole-workbench/"

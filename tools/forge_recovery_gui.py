@@ -1,4 +1,5 @@
 """Owner review and explicit foreground execution of prepared recovery jobs."""
+from workbench_diagnostics import report_ui_error, report_job_error
 import hashlib
 import json
 import os
@@ -219,6 +220,7 @@ class RecoveryPanel:
             self.show(summary(self.controller.recovery_jobs.get(self.selected.get(), self.workspace))
                       if self.selected.get() else {'configuration': 'Review an owner-prepared recovery policy, or start with --recovery-policy and --recovery-policy-sha256.'})
         except Exception as exc:
+            report_ui_error(self.window, 'forge_recovery_gui', exc)
             self.status.set('Review unavailable: ' + str(exc))
             self.run_button.state(['disabled'])
 
@@ -231,6 +233,7 @@ class RecoveryPanel:
             try:
                 self.load_policy(Path(filename))
             except Exception as exc:
+                report_ui_error(self.window, 'forge_recovery_gui', exc)
                 self.status.set('Policy review failed: ' + str(exc))
 
     def discover_build_dialog(self):
@@ -245,6 +248,7 @@ class RecoveryPanel:
         try:
             self.discover_builder(host)
         except Exception as exc:
+            report_ui_error(self.window, 'forge_recovery_gui', exc)
             self.status.set('Discovery not submitted: ' + str(exc))
 
     def publication_dialog(self):
@@ -276,6 +280,7 @@ class RecoveryPanel:
             import uuid
             self.prepare_publication(directory, pin, Path(parent)/('recovery-publication-'+uuid.uuid4().hex))
         except Exception as exc:
+            report_ui_error(self.window, 'forge_recovery_gui', exc)
             self.status.set('Publication preparation not submitted: ' + str(exc))
 
     def publish_dialog(self):
@@ -301,6 +306,7 @@ class RecoveryPanel:
                 raise ValueError('Publication changed during confirmation; review again')
             self.publish_image(frozen)
         except Exception as exc:
+            report_ui_error(self.window, 'forge_recovery_gui', exc)
             self.status.set('Publication not submitted: ' + str(exc))
 
     def privacy_prepare_dialog(self):
@@ -321,6 +327,7 @@ class RecoveryPanel:
             import uuid
             self.prepare_privacy(host, Path(parent)/('boot-privacy-'+uuid.uuid4().hex))
         except Exception as exc:
+            report_ui_error(self.window, 'forge_recovery_gui', exc)
             self.status.set('Privacy preparation not submitted: ' + str(exc))
 
     def prepare_privacy(self, host, output):
@@ -358,6 +365,7 @@ class RecoveryPanel:
                 raise ValueError('Privacy plan changed during confirmation')
             self.apply_privacy(frozen)
         except Exception as exc:
+            report_ui_error(self.window, 'forge_recovery_gui', exc)
             self.status.set('Privacy application not submitted: ' + str(exc))
 
     def apply_privacy(self, frozen):
@@ -394,6 +402,7 @@ class RecoveryPanel:
                 raise ValueError('Applied privacy evidence changed during confirmation')
             self.verify_privacy(frozen, reboot=reboot)
         except Exception as exc:
+            report_ui_error(self.window, 'forge_recovery_gui', exc)
             self.status.set('Private mount verification not submitted: ' + str(exc))
 
     def verify_privacy(self, frozen, *, reboot=False):
@@ -462,6 +471,7 @@ class RecoveryPanel:
             import uuid
             self.build_image(candidate, Path(credentials), Path(parent)/('recovery-build-'+uuid.uuid4().hex))
         except Exception as exc:
+            report_ui_error(self.window, 'forge_recovery_gui', exc)
             self.status.set('Build not submitted: ' + str(exc))
 
     def build_image(self, candidate, credentials, output):
@@ -509,6 +519,7 @@ class RecoveryPanel:
             self.prepare_staging(publication, publication_pin, bundle, bundle_pin,
                                  Path(parent)/('recovery-staging-'+uuid.uuid4().hex))
         except Exception as exc:
+            report_ui_error(self.window, 'forge_recovery_gui', exc)
             self.status.set('Preparation not submitted: ' + str(exc))
 
     def prepare_staging(self, publication, publication_pin, bundle, bundle_pin, output):
@@ -575,6 +586,7 @@ class RecoveryPanel:
             else:
                 self.enroll_session(value, output)
         except Exception as exc:
+            report_ui_error(self.window, 'forge_recovery_gui', exc)
             self.status.set('Enrollment not submitted: ' + str(exc))
 
     def open_enrollment_dialog(self):
@@ -595,6 +607,7 @@ class RecoveryPanel:
                     'later jobs must revalidate them. A pending renewal stays pending.', parent=self.window): return
             self.open_enrollment(directory, pin.strip(), key, known)
         except Exception as exc:
+            report_ui_error(self.window, 'forge_recovery_gui', exc)
             self.status.set('Retained enrollment not opened: '+str(exc))
 
     def open_enrollment(self, directory, pin, key, known):
@@ -664,6 +677,7 @@ class RecoveryPanel:
             import uuid
             self.prepare_backup(source, Path(parent)/(f'recovery-{kind}-'+uuid.uuid4().hex), hash_only=hash_only)
         except Exception as exc:
+            report_ui_error(self.window, 'forge_recovery_gui', exc)
             self.status.set('Card policy draft not submitted: ' + str(exc))
 
     def prepare_backup(self, source, output, *, hash_only=False):
@@ -719,6 +733,7 @@ class RecoveryPanel:
             import uuid
             self.prepare_hold(source, reviewed, Path(parent)/('recovery-hold-'+uuid.uuid4().hex))
         except Exception as exc:
+            report_ui_error(self.window, 'forge_recovery_gui', exc)
             self.status.set('Hold draft not submitted: ' + str(exc))
 
     def prepare_hold(self, source, reviewed, output):
@@ -763,6 +778,7 @@ class RecoveryPanel:
             import uuid
             self.reboot_held(source, value, hold, pin.strip(), Path(parent)/('held-reboot-'+uuid.uuid4().hex))
         except Exception as exc:
+            report_ui_error(self.window, 'forge_recovery_gui', exc)
             self.status.set('Held reboot not submitted: ' + str(exc))
 
     def reboot_held(self, source, value, directory, pin, output):
@@ -809,6 +825,7 @@ class RecoveryPanel:
             import uuid
             self.prepare_reconciliation(source, reviewed, Path(parent)/('reconciliation-policy-'+uuid.uuid4().hex))
         except Exception as exc:
+            report_ui_error(self.window, 'forge_recovery_gui', exc)
             self.status.set('Reconciliation draft not submitted: ' + str(exc))
 
     def prepare_reconciliation(self, source, reviewed, output):
@@ -865,6 +882,7 @@ class RecoveryPanel:
             self.prepare_root(source, reviewed, Path(parent)/('root-policy-'+uuid.uuid4().hex),
                               accept_filesystem_errors=accept_errors)
         except Exception as exc:
+            report_ui_error(self.window, 'forge_recovery_gui', exc)
             self.status.set('Root-transfer draft not submitted: ' + str(exc))
 
     def prepare_root(self, source, reviewed, output, *, accept_filesystem_errors=False):
@@ -921,6 +939,7 @@ class RecoveryPanel:
             self.prepare_release(source, reviewed, Path(parent)/('normal-release-'+uuid.uuid4().hex),
                                  accept_filesystem_errors=accept_errors)
         except Exception as exc:
+            report_ui_error(self.window, 'forge_recovery_gui', exc)
             self.status.set('Release draft not submitted: ' + str(exc))
 
     def prepare_release(self, source, reviewed, output, *, accept_filesystem_errors=False):
@@ -978,6 +997,7 @@ class RecoveryPanel:
             import uuid
             self.return_normal(source, reviewed, Path(parent)/('normal-return-'+uuid.uuid4().hex), reboot=reboot)
         except Exception as exc:
+            report_ui_error(self.window, 'forge_recovery_gui', exc)
             self.status.set('Normal return not submitted: ' + str(exc))
 
     def return_normal(self, source, reviewed, output, *, reboot=False):
@@ -1015,6 +1035,7 @@ class RecoveryPanel:
             import uuid
             self.cleanup_recovery(reviewed, Path(parent)/('recovery-cleanup-'+uuid.uuid4().hex))
         except Exception as exc:
+            report_ui_error(self.window, 'forge_recovery_gui', exc)
             self.status.set('Cleanup not submitted: ' + str(exc))
 
     def cleanup_recovery(self, reviewed, output):
@@ -1052,6 +1073,7 @@ class RecoveryPanel:
                     'Uncertain restoration must be inspected, never replayed.', parent=self.window, default='no'): return
             self.restore_privacy(reviewed)
         except Exception as exc:
+            report_ui_error(self.window, 'forge_recovery_gui', exc)
             self.status.set('Original boot policy restoration not submitted: '+str(exc))
 
     def restore_privacy(self, reviewed):
@@ -1082,6 +1104,7 @@ class RecoveryPanel:
             if not messagebox.askyesno('Original boot permissions', question, parent=self.window, default='no'): return
             self.verify_original_mount(reviewed, reboot=reboot)
         except Exception as exc:
+            report_ui_error(self.window, 'forge_recovery_gui', exc)
             self.status.set('Original permissions verification not submitted: '+str(exc))
 
     def verify_original_mount(self, reviewed, *, reboot=False):
@@ -1125,6 +1148,7 @@ class RecoveryPanel:
             prefix = 'backup-health-' if health else 'backup-source-'
             self.prepare_source(reviewed, Path(parent)/(prefix+uuid.uuid4().hex), health=health)
         except Exception as exc:
+            report_ui_error(self.window, 'forge_recovery_gui', exc)
             self.status.set('Backup source not submitted: ' + str(exc))
 
     def prepare_source(self, reviewed, output, *, health=False):
@@ -1166,6 +1190,7 @@ class RecoveryPanel:
             import uuid
             self.prepare_derivative(reviewed, Path(parent)/('export-lineage-'+uuid.uuid4().hex))
         except Exception as exc:
+            report_ui_error(self.window, 'forge_recovery_gui', exc)
             self.status.set('Export verification not submitted: ' + str(exc))
 
     def prepare_derivative(self, reviewed, output):
@@ -1204,6 +1229,7 @@ class RecoveryPanel:
             import uuid
             self.check_export_health(directory, pin, Path(parent)/('export-health-'+uuid.uuid4().hex))
         except Exception as exc:
+            report_ui_error(self.window, 'forge_recovery_gui', exc)
             self.status.set('Export filesystem check not submitted: ' + str(exc))
 
     def check_export_health(self, directory, pin, output):
@@ -1243,6 +1269,7 @@ class RecoveryPanel:
             self.refresh()
             self.status.set('Policy approved. Select a job and review its effect before execution.')
         except Exception as exc:
+            report_ui_error(self.window, 'forge_recovery_gui', exc)
             self.status.set('Approval failed; no action started: ' + str(exc))
 
     def start(self):
@@ -1267,6 +1294,7 @@ class RecoveryPanel:
             self.status.set(f'{job.operation}: waiting for job {self.job}. Keep Workbench open.')
             self.timer = self.window.after(100, self.poll)
         except Exception as exc:
+            report_ui_error(self.window, 'forge_recovery_gui', exc)
             self.status.set('Job not submitted: ' + str(exc))
 
     def poll(self):
@@ -1277,7 +1305,9 @@ class RecoveryPanel:
             return
         try:
             result = self.controller.job(self.job)
+            report_job_error(self.window, result)
         except Exception as exc:
+            report_ui_error(self.window, 'forge_recovery_gui', exc)
             self.status.set('Status unavailable; retain this job and recheck. Do not resubmit: ' + str(exc))
             return
         if result['status'] not in ('completed', 'failed', 'cancelled'):
@@ -1413,6 +1443,7 @@ class RecoveryPanel:
                                        'Root transfer': 'No root bytes written, lease renewed or hold released.',
                                        'Normal release': 'No selector changed, lease renewed or reboot performed.'}[kind])
                 except Exception as exc:
+                    report_ui_error(self.window, 'forge_recovery_gui', exc)
                     self.status.set(kind + ' draft review failed: ' + str(exc))
             else:
                 self.status.set(kind + ' draft failed; evidence retained. No policy approved, lease renewed or card operation run.')

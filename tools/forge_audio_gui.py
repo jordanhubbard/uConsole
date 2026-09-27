@@ -1,4 +1,5 @@
 """Nonblocking controls for owned USB playback or synthetic capture."""
+from workbench_diagnostics import report_ui_error, report_job_error
 import json
 import tkinter as tk
 from tkinter import ttk
@@ -38,11 +39,13 @@ class AudioPanel:
             self.status.set('Waiting for owned-device readback; no rollback is implied on failure.')
             self.timer = self.window.after(100, self.poll)
         except Exception as exc:
+            report_ui_error(self.window, 'forge_audio_gui', exc)
             self.status.set(str(exc))
 
     def poll(self):
         self.timer = None
         result = self.controller.job(self.job)
+        report_job_error(self.window, result)
         if result['status'] not in ('completed', 'failed', 'cancelled'):
             self.timer = self.window.after(100, self.poll)
             return
