@@ -18,13 +18,19 @@ make package    # create build/uconsole-workbench-OS-ARCH.tar.gz
 sudo make install
 ```
 
+Workbench and MCP require Python 3.12+; Workbench also requires Tk. The installed
+launchers skip older interpreters, including macOS's bundled Python 3.9. Set
+`PYTHON` to a compatible interpreter if it is not found automatically.
+
 `make deps` uses Homebrew on macOS and `apt-get` on Linux. Installing the
 legacy STM32F1 Arduino core can require the manual architecture-specific setup
 in [the keyboard firmware guide](Code/uconsole_keyboard/README.md). Override
 `PREFIX` and `DESTDIR` for staged or non-default installations. Installed IDE
 state and emulator images live below
 `${XDG_DATA_HOME:-$HOME/.local/share}/uconsole-workbench`, outside the install
-tree.
+tree. The Workbench opens the installed keyboard firmware source at startup,
+and the matching firmware and flashing tools are installed under
+`$PREFIX/share/uconsole-keyboard-flash`.
 
 Releases are built by GitHub Actions for Linux x86_64, Linux AArch64, and macOS
 Apple silicon. Each archive contains the IDE, its supporting tools and docs,
@@ -42,6 +48,18 @@ The [emulator guide](docs/emulator.md) provides a local QEMU build, official-ima
 boot, serial console, writable image overlays, file transfer and image export,
 plus a Python/Tk source editor and emulator workbench. This is **partial CM4
 emulation**; the guide records missing uConsole devices and platform validation.
+The [full-device plan](docs/emulator-device-plan.md) maps the schematics,
+firmware and Linux drivers to staged models and acceptance gates.
+
+Live hardware development treats the uConsole as an SSH target: edit/build on
+the host, test in the IDE, retain a verified host-side backup of affected target
+state, then deploy and validate with an explicit restore action available.
+No spare SD card or reader is required. External-card flashing is a separate,
+optional deployment path, not the live-development loop. The
+[physical-target workflow](docs/forge-agents.md) supports reviewed file and
+standalone-service transactions; whole-system and boot recovery remain separate
+qualification requirements. A successful deployment need not be immediately
+undone, but its backup and restore path must be retained.
 
 ## Building source
 

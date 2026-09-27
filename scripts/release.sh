@@ -64,7 +64,18 @@ PY
 git rev-parse "v$next" >/dev/null 2>&1 && fail "tag v$next already exists"
 
 printf 'Preparing uConsole v%s from v%s\n' "$next" "$current"
-make check
+release_python=$(scripts/platform.sh python)
+printf 'Release GUI test interpreter: %s\n' "$release_python"
+case $(uname -s) in
+    Linux)
+        command -v xvfb-run >/dev/null 2>&1 || fail 'xvfb-run is required for release GUI tests; run make deps'
+        xvfb-run -a make check PYTHON="$release_python"
+        ;;
+    Darwin) make check PYTHON="$release_python" ;;
+    *) fail 'Release qualification requires a Linux or macOS build host' ;;
+esac
+make emulator-build
+make check-emulator
 make package
 
 if [[ $dry_run == true ]]; then

@@ -7,16 +7,29 @@ import json
 from pathlib import Path
 import re
 import shlex
-import socket
 import subprocess
 import sys
 import time
 import uuid
 
-from uconsole_emulator import DEFAULT, ROOT, qmp, read_config
+from uconsole_emulator import DEFAULT, ROOT, control_connection, qmp, read_config
 
-ANSI = re.compile(r'\x1b\][^\x07]*(?:\x07)|\x1b\[[0-?]*[ -/]*[@-~]')
+ANSI = re.compile(r'\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[0-?]*[ -/]*[@-~]')
 TASKS = ROOT / 'uconsole-tasks.json'
+MAX_SERIAL_OUTPUT = 16 * 1024 * 1024
+
+
+class GuestChannelUncertain(ConnectionError):
+    """A dispatched serial command has no verified completion acknowledgement."""
+
+
+class GuestTransferCancelled(Exception):
+    """Transfer stopped at a known serial boundary before destination publication."""
+
+
+def check_transfer_cancel(cancel):
+    if cancel is not None and cancel.is_set():
+        raise GuestTransferCancelled('Transfer cancelled before destination publication; no rollback is implied.')
 
 
 def clean(text):
@@ -34,33 +47,51 @@ def serial_exec(port, script, timeout=60):
     """Execute a bounded script in the maintenance shell and return clean output."""
     token = 'UC_AGENT_' + uuid.uuid4().hex
     encoded = base64.b64encode(script.encode()).decode()
-    line = (f"printf '\\n{token}_BEGIN\\n'; printf '%s' '{encoded}' | base64 -d | /bin/bash; "
-            f"uc_rc=$?; printf '\\n{token}_END:%s\\n' \"$uc_rc\"\n")
+    line = (f"printf '\\n{token}_BEGIN\\n'; printf '%s' '{encoded}' | base64 -d | "
+            "SYSTEMD_PAGER=cat PAGER=cat SYSTEMD_COLORS=0 /bin/bash; "
+            f"uc_rc=$?; printf '\\n{token}_END:%s:{token}_DONE\\n' \"$uc_rc\"\n")
     if len(line) > 3500:
         raise ValueError('Command exceeds the serial console line limit')
     deadline = time.monotonic() + timeout
-    with socket.create_connection(('127.0.0.1', port), timeout=5) as sock:
+    with control_connection(port) as sock:
         sock.settimeout(timeout)
-        sock.sendall(line.encode())
-        received = b''
-        end_pattern = re.compile(rb'\n' + token.encode() + rb'_END:([0-9]+)\r?\n')
-        while time.monotonic() < deadline:
-            sock.settimeout(max(0.1, deadline - time.monotonic()))
-            chunk = sock.recv(65536)
-            if not chunk:
-                raise ConnectionError('Guest serial console closed')
-            received += chunk
-            matches = list(end_pattern.finditer(received))
-            if matches:
-                end = matches[-1]
-                begin = received.rfind(('\n' + token + '_BEGIN\r\n').encode(), 0, end.start())
-                if begin < 0:
-                    begin = received.rfind(('\n' + token + '_BEGIN\n').encode(), 0, end.start())
-                if begin < 0:
-                    continue
-                begin = received.find(b'\n', begin + 1) + 1
-                output = clean(received[begin:end.start()].decode(errors='replace'))
-                return {'exit_code': int(end.group(1)), 'stdout': output}
+        try:
+            # sendall may deliver a prefix before failing; that is uncertain
+            # too, even if no complete command was acknowledged by the guest.
+            sock.sendall(line.encode())
+            return _serial_response(sock, token, deadline)
+        except (OSError, ValueError, KeyboardInterrupt) as exc:
+            raise GuestChannelUncertain(
+                f'Guest command completion is unknown ({exc}); it may still be running. '
+                'Do not submit another command on this serial channel.') from exc
+
+
+def _serial_response(sock, token, deadline):
+    received = b''
+    # Console printk may arrive between the status and its trailing newline.
+    # Use an explicit nonce-bound terminator, never a partial decimal match.
+    # Interleaving inside this frame still fails closed as uncertain completion.
+    end_pattern = re.compile(rb'\n' + token.encode() + rb'_END:([0-9]+):' +
+                             token.encode() + rb'_DONE')
+    while time.monotonic() < deadline:
+        sock.settimeout(max(0.1, deadline - time.monotonic()))
+        chunk = sock.recv(65536)
+        if not chunk:
+            raise ConnectionError('Guest serial console closed')
+        received += chunk
+        if len(received) > MAX_SERIAL_OUTPUT:
+            raise ValueError('Guest output exceeds the serial response limit')
+        matches = list(end_pattern.finditer(received))
+        if matches:
+            end = matches[-1]
+            begin = received.rfind(('\n' + token + '_BEGIN\r\n').encode(), 0, end.start())
+            if begin < 0:
+                begin = received.rfind(('\n' + token + '_BEGIN\n').encode(), 0, end.start())
+            if begin < 0:
+                continue
+            begin = received.find(b'\n', begin + 1) + 1
+            output = clean(received[begin:end.start()].decode(errors='replace'))
+            return {'exit_code': int(end.group(1)), 'stdout': output}
     raise TimeoutError('Guest did not complete the command')
 
 
@@ -70,34 +101,49 @@ def require_success(result):
     return result
 
 
-def guest_put(port, source, destination):
+def guest_put(port, source, destination, *, cancel=None):
+    check_transfer_cancel(cancel)
     payload = source.read_bytes()
     if len(payload) > 8 * 1024 * 1024:
         raise ValueError('Serial transfers are limited to 8 MiB; use SSH/SCP for larger files')
     if not destination.startswith('/') or '\0' in destination:
         raise ValueError('Guest destination must be an absolute path')
     temporary = '/tmp/uconsole-agent-' + uuid.uuid4().hex
+    check_transfer_cancel(cancel)
     require_success(serial_exec(port, 'test "$(id -u)" = 0'))
+    uncertain = False
     try:
+        check_transfer_cancel(cancel)
         require_success(serial_exec(port, f'umask 077; : > {temporary}'))
         for position in range(0, len(payload), 1536):
+            check_transfer_cancel(cancel)
             encoded = base64.b64encode(payload[position:position + 1536]).decode()
             require_success(serial_exec(port, f"printf '%s' '{encoded}' | base64 -d >> {temporary}"))
         expected = hashlib.sha256(payload).hexdigest()
         target = shlex.quote(destination)
+        check_transfer_cancel(cancel)
         result = require_success(serial_exec(port,
             f"test \"$(sha256sum {temporary} | cut -d' ' -f1)\" = {expected} && "
             f"install -m 0644 {temporary} {target} && sync && sha256sum {target}"))
         return {'bytes': len(payload), 'sha256': expected, 'guest': destination,
                 'guest_output': result['stdout'].strip()}
+    except GuestChannelUncertain:
+        uncertain = True
+        raise
     finally:
-        try:
-            serial_exec(port, f'rm -f {temporary}')
-        except (OSError, RuntimeError, TimeoutError):
-            pass
+        if not uncertain:
+            try:
+                serial_exec(port, f'rm -f {temporary}')
+            except GuestChannelUncertain:
+                # Installation may already have committed. Report uncertain
+                # cleanup so the owner cannot reuse a possibly busy channel.
+                raise
+            except (OSError, RuntimeError, TimeoutError):
+                pass
 
 
-def guest_get(port, source, destination):
+def guest_get(port, source, destination, *, cancel=None):
+    check_transfer_cancel(cancel)
     if not source.startswith('/') or '\0' in source:
         raise ValueError('Guest source must be an absolute path')
     if destination.exists():
@@ -109,7 +155,9 @@ def guest_get(port, source, destination):
     if line is None:
         raise RuntimeError('Guest transfer did not return a payload')
     payload = base64.b64decode(line.split(':', 1)[1], validate=True)
+    check_transfer_cancel(cancel)
     destination.parent.mkdir(parents=True, exist_ok=True)
+    check_transfer_cancel(cancel)
     with destination.open('xb') as stream:
         stream.write(payload)
     return {'bytes': len(payload), 'sha256': hashlib.sha256(payload).hexdigest(),
@@ -125,9 +173,10 @@ def inspect(workspace, qmp_port, tail=80):
         if path.exists():
             state['files'][name] = {'bytes': path.stat().st_size, 'path': str(path.resolve())}
     try:
-        status = qmp(qmp_port, 'query-status')
-        state['runtime'] = {'running': bool(status.get('running')), 'status': status.get('status'),
-                            'qmp': f'127.0.0.1:{qmp_port}'}
+        if qmp_port is not None:
+            status = qmp(qmp_port, 'query-status')
+            state['runtime'] = {'running': bool(status.get('running')), 'status': status.get('status'),
+                                'qmp': f'127.0.0.1:{qmp_port}'}
     except (OSError, ValueError):
         pass
     log = workspace / 'serial.log'
@@ -187,6 +236,7 @@ def parser():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--workspace', type=Path, default=DEFAULT)
     p.add_argument('--serial-port', type=int, default=4445)
+    p.add_argument('--serial-socket', type=Path, help='Private runtime serial socket instead of TCP')
     p.add_argument('--qmp-port', type=int, default=4444)
     sub = p.add_subparsers(dest='action', required=True)
     execute = sub.add_parser('exec', help='Run a command in a maintenance shell')
@@ -217,6 +267,8 @@ def parser():
 
 def main():
     args = parser().parse_args()
+    if args.serial_socket is not None:
+        args.serial_port = args.serial_socket
     try:
         if args.action == 'exec':
             if args.command[:1] == ['--']:

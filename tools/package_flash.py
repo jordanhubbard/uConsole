@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
 """Package freshly built firmware and the native reset helper for distribution."""
 import argparse
+import os
 from pathlib import Path
 import struct
 import tarfile
+
+try:
+    from .firmware_manifest import FQBN, verify
+except ImportError:
+    from firmware_manifest import FQBN, verify
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -30,6 +36,7 @@ def helper_target(header):
 
 
 def package(build_dir):
+    verify(build_dir, os.environ.get('FQBN', FQBN))
     helper = build_dir / 'upload-reset.elf'
     firmware = build_dir / 'firmware/uconsole_keyboard.ino.bin'
     header = helper.read_bytes()[:20]
@@ -39,6 +46,7 @@ def package(build_dir):
     bundled = ROOT / 'Bin/uconsole_keyboard_flash'
     files = [(bundled / name, name) for name in ('flash.sh', 'maple_upload', 'README.md')]
     files += [(firmware, 'uconsole_keyboard.ino.bin')]
+    files += [(build_dir / 'firmware/provenance.json', 'provenance.json')]
     files += [(helper, 'upload-reset')]
     output = build_dir / f'uconsole_keyboard_flash-{operating_system}-{architecture}.tar.gz'
     # Write atomically so an interrupted package step cannot replace a good bundle.

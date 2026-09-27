@@ -1,4 +1,5 @@
 ARDUINO_CLI ?= arduino-cli
+PYTHON ?= python3
 FQBN ?= stm32duino:STM32F1:genericSTM32F103R:device_variant=STM32F103RB,upload_method=DFUUploadMethod,cpu_speed=speed_48mhz,opt=osstd
 BUILD_DIR ?= $(CURDIR)/build
 CFLAGS ?= -O2 -Wall -Wextra
@@ -27,7 +28,12 @@ release:
 	./scripts/release.sh '$(RELEASE)'
 
 firmware:
-	$(ARDUINO_CLI) compile --fqbn '$(FQBN)' --output-dir '$(BUILD_DIR)/firmware' Code/uconsole_keyboard
+	python3 tools/firmware_manifest.py build '$(BUILD_DIR)' --fqbn '$(FQBN)' --arduino-cli '$(ARDUINO_CLI)'
+
+.PHONY: keyboard-oracle
+keyboard-oracle:
+	mkdir -p '$(BUILD_DIR)/keyboard-oracle'
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -std=c++17 -Wall -Wextra -I tools/keyboard-oracle tools/keyboard-oracle/main.cpp $(LDFLAGS) $(LDLIBS) -o '$(BUILD_DIR)/keyboard-oracle/keyboard-oracle'
 
 flash-tool:
 	mkdir -p '$(BUILD_DIR)'
@@ -43,7 +49,7 @@ modem-flash-tool:
 	$(MAKE) -B -C '$(BUILD_DIR)/modem-fastboot' CC='$(CC)' all
 
 check:
-	python3 -m unittest discover -s tests -v
+	$(PYTHON) tools/run_host_tests.py discover -s tests -v
 	shellcheck Code/scripts/uconsole-4g-cm5 Bin/uconsole_keyboard_flash/maple_upload Bin/uconsole_keyboard_flash/flash.sh scripts/platform.sh scripts/release.sh
 
 check-gui:
@@ -69,7 +75,21 @@ emulator-build:
 emulator-workbench:
 	python3 tools/uconsole_workbench.py
 
-check-emulator:
+check-emulator: keyboard-oracle
 	python3 -m unittest discover -s tests -p 'test_emulator.py' -v
+	python3 tools/test_emulator_cpu_lifecycle.py --qemu '$(BUILD_DIR)/emulator/qemu-build/qemu-system-aarch64' --output "$$(mktemp -d '$(BUILD_DIR)/emulator/cpu-lifecycle.XXXXXX')/evidence"
 	python3 tools/test_emulator_watchdog.py
 	python3 tools/test_emulator_pmic.py
+	python3 tools/test_emulator_adc101c.py
+	python3 tools/test_emulator_adc_migration.py
+	python3 tools/test_emulator_pmic_migration.py
+	python3 tools/test_emulator_gpio.py
+	python3 tools/test_emulator_firmware_gpio.py
+	python3 tools/test_emulator_gic.py
+	python3 tools/test_emulator_usb_wakeup.py
+	python3 tools/test_emulator_usb_frames.py
+	python3 tools/test_emulator_audio.py --qemu '$(BUILD_DIR)/emulator/qemu-build/qemu-system-aarch64' --reconnect-cycles 200 --capture
+ifeq ($(shell uname -s),Linux)
+	python3 tools/test_emulator_wav.py --source '$(BUILD_DIR)/emulator/qemu-build/qemu-source/audio/wavaudio.c' --qemu '$(BUILD_DIR)/emulator/qemu-build/qemu-system-aarch64'
+endif
+	python3 tools/test_emulator_keyboard.py --oracle '$(BUILD_DIR)/keyboard-oracle/keyboard-oracle'
