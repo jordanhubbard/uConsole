@@ -22,6 +22,10 @@ path and watchdog. It is not level 3 for any carrier peripheral.
 
 ## Build-upgrade qualification
 
+Separate demo backlog: [live, code-linked uConsole schematic](workbench-demo-ideas.md).
+This is a proposed Tk Canvas view of observed emulator state and activity, not
+an electrical simulation or an additional gate for the help/diagnostics release.
+
 Repeat-build correction (2026-09-26): the release rehearsal exposed an overlapping
 patch-stack bug in cached QEMU trees. Reverse-checking an early patch against
 files subsequently modified by later patches was not a valid cache check.
