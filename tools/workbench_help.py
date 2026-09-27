@@ -7,6 +7,8 @@ from tkinter.scrolledtext import ScrolledText
 TOPICS = {
     'Getting started': """The Workbench is an image forge: edit and test a CM4 guest image, then take that image to real hardware. The bundled keyboard firmware is separate from the Linux guest image.
 
+Before importing, see QEMU setup: the package contains the patched emulator builder, not a prebuilt emulator or a Linux guest image.
+
 1. Use Image → Import guest image to select a supported CM4 .img or .img.bz2. Supply an independently verified SHA-256 for a custom image. The official compressed image uses the pinned checksum when this field is blank.
 2. Preparation creates a private writable workspace; it never replaces an existing directory. Keep the entire workspace together, including its backing image. Allow at least 15–20 GiB, and more for exports and backups.
 3. Choose maintenance, normal or desktop, then Start. Choose a display backend before Start if you want a graphical window; “none” deliberately runs without one.
@@ -15,6 +17,13 @@ TOPICS = {
 Already have a workspace? Launch uconsole-workbench --workspace /absolute/path/to/workspace. It must contain machine.json and its referenced image and boot files. Do not create machine.json by hand or delete an existing workspace to silence an error.
 
 Hover over controls for hints. Tab to a control and press F1 for its guide topic. This guide works offline; search matches both topic titles and their contents.""",
+    'QEMU setup': """Emulation requires the Workbench's patched QEMU, not just a generic system QEMU installation. The package includes its builder and patch sources. The builder downloads the pinned QEMU release, checks its SHA-256, applies the patches, and compiles into your user-owned build directory. It does not replace the system QEMU. This operation requires a network connection and build tools; the guide itself is offline.
+
+Linux prerequisites include a C/C++ compiler, Ninja, pkg-config, patch, GLib, Pixman and libslirp development packages. Install GTK development libraries for a GTK display window. On Ubuntu these include build-essential, ninja-build, pkg-config, patch, libglib2.0-dev, libpixman-1-dev, libslirp-dev and libgtk-3-dev. macOS requires the command-line developer tools and corresponding Homebrew dependencies. Python 3.12+ and Tk are required for Workbench. Image import/export is supported on Linux/macOS, not Windows.
+
+From a source checkout, make deps installs platform prerequisites and make emulator-build builds QEMU. For an installed package, run the installation-specific command below in your host terminal after installing prerequisites. Review it before running; it may take several minutes. Build errors appear in that terminal. Keep the selected build and workspace backing files in place.
+
+Obtain a supported CM4 Linux image separately. The built-in checksum is for the official compressed uConsole CM4 v3.1 64-bit image. For a raw or modified image, supply its independently verified expected SHA-256 during import. A checksum match establishes file identity, not trust in the image author.""",
     'Boot and display': """Start boots the selected workspace, not the keyboard firmware shown in the editor.
 
 Maintenance is for controlled guest maintenance. Normal starts the regular system. Desktop prepares the overlay for the surrogate display when needed, then boots it. This preparation changes the writable overlay; checkpoint important work first.
@@ -129,7 +138,10 @@ class Tooltip:
 
 
 class Guide:
-    def __init__(self, parent, topic='Getting started'):
+    def __init__(self, parent, topic='Getting started', setup_command=None):
+        self.content = dict(TOPICS)
+        if setup_command:
+            self.content['QEMU setup'] += '\n\nInstalled builder command:\n\n' + setup_command
         self.window = tk.Toplevel(parent)
         self.window.title('uConsole Workbench — User guide')
         self.window.geometry('900x650')
@@ -141,6 +153,7 @@ class Guide:
         self.search = ttk.Entry(bar, textvariable=self.query)
         self.search.pack(side='left', fill='x', expand=True, padx=8)
         ttk.Button(bar, text='Clear', command=lambda: self.query.set('')).pack(side='left')
+        ttk.Button(bar, text='Copy topic', command=self.copy_topic).pack(side='left', padx=6)
         panes = ttk.Panedwindow(self.window, orient='horizontal')
         panes.pack(fill='both', expand=True, padx=10, pady=(0, 10))
         self.topics = tk.Listbox(panes, exportselection=False, width=28)
@@ -159,7 +172,7 @@ class Guide:
 
     def filter(self, *args):
         query = self.query.get().casefold().strip()
-        self.matches = [title for title, body in TOPICS.items() if query in (title + '\n' + body).casefold()]
+        self.matches = [title for title, body in self.content.items() if query in (title + '\n' + body).casefold()]
         self.topics.delete(0, 'end')
         for title in self.matches:
             self.topics.insert('end', title)
@@ -169,7 +182,7 @@ class Guide:
         self.body.configure(state='normal')
         self.body.delete('1.0', 'end')
         self.body.insert('end', (topic or 'No matching topics') + '\n', 'title')
-        self.body.insert('end', TOPICS.get(topic, 'Try a different search or choose Clear.'), 'body')
+        self.body.insert('end', self.content.get(topic, 'Try a different search or choose Clear.'), 'body')
         query = self.query.get().strip()
         if query:
             start = '1.0'
@@ -191,6 +204,10 @@ class Guide:
         selected = self.topics.curselection()
         if selected:
             self.show(self.matches[selected[0]])
+
+    def copy_topic(self):
+        self.window.clipboard_clear()
+        self.window.clipboard_append(self.body.get('1.0', 'end-1c'))
 
 
 def attach_hints(parent, show_help):

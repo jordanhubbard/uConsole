@@ -5,6 +5,7 @@ import codecs
 import json
 from pathlib import Path
 import socket
+import shlex
 import subprocess
 import sys
 import tkinter as tk
@@ -485,7 +486,9 @@ class Workbench:
             guide.show(topic)
             guide.window.lift()
         else:
-            self.guide = Guide(self.root, topic)
+            setup = (f'UCONSOLE_BUILD_DIR={shlex.quote(str(BUILD_ROOT))} '
+                     f'{shlex.quote(sys.executable)} {shlex.quote(str(ROOT / "tools/build_emulator_qemu.py"))}')
+            self.guide = Guide(self.root, topic, setup_command=setup)
 
     def show_diagnostics(self):
         details_window(self.root, 'Workbench diagnostics',

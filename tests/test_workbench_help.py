@@ -92,6 +92,13 @@ class HelpTests(unittest.TestCase):
         guide.query.set('')
         self.assertEqual(len(guide.matches), len(TOPICS))
 
+    def test_setup_command_is_searchable_and_copyable(self):
+        guide = Guide(self.root, 'QEMU setup', setup_command='UCONSOLE_BUILD_DIR=/private/data python3 builder.py')
+        guide.query.set('/private/data')
+        self.assertEqual(guide.matches, ['QEMU setup'])
+        guide.copy_topic()
+        self.assertIn('UCONSOLE_BUILD_DIR=/private/data', self.root.clipboard_get())
+
     def test_tooltip_cancel_and_destroy(self):
         from tkinter import ttk
         button = ttk.Button(self.root, text='Test')
