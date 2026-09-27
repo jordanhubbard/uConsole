@@ -472,7 +472,8 @@ class Workbench:
             self.report_error(getattr(action, '__name__', 'action'), exc)
 
     def report_error(self, action, exc):
-        details = self.diagnostics.emit('action_failed', action, exc)
+        record = self.diagnostics.emit('action_failed', action, exc)
+        details = f'{action}: {exc}\n\nDiagnostic record:\n{record}'
         details_window(self.root, 'uConsole Workbench — Error', details,
                        lambda: self.show_help('Errors and diagnostics'))
 
