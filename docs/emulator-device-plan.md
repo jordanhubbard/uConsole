@@ -2911,9 +2911,12 @@ one coding CLI or requiring an embedded terminal/assistant implementation.
 
 Readiness assessment, updated 2026-09-26: the modified official CM4 image now has local
 evidence for onboarding, 1280x720 desktop interaction, reboot, and normal
-shutdown, plus the recorded image round trip. This is not yet a qualified
-release. Final installed-artifact tests across advertised hosts, native hardware
-qualification and unfinished controller/device work remain. Milestone completion
+shutdown, plus the recorded image round trip. The public-controller physical
+backup/restore and original-permission round trip now passes. Candidate `39af129`
+passed joined host/GUI and native-package CI (run `36274501227`), with all three
+archive checksums, bundled tools, native GUI receipts and repeat builds verified.
+This is not yet a published release: final revision review, merge, tag validation
+and published-artifact checks remain. Milestone completion
 requires evidence for the final implementation; earlier exploratory overlays
 underwent several setup revisions and do not qualify later changes by themselves.
 
@@ -2930,8 +2933,17 @@ Latest qualification update (2026-09-26, owner implementation `b0458fb`):
   intact; this legacy recovery is not a pass for the refused public control.
 * Fresh public-controller discovery/build, verified image transfer, private
   mount setup/reboot, publication, staging and recovery boot/enrollment passed.
-  A new current-card backup/restore round trip is underway. Its final restore,
-  native return and public cleanup remain unqualified until terminal evidence.
+  The fresh current-card round trip completed through the public controller:
+  whole-card backup, all 7,481 restore chunks, final root hash, independent
+  reconciliation, hold release, normal return, staged-file/image cleanup,
+  original fstab restoration and fresh-boot permission verification passed.
+  Evidence: `build/emulator/physical-public-roundtrip-20260926/acceptance.json`,
+  receipt SHA-256 `dd815ba4b772548633bff35817dc35b9127db8a5c16e7212b403ac642320ad3c`.
+  All archives remain retained; no automatic retry or filesystem repair occurred.
+  The root already matched this fresh backup, so changed bytes written were zero.
+  This qualifies the public backup/restore controls, not another enhanced-image
+  deployment; the earlier enhanced native-boot/reimport and changed-byte rollback
+  evidence remains separate. The failed legacy cleanup journal remains unchanged.
 * The actual Linux ARM64 `/usr/local` installation was upgraded from the verified
   package after archiving the previous installation. All 332 payload files
   match; modes and root ownership match for all 349 entries. An ordinary-user
@@ -2942,8 +2954,8 @@ Latest qualification update (2026-09-26, owner implementation `b0458fb`):
 | --- | --- | --- | --- |
 | M0: installation repair | Workbench installs firmware, native flashing tools and editable firmware source | Install the actual archive into a clean prefix, launch outside the checkout as an ordinary user, edit/save source, and verify bundled firmware provenance and freshness | Extracted-archive GUI/source editing and firmware provenance pass in Linux x86_64, Linux ARM64 and macOS ARM64 package CI. The actual Linux ARM64 system-prefix upgrade and ordinary-user edit/save also pass; final release-revision publication remains |
 | M1: developer preview | Repeatable official-image desktop through Xorg/fbdev | Close the hardening items below; fresh-overlay onboarding, reboot, keyboard/mouse interaction, application launch and clean shutdown pass; package tests pass on each advertised host | Linux ARM64 and native macOS Cocoa desktop/input/reboot/shutdown loops have evidence. Fresh x86 run 36245917832 passed desktop/input/reboot/shutdown after the UART/QMP backpressure fix, with the stock kernel shutdown warning retained. Final release-revision host matrix remains |
-| M2a: dual-target image forge | Persistent image modification, checkpoints and hardware-compatible export | One modified exported image passes the IDE/hardware/reimport loop above; native boot defaults survive; updated kernel artifacts are refreshed; interrupted operations recover safely | Enhanced export independently reconciled on physical hardware, native application hash/output passed, and full reimport/application retest passed. The original interrupted deployment remains uncertain and was never replayed. Original-root rollback, native return and legacy cleanup passed. New public setup/boot/enrollment passed; its current-card round trip and final-revision gates remain open |
-| M2b: agent-enabled stable forge | Shared headless controller, CLI, MCP adapter and companion skill | GUI/CLI/MCP parity, workspace isolation, concurrent-client safety, permission boundaries, job cancellation and an external-agent edit/test/export exercise pass; supported host matrix is explicit | A live coding agent used packaged macOS MCP to create and test an application, cleanly export, fully reimport under a separate owner and retest; protected boot bytes and bases remained unchanged. Shared-client controls, cancellation/history and owner-pinned physical staging have evidence. Final integrated image/hardware, guided recovery and release-revision host acceptance remain |
+| M2a: dual-target image forge | Persistent image modification, checkpoints and hardware-compatible export | One modified exported image passes the IDE/hardware/reimport loop above; native boot defaults survive; updated kernel artifacts are refreshed; interrupted operations recover safely | Enhanced export independently reconciled on physical hardware, native application hash/output passed, and full reimport/application retest passed. The original interrupted deployment remains uncertain and was never replayed. Changed-byte original-root rollback and native return passed. Fresh public setup/boot/enrollment, current-card backup/restore, cleanup and original boot-permission verification passed. Final release-revision publication gates remain |
+| M2b: agent-enabled stable forge | Shared headless controller, CLI, MCP adapter and companion skill | GUI/CLI/MCP parity, workspace isolation, concurrent-client safety, permission boundaries, job cancellation and an external-agent edit/test/export exercise pass; supported host matrix is explicit | A live coding agent used packaged macOS MCP to create and test an application, cleanly export, fully reimport under a separate owner and retest; protected boot bytes and bases remained unchanged. Shared-client controls, cancellation/history and owner-pinned physical staging have evidence. Public-controller recovery round trip and candidate host/package matrix passed; final release-revision publication gates remain |
 | M3: power and battery | Versioned scenarios, observable PMIC/regulator/ADC state and events | Production drivers report AC, charge, low battery and power-key transitions; IRQ, reset and failure tests pass | AC/battery states, low-capacity model IRQs, KEY_POWER, sampled temperature and independent thermal shutdown, timed ADC101C conversions/power loss, initial profiles and GUI/MCP host-clock replay tested. Guest low-battery policy, ADC invalid-reference/physical profiles and migration, correlated rails, power-key hold timing and unified/virtual-time scenarios remain |
 | M4: keyboard deck | Firmware-derived composite HID/CDC behavior and bootloader lifecycle | Descriptors and reports match captured hardware; matrix, Fn, gamepad, trackball, lighting and simulated update failures pass | Bundled firmware oracle, composite transport and persistent controller/MCP/Tk deck input pass stock Linux A/Fn event checks; descriptors match physical CM4 keyboard bytes. Host-event mapping, broader desktop interaction, live LED changes, DFU and physical report/timing comparison remain; see [contract](keyboard-usb-contract.md) |
 | M5: connectivity and audio | Carrier USB topology, audio substitute and SIM7600 application contract | ALSA playback/capture, hotplug, ModemManager discovery, network activation, GNSS/AT scenarios and synthetic fastboot tests pass | USB surrogate playback, synthetic capture and concurrent duplex with exact data/hotplug checks pass through packaged Linux ARM64/macOS ARM64 GUI-owned runtimes and MCP. Lossless playback uses an explicitly loaded candidate guest driver; automatic integration, native routing/jack and other audio/modem gates remain |

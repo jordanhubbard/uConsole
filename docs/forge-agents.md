@@ -91,9 +91,16 @@ These owner controls are deliberately absent from MCP. In the 2026-09-26
 physical qualification at `b0458fb`, public-controller discovery, native build,
 verified private-image transfer, private mount setup/reboot, publication and
 sealed staging preparation passed. All four staging phases, one-shot recovery
-boot and fresh enrollment subsequently passed; the current-card backup/restore
-round trip is still running. These results do not yet qualify the complete
-guided deploy/restore loop or the final release revision.
+boot and fresh enrollment subsequently passed. The current-card backup/restore
+round trip also passed: all 7,481 chunks, the final root hash, independent
+reconciliation, recovery-hold release, normal boot, staged-file/image cleanup,
+and restoration of the original fstab and effective boot permissions were
+verified. All backups remain retained; existing filesystem errors were preserved,
+not repaired. This fresh-backup restore needed zero changed-byte writes; it is
+public-controller workflow evidence, not a new enhanced-image deployment claim.
+Enhanced-image native boot, full IDE reimport/retest, and changed-byte rollback
+have separate retained evidence in the device plan. Final release-revision
+publication checks remain required.
 
 **Prepare private boot mount…** backs up the target's `/etc/fstab`, observes its
 normal boot and current public FAT mount, and drafts only the boot mount's
