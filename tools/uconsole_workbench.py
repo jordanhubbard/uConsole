@@ -25,6 +25,7 @@ from forge_guest_files import listing_script
 from forge_audio import MODES as AUDIO_MODES
 from workbench_help import Guide, Tooltip, attach_hints
 from workbench_diagnostics import Diagnostics, details_window, report_job_error
+from workbench_layout import WrappingToolbar
 
 class Workbench:
     def __init__(self, root, workspace, qmp_port=4444, serial_port=4445, *,
@@ -78,7 +79,8 @@ class Workbench:
             self.job_controller()  # Verify the explicit startup approval before exposing tasks.
         root.title(f'uConsole CM4 Workbench — {self.workspace.name} — partial hardware emulation')
         root.geometry('1100x760')
-        toolbar = ttk.Frame(root, padding=6)
+        root.minsize(800, 650)
+        toolbar = WrappingToolbar(root, padding=6)
         toolbar.pack(fill='x')
         self.mode = tk.StringVar(value='maintenance')
         ttk.Combobox(toolbar, textvariable=self.mode, values=['maintenance', 'normal', 'desktop'], state='readonly', width=14).pack(side='left')
@@ -90,7 +92,7 @@ class Workbench:
                               ('Export image', self.export), ('Open file', self.open_file), ('Save', self.save_file),
                               ('Copy to guest', self.copy_to_guest)]:
             ttk.Button(toolbar, text=label, command=lambda fn=action: self.guard(fn)).pack(side='left', padx=2)
-        agentbar = ttk.Frame(root, padding=(6, 0, 6, 6))
+        agentbar = WrappingToolbar(root, padding=(6, 0, 6, 6))
         agentbar.pack(fill='x')
         image_button = ttk.Menubutton(agentbar, text='Image')
         image_menu = tk.Menu(image_button, tearoff=False)
@@ -106,7 +108,7 @@ class Workbench:
                               ('Save transcript', self.save_transcript), ('Guest files', self.guest_files),
                               ('Tasks', self.tasks)]:
             ttk.Button(agentbar, text=label, command=lambda fn=action: self.guard(fn)).pack(side='left', padx=2)
-        jobsbar = ttk.Frame(root, padding=(6, 0, 6, 6))
+        jobsbar = WrappingToolbar(root, padding=(6, 0, 6, 6))
         jobsbar.pack(fill='x')
         self.keyboard = tk.StringVar(value='generic')
         self.audio = tk.StringVar(value='none')
@@ -123,7 +125,7 @@ class Workbench:
         ttk.Combobox(jobsbar, textvariable=self.audio, values=AUDIO_MODES,
                      state='readonly', width=9).pack(side='left')
         ttk.Button(jobsbar, text='Audio controls', command=lambda: self.guard(self.audio_controls)).pack(side='left', padx=2)
-        profilebar = ttk.Frame(self.root)
+        profilebar = WrappingToolbar(self.root)
         profilebar.pack(fill='x', padx=8, pady=2)
         ttk.Button(profilebar, text='Recovery jobs', command=lambda: self.guard(self.recovery_controls)).pack(side='left', padx=4)
         ttk.Label(profilebar, text='ADC reference at next boot:').pack(side='left')
@@ -141,7 +143,7 @@ class Workbench:
                               ('Cancel host task', self.cancel_host_task)]:
             ttk.Button(jobsbar, text=label, command=lambda fn=action: self.guard(fn)).pack(side='left', padx=2)
         ttk.Label(root, text='BCM2711 / 2 GiB • 1280×720 surrogate display • AXP221 PMIC • USB input substitutes • no DSI/GPU fidelity', padding=6).pack(fill='x')
-        scenario_bar = ttk.Frame(root, padding=(6, 0, 6, 6))
+        scenario_bar = WrappingToolbar(root, padding=(6, 0, 6, 6))
         scenario_bar.pack(fill='x')
         ttk.Button(scenario_bar, text='Load power profile',
                    command=lambda: self.guard(self.load_scenario)).pack(side='left')
@@ -149,7 +151,7 @@ class Workbench:
                    command=lambda: self.guard(self.clear_scenario)).pack(side='left', padx=4)
         self.scenario_label = tk.StringVar(value='Next boot: default power state')
         ttk.Label(scenario_bar, textvariable=self.scenario_label).pack(side='left')
-        power_bar = ttk.Frame(root, padding=(6, 0, 6, 6))
+        power_bar = WrappingToolbar(root, padding=(6, 0, 6, 6))
         power_bar.pack(fill='x')
         ttk.Label(power_bar, text='Live power:').pack(side='left')
         self.power_field = tk.StringVar(value='ac_present')
@@ -162,7 +164,7 @@ class Workbench:
         ttk.Button(power_bar, text='Read state',
                    command=lambda: self.guard(self.live_power)).pack(side='left')
         ttk.Label(power_bar, text='true/false or integer • key events may shut down guest').pack(side='left', padx=6)
-        replay_bar = ttk.Frame(root, padding=(6, 0, 6, 6))
+        replay_bar = WrappingToolbar(root, padding=(6, 0, 6, 6))
         replay_bar.pack(fill='x')
         ttk.Button(replay_bar, text='Run power schedule',
                    command=lambda: self.guard(self.start_replay)).pack(side='left')
@@ -171,7 +173,6 @@ class Workbench:
         self.replay_status = tk.StringVar(value='Host-clock replay • no rollback of completed events')
         ttk.Label(replay_bar, textvariable=self.replay_status).pack(side='left')
         panes = ttk.Panedwindow(root, orient='vertical')
-        panes.pack(fill='both', expand=True)
         edit_frame = ttk.Labelframe(panes, text='Host source editor')
         self.editor = tk.Text(edit_frame, undo=True, wrap='none', font='TkFixedFont', height=12)
         self.editor.pack(fill='both', expand=True)
@@ -184,13 +185,20 @@ class Workbench:
         self.console.bind('<Button-3>', self.console_menu)
         self.editor.bind('<Button-3>', self.editor_menu)
         panes.add(console_frame, weight=2)
+        def keep_panes_visible(event):
+            minimum = min(80, max(1, event.height // 3))
+            divider = panes.sashpos(0)
+            if divider < minimum or divider > event.height - minimum:
+                panes.sashpos(0, max(minimum, event.height // 3))
+        panes.bind('<Configure>', keep_panes_visible)
         self.entry = ttk.Entry(root)
-        self.entry.pack(fill='x', padx=6, pady=5)
         self.entry.bind('<Return>', lambda event: self.guard(self.send))
         root.bind('<Control-s>', lambda event: self.guard(self.save_file))
         root.bind('<Command-s>', lambda event: self.guard(self.save_file))
         self.status = tk.StringVar(value=f'Stopped • {self.workspace}')
-        ttk.Label(root, textvariable=self.status, padding=6).pack(fill='x')
+        ttk.Label(root, textvariable=self.status, padding=6).pack(side='bottom', fill='x')
+        self.entry.pack(side='bottom', fill='x', padx=6, pady=5)
+        panes.pack(fill='both', expand=True)
         firmware, source_update = keyboard_project(ROOT, BUILD_ROOT)
         if firmware:
             self.load_file(firmware)
@@ -224,7 +232,8 @@ class Workbench:
                     widget.bind('<F1>', lambda event, name=topic: (self.show_help(name), 'break')[1])
         if not (self.workspace / 'machine.json').is_file():
             self.status.set(f'No guest image prepared • Image → Import guest image • F1 for help • {self.workspace}')
-        root.after(100, self.poll)
+        self.poll_timer = root.after(100, self.poll)
+        root.bind('<Destroy>', self.cancel_poll, add='+')
         if agent_socket:
             self.enable_attachment(agent_socket, agent_grants)
 
@@ -1099,7 +1108,15 @@ class Workbench:
         if destination:
             self.start_transfer('upload', self.filename, destination, 'Upload')
 
+    def cancel_poll(self, event=None):
+        if event is not None and event.widget is not self.root:
+            return
+        if self.poll_timer is not None:
+            self.root.after_cancel(self.poll_timer)
+            self.poll_timer = None
+
     def poll(self):
+        self.poll_timer = None
         self.poll_agent()
         if self.agent_queue:
             self.agent_queue.drain()
@@ -1148,7 +1165,7 @@ class Workbench:
                                               f'Exit status {code}; inspect {self.workspace / "workbench-qemu.log"}')
                     self.release()
                     self.status.set(f'Stopped (exit {code}); see workbench-qemu.log')
-        self.root.after(100, self.poll)
+        self.poll_timer = self.root.after(100, self.poll)
 
     def release(self):
         for resource in (self.serial, self.log, self.errors):

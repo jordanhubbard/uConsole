@@ -99,6 +99,32 @@ class HelpTests(unittest.TestCase):
         guide.copy_topic()
         self.assertIn('UCONSOLE_BUILD_DIR=/private/data', self.root.clipboard_get())
 
+    def test_toolbar_controls_fit_default_and_narrow_windows(self):
+        from uconsole_workbench import Workbench
+        from workbench_layout import WrappingToolbar
+        with tempfile.TemporaryDirectory() as directory:
+            app = Workbench(self.root, Path(directory) / 'new-workspace')
+            self.root.deiconify()
+            for width, height in ((1100, 760), (800, 650), (1500, 900), (1100, 760)):
+                self.root.geometry(f'{width}x{height}')
+                self.root.update()
+                self.assertTrue(app.entry.winfo_viewable())
+                self.assertTrue(app.editor.winfo_viewable())
+                self.assertTrue(app.console.winfo_viewable())
+                bars = [child for child in self.root.winfo_children() if isinstance(child, WrappingToolbar)]
+                self.assertEqual(len(bars), 7)
+                for bar in bars:
+                    for child in bar.winfo_children():
+                        self.assertGreater(child.winfo_width(), 1)
+                        self.assertTrue(child.winfo_viewable())
+                        if child not in bar.rows:
+                            hit = self.root.winfo_containing(child.winfo_rootx() + child.winfo_width() // 2,
+                                                            child.winfo_rooty() + child.winfo_height() // 2)
+                            self.assertIs(hit, child, 'Control is covered by another widget')
+                        self.assertLessEqual(child.winfo_rootx() - bar.winfo_rootx() + child.winfo_width(), bar.winfo_width(), str(child))
+                        self.assertLessEqual(child.winfo_rooty() - bar.winfo_rooty() + child.winfo_height(), bar.winfo_height(), str(child))
+            self.assertIsNone(app.process)
+
     def test_tooltip_cancel_and_destroy(self):
         from tkinter import ttk
         button = ttk.Button(self.root, text='Test')
