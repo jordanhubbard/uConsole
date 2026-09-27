@@ -131,9 +131,25 @@ try:
     if diagnostic['action'] != 'start' or 'machine.json' not in diagnostic['message']:
         raise RuntimeError('Packaged missing-image diagnostics failed')
     root.update()
+    error_window = next(child for child in root.winfo_children()
+                        if isinstance(child, tk.Toplevel) and child.title().endswith('— Error'))
+    pending = [error_window]
+    while pending:
+        widget = pending.pop()
+        pending.extend(widget.winfo_children())
+        if 'text' in widget.keys() and widget['text'] == 'Copy text':
+            if not widget.winfo_viewable() or (widget.winfo_rooty() - error_window.winfo_rooty() +
+                                               widget.winfo_height() > error_window.winfo_height()):
+                raise RuntimeError('Packaged error copy button is not visible')
+            widget.invoke()
+            if 'machine.json' not in root.clipboard_get():
+                raise RuntimeError('Packaged error clipboard action failed')
+            break
+    else:
+        raise RuntimeError('Packaged error copy button is missing')
     print(json.dumps({'status':'passed', 'python':sys.version.split()[0],
                       'tk':root.tk.call('info', 'patchlevel'), 'user_source':str(app.filename),
-                      'offline_help': True, 'structured_errors': True}))
+                      'offline_help': True, 'structured_errors': True, 'copy_error_text': True}))
 finally:
     if app is not None:
         app.close()

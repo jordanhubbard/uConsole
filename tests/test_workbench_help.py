@@ -164,17 +164,25 @@ class HelpTests(unittest.TestCase):
 
     def test_error_details_can_be_copied_without_screenshots(self):
         from workbench_diagnostics import details_window
-        window = details_window(self.root, 'Error', 'Complete error details\nsecond line')
+        text = 'Complete error details → machine.json\n' + 'More diagnostic context\n' * 100
+        window = details_window(self.root, 'Error', text, lambda: None)
         pending = [window]
         while pending:
             widget = pending.pop()
             pending.extend(widget.winfo_children())
-            if 'text' in widget.keys() and widget['text'] == 'Copy details':
+            if 'text' in widget.keys() and widget['text'] == 'Copy text':
+                for geometry in ('800x420', '600x260'):
+                    window.geometry(geometry)
+                    self.root.update()
+                    self.assertTrue(widget.winfo_viewable())
+                    self.assertLessEqual(widget.winfo_rooty() - window.winfo_rooty() + widget.winfo_height(), window.winfo_height())
+                    self.assertIs(self.root.winfo_containing(widget.winfo_rootx() + widget.winfo_width() // 2,
+                                                            widget.winfo_rooty() + widget.winfo_height() // 2), widget)
                 widget.invoke()
                 break
         else:
             self.fail('Missing copy action')
-        self.assertEqual(self.root.clipboard_get(), 'Complete error details\nsecond line')
+        self.assertEqual(self.root.clipboard_get(), text)
 
     def test_f1_on_start_opens_contextual_topic(self):
         from uconsole_workbench import Workbench

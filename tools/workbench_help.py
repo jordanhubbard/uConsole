@@ -70,7 +70,7 @@ Copy agent context creates a text description you can give to an external coding
 Agent attachment is opt-in via --agent-socket, --agent-allow and, when needed, --agent-files-root. Grants and approved policies constrain operations; an attachment never bypasses confirmation or transaction safety. Keep private sockets, policies, credentials and raw job data private.
 
 Cancel host task, Cancel guest command, Cancel boot and Cancel transfer request cancellation of their respective jobs. Wait for cleanup. Cancellation is not proof that no effects occurred.""",
-    'Errors and diagnostics': """Errors are recorded as timestamped JSON lines with severity, event, operation and workspace context. Help → Diagnostics shows the log path and lets you copy recent records. Error windows have selectable details and a Copy details button.
+    'Errors and diagnostics': """Errors are recorded as timestamped JSON lines with severity, event, operation and workspace context. Help → Diagnostics shows the log path and lets you copy recent records. Error windows have selectable details and a Copy text button.
 
 If Start reports missing machine.json, no guest workspace has been prepared at the selected path. Use Image → Import guest image, or restart with --workspace pointing at an existing prepared workspace. Installing keyboard firmware does not install a Linux guest image.
 

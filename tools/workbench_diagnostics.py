@@ -91,19 +91,25 @@ def details_window(parent, title, text, help_command=None):
     window = tk.Toplevel(parent)
     window.title(title)
     window.geometry('800x420')
+    window.minsize(600, 260)
     ttk.Label(window, text=title, padding=10, font=('TkDefaultFont', 14, 'bold')).pack(anchor='w')
     body = ScrolledText(window, wrap='word', font='TkFixedFont', padx=10, pady=10)
-    body.pack(fill='both', expand=True, padx=10)
     body.insert('1.0', text)
     body.configure(state='disabled')
     bar = ttk.Frame(window, padding=10)
-    bar.pack(fill='x')
+    # Reserve the actions before giving the transcript the remaining space.
+    # Otherwise Text's requested height can push Copy/Close off the window.
+    bar.pack(side='bottom', fill='x')
+    body.pack(fill='both', expand=True, padx=10)
+    copied = tk.StringVar(value='')
     def copy():
         window.clipboard_clear()
         window.clipboard_append(text)
-    ttk.Button(bar, text='Copy details', command=copy).pack(side='left')
+        copied.set('Copied')
+    ttk.Button(bar, text='Copy text', command=copy).pack(side='left')
     if help_command:
         ttk.Button(bar, text='Troubleshooting guide', command=help_command).pack(side='left', padx=6)
+    ttk.Label(bar, textvariable=copied).pack(side='left', padx=6)
     ttk.Button(bar, text='Close', command=window.destroy).pack(side='right')
     window.bind('<Escape>', lambda event: window.destroy())
     return window
