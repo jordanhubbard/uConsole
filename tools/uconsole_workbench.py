@@ -206,6 +206,9 @@ class Workbench:
             self.status.set(f'Stopped • {self.workspace} • {firmware}{suffix}')
         root.protocol('WM_DELETE_WINDOW', self.close)
         menu = tk.Menu(root)
+        view_menu = tk.Menu(menu, tearoff=False)
+        view_menu.add_command(label='Live functional schematic', command=lambda: self.guard(self.show_schematic))
+        menu.add_cascade(label='View', menu=view_menu)
         help_menu = tk.Menu(menu, tearoff=False)
         help_menu.add_command(label='User guide (F1)', command=self.show_help)
         help_menu.add_command(label='Getting started', command=self.show_help)
@@ -488,6 +491,37 @@ class Workbench:
 
     def callback_error(self, kind, exc, traceback):
         self.report_error('Tk callback', exc.with_traceback(traceback))
+
+    def show_schematic(self):
+        from workbench_schematic_gui import Schematic
+        schematic = getattr(self, 'schematic', None)
+        if schematic is not None and schematic.window.winfo_exists():
+            schematic.window.lift()
+        else:
+            self.schematic = Schematic(self.root, lambda source: self.guard(lambda: self.schematic_source(source)),
+                                       runtime=lambda: self.runtime)
+            self.schematic.window.bind('<F1>', lambda event: self.show_help('Live schematic'))
+            self.schematic.help_hints = attach_hints(self.schematic.window, self.show_help)
+
+    def schematic_source(self, source):
+        if self.editor.edit_modified() and not messagebox.askyesno(
+                'Unsaved edits', 'Discard unsaved editor changes?', parent=self.root):
+            return
+        path, line, text = source.resolve(ROOT)
+        self.editor.delete('1.0', 'end')
+        self.editor.insert('1.0', text)
+        # Diagram sources are inspection copies. Saving prompts for a project
+        # destination rather than writing into the installed application.
+        self.filename = None
+        self.editor.edit_modified(False)
+        self.editor.mark_set('insert', f'{line}.0')
+        self.editor.see(f'{line}.0')
+        self.editor.tag_remove('sel', '1.0', 'end')
+        self.editor.tag_add('sel', f'{line}.0', f'{line}.end')
+        self.status.set(f'Inspection copy • {path}:{line} • Save chooses a destination')
+        self.root.deiconify()
+        self.root.lift()
+        self.editor.focus_set()
 
     def show_help(self, topic='Getting started'):
         guide = getattr(self, 'guide', None)
@@ -1228,6 +1262,9 @@ class Workbench:
             messagebox.showinfo('Operation in progress', f'Wait for the {operation} to finish before closing.', parent=self.root)
             return
         if self.editor.edit_modified() and not messagebox.askyesno('Unsaved edits', 'Close and discard unsaved editor changes?', parent=self.root):
+            return
+        schematic = getattr(self, 'schematic', None)
+        if schematic is not None and schematic.window.winfo_exists() and not schematic.can_close():
             return
         if self.process is not None:
             if not messagebox.askyesno('Stop QEMU', 'Has the guest shut down or remounted its root filesystem read-only?\n\nStopping QEMU now removes power from the virtual machine.', parent=self.root):

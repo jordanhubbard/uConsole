@@ -32,6 +32,12 @@ tree. The Workbench opens the installed keyboard firmware source at startup,
 and the matching firmware and flashing tools are installed under
 `$PREFIX/share/uconsole-keyboard-flash`.
 
+**View → Live functional schematic** opens a clickable hardware map with source
+navigation, offline schematic sheets, observed emulator activity and recording/
+replay. See [the schematic walkthrough](docs/workbench-demo-ideas.md) for its
+instrumentation and fidelity boundaries. Activity counters require the current
+patched QEMU build; unobserved devices remain explicitly unknown.
+
 Inside the application, **Help → User guide** (F1) opens the searchable offline
 guide. Hover over controls for hints, or focus a control and press F1 for its
 topic. **Image → Import guest image** prepares a supported CM4 Linux image;

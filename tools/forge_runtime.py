@@ -135,14 +135,28 @@ class Runtime:
             raise ValueError('Owned emulator is not running')
 
     def control(self, operation, arguments=None):
-        from uconsole_emulator import qmp
         with self.control_mutex:
-            self.require_alive()
-            identity = qmp(self.qmp_endpoint, 'query-name')
-            if identity.get('name') != self.identity:
-                raise ValueError('QMP runtime identity mismatch')
-            self.require_alive()
-            return qmp(self.qmp_endpoint, operation, arguments)
+            return self._control_locked(operation, arguments)
+
+    def observe(self, operation, arguments=None):
+        """Read-only, low-priority sampling; never queue behind a control job."""
+        if operation not in {'query-status', 'query-blockstats', 'qom-list', 'qom-get'}:
+            raise ValueError('Operation is not a read-only observation')
+        if not self.control_mutex.acquire(blocking=False):
+            raise BlockingIOError('Owned runtime control is busy')
+        try:
+            return self._control_locked(operation, arguments)
+        finally:
+            self.control_mutex.release()
+
+    def _control_locked(self, operation, arguments=None):
+        from uconsole_emulator import qmp
+        self.require_alive()
+        identity = qmp(self.qmp_endpoint, 'query-name')
+        if identity.get('name') != self.identity:
+            raise ValueError('QMP runtime identity mismatch')
+        self.require_alive()
+        return qmp(self.qmp_endpoint, operation, arguments)
 
     def connect_serial(self):
         from uconsole_emulator import control_connection

@@ -70,6 +70,15 @@ Copy agent context creates a text description you can give to an external coding
 Agent attachment is opt-in via --agent-socket, --agent-allow and, when needed, --agent-files-root. Grants and approved policies constrain operations; an attachment never bypasses confirmation or transaction safety. Keep private sockets, policies, credentials and raw job data private.
 
 Cancel host task, Cancel guest command, Cancel boot and Cancel transfer request cancellation of their respective jobs. Wait for cleanup. Cancellation is not proof that no effects occurred.""",
+    'Live schematic': """View → Live functional schematic opens a code-linked component map. Click a component or select it in the searchable list to inspect its implementation in the Host source editor. The source selector offers related implementations. Unsaved edits are protected; diagram sources open as inspection copies and Save asks for a destination.
+
+Open schematic sheet shows the repository's hardware drawings offline. Choose a page, zoom, drag or scroll to pan, and search printed component/net names. Blue reference boxes link to functional implementations, not electrical simulations. The title identifies the original PDF and its SHA-256. Shared mainboard drawings do not prove which optional circuits are populated on a particular CM4 device.
+
+LIVE observes only the emulator owned by this Workbench. Unknown means no suitable observation exists; stale means an earlier sample has expired. Blue shows observed presence, green recent observed activity, and gray unavailable state. Storage pulses use block-byte counters, keyboard pulses successful HID deliveries, and display pulses framebuffer redraw notifications (including possible host invalidation). Power pulses reflect changed sampled values, not traced I²C traffic. Audio/modem attachment is not evidence of audio/radio traffic. Older QEMU builds without counters show that limitation; rebuild the packaged patched QEMU to add counters.
+
+Record observations retains at most 10,000 observations and 16 MiB. Stop recording then Save recording to a new JSON file. Runtime changes stop recording automatically; retained observations remain available to save. Discard recording is explicit. Review recordings before sharing because they contain runtime identifiers and sampled state.
+
+Replay recording displays the retained observations on their recorded timeline, clearly labeled REPLAY. It never presses keys, changes power, or controls a guest. Return to live resumes observation. This differs from Run power schedule, which actually applies reviewed power changes to the emulator. Source navigation remains available during replay.""",
     'Errors and diagnostics': """Errors are recorded as timestamped JSON lines with severity, event, operation and workspace context. Help → Diagnostics shows the log path and lets you copy recent records. Error windows have selectable details and a Copy text button.
 
 If Start reports missing machine.json, no guest workspace has been prepared at the selected path. Use Image → Import guest image, or restart with --workspace pointing at an existing prepared workspace. Installing keyboard firmware does not install a Linux guest image.
@@ -81,6 +90,8 @@ Logs and transcripts may include paths or error text from external commands. Rev
 
 # Text labels are shared by the actual controls; unknown controls retain default F1 help.
 GROUPS = {
+    'Live schematic': ('Record observations', 'Stop recording', 'Save recording…', 'Discard recording',
+                       'Replay recording…', 'Return to live', 'Open schematic sheet…', 'Open source in Host editor'),
     'Boot and display': ('Start', 'Pause', 'Resume', 'Power off', 'Cancel boot'),
     'Editor and guest files': ('Open file', 'Save', 'Copy to guest', 'Guest files', 'Copy selection', 'Copy boot log', 'Paste command', 'Save transcript', 'Cancel transfer'),
     'Images and checkpoints': ('Image', 'Export image'),

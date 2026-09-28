@@ -147,8 +147,44 @@ try:
             break
     else:
         raise RuntimeError('Packaged error copy button is missing')
+    user_source = str(app.filename)
+    app.show_schematic()
+    from workbench_schematic import COMPONENTS
+    from uconsole_emulator import ROOT
+    for component in COMPONENTS:
+        for source in component.sources:
+            source.resolve(ROOT)
+        app.schematic.select(component.id)
+        if app.filename is not None or app.editor.edit_modified():
+            raise RuntimeError('Packaged schematic source was not opened as an inspection copy')
+    app.schematic.select('keyboard')
+    sheet = app.schematic.open_sheet()
+    sheet.page.current(1)
+    sheet.change_page()
+    sheet.query.set('GD32F103Rx')
+    sheet.find()
+    root.update()
+    if not sheet.canvas.find_withtag('search'):
+        raise RuntimeError('Packaged schematic sheet cannot find keyboard MCU')
+    sheet.window.destroy()
+    from workbench_schematic_trace import Recording
+    from unittest.mock import patch
+    trace = Recording('native-package-replay-fixture', 0.)
+    trace.append(dict(identity='native-package-replay-fixture', component='keyboard', state='active',
+                      time=0., source='Explicit native-package test fixture', detail='Replay UI only'))
+    trace_path = pathlib.Path(sys.argv[1]).parent / 'schematic-fixture.json'
+    trace.save(trace_path)
+    with patch('workbench_schematic_gui.filedialog.askopenfilename', return_value=str(trace_path)):
+        app.schematic.load_replay()
+    app.schematic.window.after_cancel(app.schematic.timer)
+    app.schematic.tick()
+    root.update()
+    if not app.schematic.mode.get().startswith('REPLAY'):
+        raise RuntimeError('Packaged replay is not visibly distinguished from live observations')
+    app.schematic.close()
     print(json.dumps({'status':'passed', 'python':sys.version.split()[0],
-                      'tk':root.tk.call('info', 'patchlevel'), 'user_source':str(app.filename),
+                      'tk':root.tk.call('info', 'patchlevel'), 'user_source':user_source,
+                      'schematic_sources': True, 'schematic_sheets': True, 'schematic_replay': True,
                       'offline_help': True, 'structured_errors': True, 'copy_error_text': True}))
 finally:
     if app is not None:

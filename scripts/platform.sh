@@ -121,6 +121,8 @@ build_ide() {
     cp "$root"/Code/patch/qemu/*.[ch] \
         "$stage/libexec/uconsole-workbench/Code/patch/qemu/"
     cp -R "$root/Code/uconsole_keyboard" "$stage/libexec/uconsole-workbench/Code/"
+    mkdir -p "$stage/libexec/uconsole-workbench/assets"
+    cp -R "$root/assets/schematics" "$stage/libexec/uconsole-workbench/assets/"
     cp "$root/uconsole-tasks.json" "$stage/libexec/uconsole-workbench/"
     cp "$root/docs/emulator.md" "$root/docs/emulator-validation.md" \
         "$root/docs/emulator-device-plan.md" "$root/docs/forge-agents.md" \

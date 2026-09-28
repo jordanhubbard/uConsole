@@ -1,7 +1,65 @@
 # Cool demo material: live uConsole schematic
 
-Status: proposed demo/backlog, not implemented and not a gate for the current
-help/diagnostics release. Requested 2026-09-27.
+Status: implemented, requested 2026-09-27. Not part of the
+published v1.1.1 help/diagnostics release.
+
+View → Live functional schematic opens a Canvas
+component map, source-symbol navigation, search, pan/zoom and a text inspector.
+Sources open as inspection copies in the Host editor; saving requires choosing
+a destination, and unsaved edits are protected. The model distinguishes unknown,
+stale and identity-scoped observations. A bounded background collector now reads
+owned-runtime status, power and USB state, plus storage byte counters. Storage
+counter increases and sampled power changes drive activity; USB attachment
+alone does not. Record/stop/save/replay controls retain bounded observation
+traces and replay them without dispatching hardware operations. Replay is
+explicitly labeled and isolated from live collection.
+
+SD successful-read/write byte counters, keyboard HID delivery and framebuffer redraw counters are implemented as
+read-only QOM properties in the patched QEMU build. They count actual successful
+SD I/O, USB IN transfers and redraw notifications; redraws can include
+host invalidation, not only guest rendering. A real-QEMU qtest check verifies
+counter changes, idle/queued-input behavior, write rejection and trace replay.
+This is device-level evidence, not a Linux guest walkthrough.
+
+Open schematic sheet provides offline rendered PDFs, sheet selection, pan/zoom,
+component/net text search, functional code links and source-PDF SHA-256 provenance.
+`tools/build_schematic_assets.py` regenerates the checked assets using Poppler;
+the installed application needs no PDF renderer. The shared carrier's printed
+AXP228 maps to the Linux/QEMU AXP221 identity, not a claim of a different chip.
+
+Package checks cover source navigation (including bundled QEMU model/patch
+code), offline schematic sheets and visibly labeled replay. The running-guest
+walkthrough verifies firmware-to-Linux A/F1 events, guest AC-driver state,
+framebuffer changes, SD activity, replay, clean shutdown and unchanged backing
+image hash. It retains a screen recording and raw observation trace. Earlier
+failed walkthrough evidence is retained, including the finding that generic
+block statistics do not account for this SD model.
+
+## Running and qualifying the demo
+
+1. Open View → Live functional schematic. It also works without a guest for
+   source navigation, schematic inspection and recorded playback.
+2. For live keyboard activity, select composite keyboard before booting the
+   guest. Use Keyboard deck to exercise the firmware-backed input path. Use the
+   existing power controls for reviewed state changes; diagram selection never
+   actuates hardware. Build the current patched QEMU for SD/HID/redraw counters.
+3. Record observations, perform your walkthrough, stop and save to a new JSON
+   file. Replay recording is a visualization, not a power/input macro.
+
+`tests/test_workbench_schematic*.py` cover source resolution, PDF provenance,
+Tk navigation, unsaved edits, stale/ownership rules, bounded high-rate sampling,
+responsive editing, recording limits and replay validation. The native archive
+validator checks the same packaged source/sheet/replay UI outside the checkout.
+
+`tools/test_emulator_observations.py --output NEW_DIRECTORY` tests actual USB
+DMA and framebuffer counter behavior. `tools/validate_schematic_guest.py
+--image IMAGE --sha256 SHA256 --output NEW_DIRECTORY --video` exercises the
+Workbench and Linux guest using an exclusive disposable overlay. Run it with
+Tk, patched QEMU, the keyboard oracle and (for video) ffmpeg available; video
+expects a 1900×1000 X display. It preserves the backing image and retains jobs,
+guest-input proof, framebuffer captures, observations and a video. It explicitly
+requests framebuffer captures for evidence, which can themselves trigger a
+redraw notification. This is not proof of physical DSI/GPU fidelity.
 
 ## Experience
 

@@ -93,3 +93,4 @@ ifeq ($(shell uname -s),Linux)
 	python3 tools/test_emulator_wav.py --source '$(BUILD_DIR)/emulator/qemu-build/qemu-source/audio/wavaudio.c' --qemu '$(BUILD_DIR)/emulator/qemu-build/qemu-system-aarch64'
 endif
 	python3 tools/test_emulator_keyboard.py --oracle '$(BUILD_DIR)/keyboard-oracle/keyboard-oracle'
+	python3 tools/test_emulator_observations.py --output "$$(mktemp -d '$(BUILD_DIR)/emulator/schematic-counters.XXXXXX')/evidence"
