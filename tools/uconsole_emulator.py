@@ -46,6 +46,10 @@ def digest(path):
 
 
 def executable(name):
+    from workbench_emulator import selected
+    managed = selected(ROOT, BUILD_ROOT)
+    if managed is not None and name in ('qemu-system-aarch64', 'qemu-img'):
+        return str(managed / name)
     suffix = '.exe' if os.name == 'nt' else ''
     local = BUILD_ROOT / 'emulator/qemu-build' / (name + suffix)
     return str(local) if local.is_file() else (shutil.which(name) or name)

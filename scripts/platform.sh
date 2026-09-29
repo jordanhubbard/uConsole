@@ -42,7 +42,7 @@ install_deps() {
         fi
     else
         command -v brew >/dev/null 2>&1 || fail 'Homebrew is required; install it from https://brew.sh/'
-        brew install arduino-cli dfu-util ninja pkg-config python-tk qemu shellcheck dosfstools e2fsprogs
+        brew install arduino-cli dfu-util ninja pkg-config glib pixman libslirp python-tk qemu shellcheck dosfstools e2fsprogs
     fi
 
     # The legacy STM32 core is needed for firmware builds. Some ARM hosts need
@@ -107,6 +107,7 @@ build_ide() {
     python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 12) else 1)' >/dev/null 2>&1 || fail 'building Workbench requires Python 3.12+ on PATH'
     command -v cc >/dev/null 2>&1 || fail 'a C compiler is required; run make deps'
     python3 -m compileall -q "$root/tools"
+    UCONSOLE_BUILD_DIR="$build_dir" python3 "$root/tools/build_emulator_qemu.py"
     # Never clean/reuse a stage left by sudo install or another package build.
     # Keep completed stages available for inspection and build a fresh one.
     mkdir -p "$build_dir/ide/$target"
@@ -117,6 +118,8 @@ build_ide() {
         "$stage/share/doc/uconsole-workbench" \
         "$stage/share/uconsole-keyboard-flash"
     cp "$root"/tools/*.py "$stage/libexec/uconsole-workbench/tools/"
+    cp -R "$root/tools/vendor" "$stage/libexec/uconsole-workbench/tools/"
+    python3 "$root/tools/workbench_emulator.py" "$build_dir" "$root" "$stage/libexec/uconsole-workbench"
     cp "$root"/Code/patch/qemu/*.patch "$stage/libexec/uconsole-workbench/Code/patch/qemu/"
     cp "$root"/Code/patch/qemu/*.[ch] \
         "$stage/libexec/uconsole-workbench/Code/patch/qemu/"

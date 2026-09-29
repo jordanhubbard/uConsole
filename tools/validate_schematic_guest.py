@@ -79,7 +79,9 @@ def run(image, digest, output, video=False):
             app.keyboard.set('composite')
             app.display.set('gtk')
             app.start()
-        job(app.boot_job, lambda: app.boot_job is None)
+        wait(lambda: not app.setup_panel.flow_active, 'Public Start completion')
+        if not app.setup_panel.status.get().startswith('Emulator started'):
+            raise ValueError(app.setup_panel.status.get())
         runtime = app.runtime
         evidence['runtime_identity'] = runtime.identity
         execute('set -e; mountpoint -q /proc || mount -t proc proc /proc; '

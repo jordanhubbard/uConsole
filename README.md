@@ -12,7 +12,7 @@ The same Make targets work on supported macOS and Debian/Ubuntu Linux hosts
 
 ```sh
 make deps       # install build and runtime dependencies
-make build      # build the native IDE distribution tree
+make build      # build the native IDE and its cached, pinned patched QEMU
 make run        # launch the IDE from this checkout
 make package    # create build/uconsole-workbench-OS-ARCH.tar.gz
 sudo make install
@@ -32,11 +32,38 @@ tree. The Workbench opens the installed keyboard firmware source at startup,
 and the matching firmware and flashing tools are installed under
 `$PREFIX/share/uconsole-keyboard-flash`.
 
-**View → Live functional schematic** opens a clickable hardware map with source
+Native packages include the pinned, patched QEMU and its runtime data and
+corresponding source archive. The startup progress window checks its
+patch fingerprint and offers a cancellable source rebuild with persistent logs.
+A compatible user build takes precedence over the bundled copy; a generic system
+QEMU is not accepted by the IDE's Start action. Source builds cache QEMU until
+its build inputs change. Packages still require platform runtime shared libraries.
+Press **Start** for the standard environment: prerequisite checks, any needed
+emulator build, a verified default Linux image download, desktop preparation,
+and boot run as one workflow. Approve the 2.21 GB official CM4 v3.1 HTTPS download
+when prompted; no image search or checksum entry is needed. Downloads are cached,
+resumable and SHA-256 verified before import. Allow at least 20 GiB free.
+Missing Debian/Ubuntu packages can be installed after approval through the system
+authentication prompt; on macOS with Homebrew, installs run as your user.
+Workbench never runs itself as root. Cancelling startup allows an active package
+transaction to finish safely, then stops subsequent steps. Custom image import
+remains under Advanced tools. Existing workspaces are never overwritten.
+No second Start is required after preparation. The progress window
+keeps its log and remains open until dismissed without stopping the guest.
+New sessions default to Desktop with a native graphical display. Maintenance mode starts a root
+shell, not a desktop; press Enter in the serial input if kernel messages bury
+the prompt. Select Desktop and a graphical display backend for the desktop.
+
+**Setup** opens a configuration wizard: choose image and hardware settings,
+review download/package permissions, then **Finish** runs setup through startup.
+**Cancel** discards wizard edits. System authentication may still be required.
+
+**Live Schematic** on the toolbar opens a clickable hardware map with source
 navigation, offline schematic sheets, observed emulator activity and recording/
 replay. See [the schematic walkthrough](docs/workbench-demo-ideas.md) for its
 instrumentation and fidelity boundaries. Activity counters require the current
-patched QEMU build; unobserved devices remain explicitly unknown.
+patched QEMU build. Off, disabled, disconnected, waiting and unavailable states
+are distinguished; physical SSH targets do not supply schematic telemetry.
 
 Inside the application, **Help → User guide** (F1) opens the searchable offline
 guide. Hover over controls for hints, or focus a control and press F1 for its

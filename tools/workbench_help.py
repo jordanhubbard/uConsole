@@ -7,26 +7,34 @@ from tkinter.scrolledtext import ScrolledText
 TOPICS = {
     'Getting started': """The Workbench is an image forge: edit and test a CM4 guest image, then take that image to real hardware. The bundled keyboard firmware is separate from the Linux guest image.
 
-Before importing, see QEMU setup: the package contains the patched emulator builder, not a prebuilt emulator or a Linux guest image.
+Press Start. Its progress window checks host prerequisites and the patched QEMU, offers to install missing packages, downloads the recommended official CM4 v3.1 Linux image when needed, verifies its pinned SHA-256, prepares the display, and continues to boot. Native packages include QEMU. You do not need to find an image or enter a checksum for the standard environment.
 
-1. Use Image → Import guest image to select a supported CM4 .img or .img.bz2. Supply an independently verified SHA-256 for a custom image. The official compressed image uses the pinned checksum when this field is blank.
+1. Press Start and approve the recommended 2.21 GB HTTPS image download. The completed download is cached and reverified before reuse. Interrupted downloads resume when the server supports byte ranges. A failed checksum prevents import. Allow at least 20 GiB free. For another image, expand Advanced tools and select Use my own Linux image; custom images still need a trusted checksum.
 2. Preparation creates a private writable workspace; it never replaces an existing directory. Keep the entire workspace together, including its backing image. Allow at least 15–20 GiB, and more for exports and backups.
-3. Choose maintenance, normal or desktop, then Start. Choose a display backend before Start if you want a graphical window; “none” deliberately runs without one.
-4. Shut down the guest cleanly before exporting or changing its image.
+3. Desktop and a native graphical display are selected by default. Maintenance and headless operation remain explicit alternatives. The startup window stays open through emulator launch; Close dismisses that window without stopping the guest. Startup logs remain under emulator/startup-logs. Emulator launch is not proof that the guest has finished booting; watch its display and serial console.
+4. Missing Debian/Ubuntu packages are listed for approval, then installed through the system authorization prompt; Workbench never collects your password or runs itself as root. On macOS with Homebrew, package installation runs as your user. Cancel prevents later steps but lets an active package transaction finish safely. Package removal and upgrades of already installed Debian packages are disabled. If repositories need maintenance or authentication is denied, the error and package-manager log are retained for retry.
+
+5. Cancel startup requests cleanup and prevents subsequent stages; it does not undo already completed image changes. If boot finished before cancellation, the window reports that the VM remains running. Shut down the guest cleanly before exporting or changing its image.
 
 Already have a workspace? Launch uconsole-workbench --workspace /absolute/path/to/workspace. It must contain machine.json and its referenced image and boot files. Do not create machine.json by hand or delete an existing workspace to silence an error.
 
 Hover over controls for hints. Tab to a control and press F1 for its guide topic. This guide works offline; search matches both topic titles and their contents.""",
-    'QEMU setup': """Emulation requires the Workbench's patched QEMU, not just a generic system QEMU installation. The package includes its builder and patch sources. The builder downloads the pinned QEMU release, checks its SHA-256, applies the patches, and compiles into your user-owned build directory. It does not replace the system QEMU. This operation requires a network connection and build tools; the guide itself is offline.
+    'QEMU setup': """The Setup toolbar button opens a four-step configuration wizard: image, emulated hardware, permissions, and review. Finish applies the choices and runs setup through startup without more Workbench questions. System administrator authentication can still appear. Cancel discards wizard edits. Existing prepared workspaces are reused, never replaced. Configuration applies to the current Workbench session. SSH destinations are saved separately through Physical target; physical deployment authorization is never part of emulator setup.
+
+Emulation requires the Workbench's patched QEMU, not just a generic system QEMU installation. Native packages include the matching emulator, runtime data, corresponding upstream source archive, builder and patch sources. The startup progress window's Advanced tools shows the selected emulator and expected patch fingerprint. Compatible user builds take precedence over the bundled emulator. System QEMU is never replaced.
+
+Build / Rebuild emulator downloads the pinned release, verifies its SHA-256, applies the patches and builds in user-owned storage. Progress and output appear in the setup panel; the full build log is retained under emulator/build-logs. Cancel stops the build process group. Failed or cancelled builds do not select incomplete output. Builds are cached by source, patches and configuration. Building requires network access and development dependencies; running a packaged emulator does not require a compiler, but still needs its platform shared libraries.
 
 Linux prerequisites include a C/C++ compiler, Ninja, pkg-config, patch, GLib, Pixman and libslirp development packages. Install GTK development libraries for a GTK display window. On Ubuntu these include build-essential, ninja-build, pkg-config, patch, libglib2.0-dev, libpixman-1-dev, libslirp-dev and libgtk-3-dev. macOS requires the command-line developer tools and corresponding Homebrew dependencies. Python 3.12+ and Tk are required for Workbench. Image import/export is supported on Linux/macOS, not Windows.
 
-From a source checkout, make deps installs platform prerequisites and make emulator-build builds QEMU. For an installed package, run the installation-specific command below in your host terminal after installing prerequisites. Review it before running; it may take several minutes. Build errors appear in that terminal. Keep the selected build and workspace backing files in place.
+From a source checkout, make deps installs platform prerequisites and make build includes patched QEMU. make emulator-build builds just QEMU. Installed users can use the setup panel or the equivalent command below. Builds may take several minutes. Keep workspace backing files in place.
 
-Obtain a supported CM4 Linux image separately. The built-in checksum is for the official compressed uConsole CM4 v3.1 64-bit image. For a raw or modified image, supply its independently verified expected SHA-256 during import. A checksum match establishes file identity, not trust in the image author.""",
+Start offers the official CM4 v3.1 64-bit image automatically from the manufacturer's HTTPS mirror. Its pinned checksum identifies the exact previously verified image, not a manufacturer signature or a guarantee of safety. Custom raw or modified images remain available under Advanced tools and require an independently verified SHA-256.""",
     'Boot and display': """Start boots the selected workspace, not the keyboard firmware shown in the editor.
 
-Maintenance is for controlled guest maintenance. Normal starts the regular system. Desktop prepares the overlay for the surrogate display when needed, then boots it. This preparation changes the writable overlay; checkpoint important work first.
+The Guest terminal is an 80×24 VT-style terminal: click it to type directly, use Ctrl+C to interrupt the guest, and Ctrl+Shift+C/V or the context menu to copy/paste. Arrow and function keys work in terminal applications. On a serial login, use TERM=vt100 and stty rows 24 cols 80 if an application assumes another size. Window resizing does not change the guest serial terminal size. The single-line command field remains available. Save transcript preserves the complete raw serial log, including escape sequences; Copy terminal screen copies the rendered grid. Terminal output never controls your clipboard or opens links.
+
+Maintenance starts a root shell directly, without systemd or a desktop. Later kernel messages can bury the root prompt: press Enter in the serial input field to redraw it. Normal starts the regular system. Desktop prepares the overlay for the surrogate display when needed, then boots it. This preparation changes the writable overlay; checkpoint important work first.
 
 Display “none” is headless. Select an available host backend for a QEMU display window (for example GTK/SDL on Linux, Cocoa on macOS). Host support depends on the packaged QEMU build. Changing the selector affects the next boot.
 
@@ -47,7 +55,9 @@ Stop the emulator before image operations. Image → Create checkpoint records a
 Export image produces a new raw SD-card image suitable for subsequent hardware qualification. An emulator boot alone does not qualify that image on hardware. Keep the source image, final export and validation evidence.
 
 Cancel image job requests cancellation, not rollback. Wait for cleanup and inspect the recorded outcome before retrying. Never move an overlay separately from its backing image.""",
-    'Physical target and recovery': """Physical target and Recovery jobs operate on real hardware and require explicitly reviewed policies and their approved SHA-256 values at startup. Opening a panel does not grant permission to write a card or reboot.
+    'Physical target and recovery': """Physical target opens saved SSH hosts. Enter a hostname/IP or SSH alias and optional username, then Save target. Test connection checks existing SSH key access without sudo or target writes. Establish trust and keys in your terminal first. Saving or testing a host never grants deployment permission.
+
+Deploy files and Deploy service use the host fields to capture a backup and prepare a reviewable plan. Review, approve, then Apply to hardware. Restore hardware restores the selected approved plan backup. The separate approved-plan dropdown lists plans for all hosts; changing host fields never redirects an existing plan. Recovery jobs and physical writes still require explicit approval.
 
 The normal live-development workflow is SSH host/target with backup and restore of the existing card. A spare card or external reader is an optional deployment route, not a prerequisite.
 
@@ -70,7 +80,9 @@ Copy agent context creates a text description you can give to an external coding
 Agent attachment is opt-in via --agent-socket, --agent-allow and, when needed, --agent-files-root. Grants and approved policies constrain operations; an attachment never bypasses confirmation or transaction safety. Keep private sockets, policies, credentials and raw job data private.
 
 Cancel host task, Cancel guest command, Cancel boot and Cancel transfer request cancellation of their respective jobs. Wait for cleanup. Cancellation is not proof that no effects occurred.""",
-    'Live schematic': """View → Live functional schematic opens a code-linked component map. Click a component or select it in the searchable list to inspect its implementation in the Host source editor. The source selector offers related implementations. Unsaved edits are protected; diagram sources open as inspection copies and Save asks for a destination.
+    'Live schematic': """The Live Schematic toolbar button opens a code-linked component map. Off means no running owned emulator; it does not describe the power state of an SSH target. Disabled means the virtual device was omitted at boot; select it in Setup before the next boot. Disconnected means a configured USB device was detached; component details explain its connection controls. Waiting means no sample yet, unavailable means a failed observation, and stale means an old sample. Physical SSH telemetry is not supported.
+
+Click a component or select it in the searchable list to inspect its implementation in the Host source editor. The source selector offers related implementations. Unsaved edits are protected; diagram sources open as inspection copies and Save asks for a destination.
 
 Open schematic sheet shows the repository's hardware drawings offline. Choose a page, zoom, drag or scroll to pan, and search printed component/net names. Blue reference boxes link to functional implementations, not electrical simulations. The title identifies the original PDF and its SHA-256. Shared mainboard drawings do not prove which optional circuits are populated on a particular CM4 device.
 

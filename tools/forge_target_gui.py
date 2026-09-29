@@ -1,5 +1,6 @@
 """Explicit physical-target controls over shared controller transactions."""
 from workbench_diagnostics import report_ui_error, report_job_error
+from workbench_layout import WrappingToolbar
 import hashlib
 import json
 from pathlib import Path
@@ -16,12 +17,14 @@ class TargetPanel:
         self.pending = None
         self.timer = None
         self.window = tk.Toplevel(parent)
-        self.window.title('Physical SSH target — approved transactions')
+        self.window.title('Physical SSH targets')
         self.selected = tk.StringVar()
         self.status = tk.StringVar(value='No hardware write occurs until explicitly confirmed.')
+        self.build_hosts()
         listing = controller.call('target_transactions', {'workspace': workspace})
         names = [item['name'] for item in listing['transactions']]
-        ttk.Label(self.window, text='Physical target, not the emulator. Backup/restore journals are retained.').pack(padx=12, pady=8)
+        ttk.Label(self.window, text='Deployment plans — separate from saved hosts. Each plan stays bound to its original host.').pack(padx=12, pady=8)
+        ttk.Label(self.window, text='Approved plans (all hosts):').pack(anchor='w', padx=12)
         self.choice = ttk.Combobox(self.window, textvariable=self.selected, values=names, state='readonly', width=40)
         self.choice.pack(padx=12, pady=4)
         if names:
@@ -29,19 +32,19 @@ class TargetPanel:
         self.details = tk.Text(self.window, width=88, height=13, state='disabled', wrap='word')
         self.details.pack(padx=12, pady=4)
         self.choice.bind('<<ComboboxSelected>>', lambda event: self.review())
-        author_actions = ttk.Frame(self.window)
-        author_actions.pack(padx=12, pady=4)
-        self.prepare_button = ttk.Button(author_actions, text='Prepare from local files…', command=self.prepare_dialog)
+        author_actions = WrappingToolbar(self.window)
+        author_actions.pack(fill='x', padx=12, pady=4)
+        self.prepare_button = ttk.Button(author_actions, text='Deploy files…', command=self.prepare_dialog)
         self.prepare_button.pack(side='left')
-        self.service_prepare_button = ttk.Button(author_actions, text='Prepare service…', command=self.prepare_service_dialog)
+        self.service_prepare_button = ttk.Button(author_actions, text='Deploy service…', command=self.prepare_service_dialog)
         self.service_prepare_button.pack(side='left', padx=4)
         self.staging_review_button = ttk.Button(author_actions, text='Review recovery staging…', command=self.review_staging)
         self.staging_review_button.pack(side='left', padx=4)
         self.approve_button = ttk.Button(author_actions, text='Approve reviewed plan…', command=self.approve)
         self.approve_button.pack(side='left', padx=4)
         self.approve_button.state(['disabled'])
-        actions = ttk.Frame(self.window)
-        actions.pack(padx=12, pady=8)
+        actions = WrappingToolbar(self.window)
+        actions.pack(fill='x', padx=12, pady=8)
         self.buttons = []
         self.inspect_button = ttk.Button(actions, text='Inspect recovery prerequisites', command=self.inspect_recovery)
         self.inspect_button.pack(side='left', padx=4)
@@ -66,6 +69,80 @@ class TargetPanel:
         ttk.Label(self.window, textvariable=self.status, wraplength=650).pack(padx=12, pady=8)
         self.window.protocol('WM_DELETE_WINDOW', self.close)
         self.review()
+
+    def build_hosts(self):
+        from workbench_targets import default_path, load, destination
+        self.host_path = default_path()
+        self.hosts = load(self.host_path)
+        frame = ttk.LabelFrame(self.window, text='1. Choose or add an SSH host', padding=10)
+        frame.pack(fill='x', padx=12, pady=8)
+        self.host_selected = tk.StringVar()
+        self.host_name = tk.StringVar()
+        self.host_user = tk.StringVar()
+        self.host_choice = ttk.Combobox(frame, textvariable=self.host_selected, state='readonly',
+                                       values=[destination(**row) for row in self.hosts], width=35)
+        self.host_choice.grid(row=0, column=1, sticky='ew')
+        ttk.Label(frame, text='Saved hosts').grid(row=0, column=0, sticky='w')
+        self.host_choice.bind('<<ComboboxSelected>>', lambda event: self.select_host())
+        ttk.Button(frame, text='Add host', command=self.new_host).grid(row=0, column=2, padx=6)
+        ttk.Label(frame, text='Hostname / IP / SSH alias').grid(row=1, column=0, sticky='w')
+        self.host_entry = ttk.Entry(frame, textvariable=self.host_name, width=35)
+        self.host_entry.grid(row=1, column=1, sticky='ew', pady=4)
+        ttk.Label(frame, text='Username (optional)').grid(row=2, column=0, sticky='w')
+        ttk.Entry(frame, textvariable=self.host_user).grid(row=2, column=1, sticky='ew')
+        ttk.Button(frame, text='Save target', command=self.save_host).grid(row=1, column=2, padx=6)
+        ttk.Button(frame, text='Test connection', command=self.test_host).grid(row=2, column=2, padx=6)
+        ttk.Label(frame, text='Uses your existing SSH keys/config. Blank username uses SSH defaults.\n'
+                  'Saving or testing a host never approves deployment. Deploy actions use the fields above.',
+                  wraplength=700).grid(row=3, column=0, columnspan=3, sticky='w', pady=6)
+        if self.hosts:
+            self.host_choice.current(0)
+            self.select_host()
+
+    def select_host(self):
+        index = self.host_choice.current()
+        if index >= 0:
+            self.host_name.set(self.hosts[index]['host'])
+            self.host_user.set(self.hosts[index]['username'])
+
+    def new_host(self):
+        self.host_selected.set('')
+        self.host_name.set('')
+        self.host_user.set('')
+        self.host_entry.focus_set()
+
+    def current_host(self):
+        from workbench_targets import destination
+        return destination(self.host_name.get(), self.host_user.get())
+
+    def save_host(self):
+        from workbench_targets import destination, save
+        try:
+            host = self.current_host()
+            row = {'host': self.host_name.get().strip(), 'username': self.host_user.get().strip()}
+            rows = [item for item in self.hosts if destination(**item) != host] + [row]
+            save(self.host_path, rows)
+            self.hosts = rows
+            self.host_choice.configure(values=[destination(**item) for item in rows])
+            self.host_selected.set(host)
+            self.status.set('Saved '+host+'. No deployment permissions granted.')
+        except Exception as exc:
+            report_ui_error(self.window, 'save_ssh_target', exc)
+
+    def test_host(self):
+        from workbench_targets import test_connection
+        if self.job is not None:
+            self.status.set('Wait for the current target job.')
+            return
+        try:
+            host = self.current_host()
+            submitted = self.controller.submit(self.workspace, 'ssh_connection_test',
+                lambda: test_connection(host), context={'host': host, 'deployment_performed': False})
+            self.job, self.job_kind = submitted['job_id'], 'connection-test'
+            self.status.set('Testing SSH connection to '+host+'…')
+            self.timer = self.window.after(100, self.poll)
+        except Exception as exc:
+            report_ui_error(self.window, 'test_ssh_target', exc)
 
     def plan_summary(self):
         from forge_target_journal import locked
@@ -104,7 +181,10 @@ class TargetPanel:
     def review(self):
         try:
             summary = self.plan_summary() if self.selected.get() else {
-                'configuration': 'Prepare from local files here, or start with --target-policy and --target-policy-sha256. Transactions bind workspace gui.'}
+                'Getting started': 'Enter hostname and username above, then Save target and Test connection. '
+                'Deploy files or Deploy service captures a backup and builds a plan first. '
+                'Review and approve that plan before Apply to hardware. Restore hardware restores the selected plan backup. '
+                'No approved plans yet; saving a host does not create one.'}
             text = json.dumps(summary, indent=2)
             listing = self.controller.call('target_transactions', {'workspace': self.workspace})
             for button in self.reconcile_buttons:
@@ -127,8 +207,10 @@ class TargetPanel:
         if self.job is not None:
             self.status.set('Wait for the current target job.')
             return
-        host = simpledialog.askstring('SSH target', 'Existing SSH hostname or user@hostname:', parent=self.window)
-        if not host:
+        try:
+            host = self.current_host()
+        except ValueError as exc:
+            report_ui_error(self.window, 'deploy_files', exc)
             return
         mappings = []
         while True:
@@ -156,8 +238,10 @@ class TargetPanel:
         if self.job is not None:
             self.status.set('Wait for the current target job.')
             return
-        host = simpledialog.askstring('SSH target', 'Existing SSH hostname or user@hostname:', parent=self.window)
-        if not host:
+        try:
+            host = self.current_host()
+        except ValueError as exc:
+            report_ui_error(self.window, 'deploy_service', exc)
             return
         source = filedialog.askopenfilename(title='Select standalone service unit', parent=self.window)
         if not source:
@@ -360,6 +444,12 @@ class TargetPanel:
             self.timer = self.window.after(100, self.poll)
             return
         self.job = None
+        if self.job_kind == 'connection-test':
+            if result['status'] == 'completed':
+                self.status.set('Connected to '+result['result']['host']+'. No deployment permissions granted.')
+            else:
+                self.status.set('SSH test '+result['status']+': '+str(result.get('error', '')))
+            return
         self.choice.configure(state='readonly')
         listing = self.controller.call('target_transactions', {'workspace': self.workspace})
         for button in self.buttons:

@@ -199,6 +199,8 @@ def build_qemu(jobs):
     subprocess.run(['ninja', f'-j{jobs}', 'qemu-system-aarch64', 'qemu-img'], cwd=build, check=True)
     subprocess.run([str(build / 'qemu-system-aarch64'), '--version'], check=True)
     subprocess.run([str(build / 'qemu-img'), '--version'], check=True)
+    from workbench_emulator import record
+    record(build, RESOURCE_ROOT)
     publish_build(ROOT, build)
 
 

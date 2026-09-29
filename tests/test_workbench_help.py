@@ -138,16 +138,22 @@ class HelpTests(unittest.TestCase):
         button.destroy()
         self.assertIsNone(tooltip.window)
 
-    def test_missing_workspace_is_logged_and_has_import_guidance(self):
+    def test_missing_workspace_opens_setup_instead_of_error(self):
         from uconsole_workbench import Workbench
         with tempfile.TemporaryDirectory() as directory:
             app = Workbench(self.root, Path(directory) / 'new-workspace')
             app.diagnostics.path = Path(directory) / 'logs/application.jsonl'
-            with patch('uconsole_workbench.details_window') as details, patch('sys.stderr'):
+            app.show_setup()
+            app.setup_panel.custom_image.set(True)
+            with patch('uconsole_workbench.details_window') as details, patch('sys.stderr'), \
+                    patch('uconsole_workbench.filedialog.askopenfilename', return_value=''), \
+                    patch('workbench_setup.Setup.check_packages', lambda panel, **kwargs:
+                          (setattr(panel, 'dependencies_checked', True), panel.advance())), \
+                    patch('workbench_setup.Setup.probe', lambda panel, directory:
+                          (setattr(panel, 'emulator_checked', True), panel.advance())):
                 app.guard(app.start)
-            self.assertIn('Import guest image', details.call_args.args[2])
-            record = json.loads(app.diagnostics.path.read_text())
-            self.assertEqual(record['action'], 'start')
+            details.assert_not_called()
+            self.assertIn('cancelled', app.setup_panel.status.get())
             app.show_help('Images and checkpoints')
             self.assertIn('Import', app.guide.body.get('1.0', 'end'))
             self.assertIn('No guest image prepared', app.status.get())

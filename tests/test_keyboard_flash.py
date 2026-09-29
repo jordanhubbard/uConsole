@@ -188,9 +188,34 @@ class PackageTest(unittest.TestCase):
         self.assertEqual(output.name, 'uconsole_keyboard_flash-macos-arm64.tar.gz')
 
     def test_staged_install_contains_firmware_bundle_and_source(self):
+        # This installation unit test uses an explicit synthetic emulator.
+        # Real pinned compilation and relocated binary execution are covered by
+        # native archive qualification; unit tests must not download QEMU.
+        import shlex
+        import sys
+        sys.path.insert(0, str(ROOT / 'tools'))
+        from workbench_emulator import record as emulator_record
+        from build_emulator_qemu import VERSION
+        emulator = self.build / 'emulator/qemu-build'
+        emulator.mkdir(parents=True)
+        for name in ('qemu-system-aarch64', 'qemu-img'):
+            (emulator / name).write_text('#!/bin/sh\nexit 0\n')
+            (emulator / name).chmod(0o755)
+        emulator_record(emulator, ROOT)
+        source = emulator / 'qemu-source'
+        (source / 'pc-bios/keymaps').mkdir(parents=True)
+        for name in ('COPYING', 'COPYING.LIB'):
+            (source / name).write_text('Synthetic fixture')
+        (self.build / f'emulator/qemu-{VERSION}.tar.xz').write_bytes(b'fixture')
+        shim = self.build / 'test-bin'
+        shim.mkdir()
+        (shim / 'python3').write_text('#!/bin/sh\ncase "$1" in\n'
+            '*/tools/build_emulator_qemu.py) exit 0;;\nesac\n'
+            f'exec {shlex.quote(sys.executable)} "$@"\n')
+        (shim / 'python3').chmod(0o755)
         destination = self.build / 'install root'
         env = dict(os.environ, BUILD_DIR=str(self.build), DESTDIR=str(destination),
-                   PREFIX='/usr/local')
+                   PREFIX='/usr/local', PATH=str(shim) + os.pathsep + os.environ['PATH'])
         result = subprocess.run(['bash', str(ROOT / 'scripts/platform.sh'), 'install'],
                                 cwd=ROOT, env=env, capture_output=True, text=True,
                                 timeout=30)

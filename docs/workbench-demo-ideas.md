@@ -3,7 +3,7 @@
 Status: implemented, requested 2026-09-27. Not part of the
 published v1.1.1 help/diagnostics release.
 
-View → Live functional schematic opens a Canvas
+The Live Schematic toolbar button opens a Canvas
 component map, source-symbol navigation, search, pan/zoom and a text inspector.
 Sources open as inspection copies in the Host editor; saving requires choosing
 a destination, and unsaved edits are protected. The model distinguishes unknown,
@@ -37,7 +37,7 @@ block statistics do not account for this SD model.
 
 ## Running and qualifying the demo
 
-1. Open View → Live functional schematic. It also works without a guest for
+1. Click Live Schematic. It also works without a guest for
    source navigation, schematic inspection and recorded playback.
 2. For live keyboard activity, select composite keyboard before booting the
    guest. Use Keyboard deck to exercise the firmware-backed input path. Use the

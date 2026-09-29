@@ -11,7 +11,7 @@ import sys
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
-from uconsole_emulator import BUILD_ROOT, DEFAULT, ROOT, SURROGATE_SCHEMA, DISPLAY_BACKENDS, parser, command, qmp
+from uconsole_emulator import BUILD_ROOT, DEFAULT, ROOT, SURROGATE_SCHEMA, DISPLAY_BACKENDS, native_display, parser, command, qmp
 from uconsole_agent import ANSI, context_markdown, inspect as agent_inspect, load_tasks
 from forge_scenario import Scenario, PROPERTIES, validate_value
 from forge_replay import Replay
@@ -82,15 +82,16 @@ class Workbench:
         root.minsize(800, 650)
         toolbar = WrappingToolbar(root, padding=6)
         toolbar.pack(fill='x')
-        self.mode = tk.StringVar(value='maintenance')
+        self.mode = tk.StringVar(value='desktop')
         ttk.Combobox(toolbar, textvariable=self.mode, values=['maintenance', 'normal', 'desktop'], state='readonly', width=14).pack(side='left')
-        self.display = tk.StringVar(value='none')
+        self.display = tk.StringVar(value=native_display())
         ttk.Combobox(toolbar, textvariable=self.display, values=DISPLAY_BACKENDS,
                      state='readonly', width=7).pack(side='left', padx=2)
         for label, action in [('Start', self.start), ('Pause', lambda: self.control('stop')),
                               ('Resume', lambda: self.control('cont')), ('Power off', self.poweroff),
                               ('Export image', self.export), ('Open file', self.open_file), ('Save', self.save_file),
-                              ('Copy to guest', self.copy_to_guest)]:
+                              ('Copy to guest', self.copy_to_guest), ('Live Schematic', self.show_schematic),
+                              ('Setup', self.show_wizard)]:
             ttk.Button(toolbar, text=label, command=lambda fn=action: self.guard(fn)).pack(side='left', padx=2)
         agentbar = WrappingToolbar(root, padding=(6, 0, 6, 6))
         agentbar.pack(fill='x')
@@ -177,11 +178,14 @@ class Workbench:
         self.editor = tk.Text(edit_frame, undo=True, wrap='none', font='TkFixedFont', height=12)
         self.editor.pack(fill='both', expand=True)
         panes.add(edit_frame, weight=1)
-        console_frame = ttk.Labelframe(panes, text='Guest serial console (line input; not a terminal emulator)')
-        self.console = tk.Text(console_frame, wrap='word', state='disabled', font='TkFixedFont', height=16, background='#151a20', foreground='#d8e4ef')
+        console_frame = ttk.Labelframe(panes, text='Guest terminal — 80×24 • click to type • Ctrl+Shift+C/V copy/paste')
+        from workbench_terminal import Terminal
+        self.console = Terminal(console_frame, lambda data: self.guard(lambda: self.send_terminal(data)))
         self.console.pack(fill='both', expand=True)
-        self.console.bind('<Control-c>', self.copy_selection)
-        self.console.bind('<Command-c>', self.copy_selection)
+        terminal_scroll = ttk.Scrollbar(console_frame, orient='horizontal', command=self.console.xview)
+        terminal_scroll.pack(fill='x')
+        self.console.configure(xscrollcommand=terminal_scroll.set)
+        self.console.bind('<Command-c>', self.console.copy)
         self.console.bind('<Button-3>', self.console_menu)
         self.editor.bind('<Button-3>', self.editor_menu)
         panes.add(console_frame, weight=2)
@@ -206,9 +210,6 @@ class Workbench:
             self.status.set(f'Stopped • {self.workspace} • {firmware}{suffix}')
         root.protocol('WM_DELETE_WINDOW', self.close)
         menu = tk.Menu(root)
-        view_menu = tk.Menu(menu, tearoff=False)
-        view_menu.add_command(label='Live functional schematic', command=lambda: self.guard(self.show_schematic))
-        menu.add_cascade(label='View', menu=view_menu)
         help_menu = tk.Menu(menu, tearoff=False)
         help_menu.add_command(label='User guide (F1)', command=self.show_help)
         help_menu.add_command(label='Getting started', command=self.show_help)
@@ -336,7 +337,8 @@ class Workbench:
     def console_menu(self, event):
         menu = tk.Menu(self.root, tearoff=False)
         menu.add_command(label='Copy selection', command=lambda: self.guard(self.copy_selection))
-        menu.add_command(label='Copy all boot output', command=self.copy_console)
+        menu.add_command(label='Copy terminal screen', command=self.copy_console)
+        menu.add_command(label='Paste into terminal…', command=lambda: self.guard(self.console.paste))
         menu.add_command(label='Copy agent context', command=self.copy_context)
         menu.tk_popup(event.x_root, event.y_root)
 
@@ -350,12 +352,19 @@ class Workbench:
 
     def save_transcript(self):
         name = filedialog.asksaveasfilename(parent=self.root, defaultextension='.txt',
-                                            title='Save clean serial transcript')
+                                            title='Save serial transcript')
         if name:
             target = Path(name)
             if target.exists():
                 raise ValueError('Choose a new transcript path')
-            target.write_text(self.console.get('1.0', 'end-1c'))
+            serial_log = self.workspace / 'serial.log'
+            if serial_log.is_file():
+                import shutil
+                with serial_log.open('rb') as source, target.open('xb') as output:
+                    shutil.copyfileobj(source, output)
+            else:
+                with target.open('x') as output:
+                    output.write(self.console.get('1.0', 'end-1c'))
             self.status.set(f'Saved transcript to {target}')
 
     def release_serial(self):
@@ -499,7 +508,7 @@ class Workbench:
             schematic.window.lift()
         else:
             self.schematic = Schematic(self.root, lambda source: self.guard(lambda: self.schematic_source(source)),
-                                       runtime=lambda: self.runtime)
+                                       runtime=lambda: self.runtime, configure=lambda: self.guard(self.show_wizard))
             self.schematic.window.bind('<F1>', lambda event: self.show_help('Live schematic'))
             self.schematic.help_hints = attach_hints(self.schematic.window, self.show_help)
 
@@ -522,6 +531,23 @@ class Workbench:
         self.root.deiconify()
         self.root.lift()
         self.editor.focus_set()
+
+    def show_wizard(self):
+        from workbench_wizard import Wizard
+        wizard = getattr(self, 'setup_wizard', None)
+        if wizard is not None and wizard.window.winfo_exists():
+            wizard.window.lift()
+        else:
+            self.setup_wizard = Wizard(self)
+
+    def show_setup(self):
+        from workbench_setup import Setup
+        panel = getattr(self, 'setup_panel', None)
+        if panel is not None and panel.window.winfo_exists():
+            panel.refresh()
+            panel.window.lift()
+        else:
+            self.setup_panel = Setup(self, ROOT, BUILD_ROOT)
 
     def show_help(self, topic='Getting started'):
         guide = getattr(self, 'guide', None)
@@ -566,12 +592,7 @@ class Workbench:
         self.start_lifecycle(arguments, 'Import')
 
     def append(self, text):
-        self.console.configure(state='normal')
-        self.console.insert('end', ANSI.sub('', text).replace('\r', ''))
-        if int(self.console.index('end-1c').split('.')[0]) > 3000:
-            self.console.delete('1.0', '1000.0')
-        self.console.see('end')
-        self.console.configure(state='disabled')
+        self.console.feed(text.replace('\r\n', '\n').replace('\n', '\r\n'))
 
     def scenario_editable(self):
         if self.agent_job is not None:
@@ -599,6 +620,15 @@ class Workbench:
         self.scenario_label.set('Next boot: default power state')
 
     def start(self):
+        panel = getattr(self, 'setup_panel', None)
+        if panel is not None and panel.window.winfo_exists() and panel.flow_active:
+            panel.window.lift()
+            return
+        self.check_startable()
+        self.show_setup()
+        self.setup_panel.begin()
+
+    def check_startable(self):
         if self.agent_job is not None:
             raise ValueError('Wait for the attached agent job to finish')
         if self.boot_job is not None:
@@ -611,10 +641,16 @@ class Workbench:
             raise ValueError('This workbench already owns a running emulator')
         if self.display_setup is not None:
             raise ValueError('Surrogate desktop setup is already running')
+
+    def _start_prepared(self):
+        self.check_startable()
         if not (self.workspace / 'machine.json').is_file():
-            raise ValueError(f'No prepared Linux guest workspace: {self.workspace / "machine.json"} is missing. '
-                             'Use Image → Import guest image, or restart with --workspace pointing at a prepared workspace. '
-                             'The bundled keyboard firmware is not a Linux guest image. Press F1 for Getting started.')
+            self.show_setup()
+            return
+        from workbench_emulator import selected
+        if selected(ROOT, BUILD_ROOT) is None:
+            self.show_setup()
+            return
         config = json.loads((self.workspace / 'machine.json').read_text())
         if (self.mode.get() == 'desktop' and
                 config.get('surrogate_desktop', {}).get('schema') != SURROGATE_SCHEMA):
@@ -644,8 +680,12 @@ class Workbench:
         self.active_mode = args.mode
         self.shutdown_requested = False
         self.decoder.reset()
+        self.console.reset_terminal()
         self.log = None
         self.status.set(f'Booting {self.active_mode} • job {self.boot_job}')
+        if self.active_mode == 'maintenance':
+            self.append('Maintenance starts a root shell, not the desktop. Kernel messages may hide the prompt; '
+                        'press Enter in the serial input field to redraw it. Display none opens no graphics window.\n')
         self.append(f'Boot job {self.boot_job}; durable history: {self.lifecycle_path}\n')
 
     def keyboard_deck(self):
@@ -815,6 +855,22 @@ class Workbench:
             raise ValueError('Serial console is not connected yet')
         self.serial.sendall((self.entry.get() + '\n').encode())
         self.entry.delete(0, 'end')
+
+    def send_terminal(self, data):
+        self.require_guest_idle()
+        if self.serial is None:
+            raise ValueError('Serial console is not connected yet')
+        self.serial.sendall(data)
+
+    def terminal_reply(self, data):
+        # Device-status replies are allowed only on the current idle serial
+        # connection, never while an agent owns it or during offline replay.
+        try:
+            self.require_guest_idle()
+            if self.serial is not None:
+                self.serial.sendall(data)
+        except (ValueError, OSError):
+            pass
 
     def poweroff(self):
         self.require_no_replay()
@@ -1080,7 +1136,8 @@ class Workbench:
         self.append(json.dumps(result, indent=2) + '\n')
         if result['status'] == 'cancelled':
             self.append('Cancellation does not undo committed image changes. Inspect state before retrying.\n')
-        if pending and result['status'] == 'completed':
+        panel = getattr(self, 'setup_panel', None)
+        if pending and result['status'] == 'completed' and not (panel and panel.flow_active):
             self.guard(self.start)
 
     def checkpoint(self):
@@ -1167,7 +1224,7 @@ class Workbench:
                 self.log = (self.workspace / 'serial.log').open('rb')
             if self.log:
                 text = self.decoder.decode(self.log.read(65536))
-                self.append(text)
+                self.console.feed(text, reply=self.terminal_reply if self.serial is not None else None)
             if (self.serial is None and self.process.poll() is None and self.transfer is None
                     and self.agent_job is None
                     and self.guest_job is None
@@ -1213,6 +1270,15 @@ class Workbench:
             self.runtime = None
 
     def close(self):
+        panel = getattr(self, 'setup_panel', None)
+        if panel is not None and panel.flow_active:
+            panel.window.lift()
+            panel.cancel_flow()
+            return
+        if panel is not None and panel.process is not None:
+            panel.window.lift()
+            panel.cancel()
+            return
         if self.recovery_panel is not None and self.recovery_panel.job is not None:
             messagebox.showinfo('Recovery job in progress',
                                 'Keep Workbench open until the recovery job reaches a known terminal state.', parent=self.root)
@@ -1313,11 +1379,14 @@ def main():
         p.error('--agent-allow and --agent-files-root require --agent-socket')
     try:
         root = tk.Tk()
-        Workbench(root, args.workspace, args.qmp_port, args.serial_port,
+        app = Workbench(root, args.workspace, args.qmp_port, args.serial_port,
                   host_task_policy=args.host_task_policy, host_task_sha256=args.host_task_policy_sha256,
                   target_policy=args.target_policy, target_policy_sha256=args.target_policy_sha256,
                   recovery_policy=args.recovery_policy, recovery_policy_sha256=args.recovery_policy_sha256,
                   agent_socket=args.agent_socket, agent_grants=args.agent_allow, agent_files_root=args.agent_files_root)
+        from workbench_emulator import selected
+        if not (app.workspace / 'machine.json').is_file() or selected(ROOT, BUILD_ROOT) is None:
+            app.show_setup()
     except Exception as exc:
         Diagnostics(args.workspace).emit('startup_failed', 'initialize', exc)
         raise

@@ -30,6 +30,13 @@ class WorkbenchTests(unittest.TestCase):
         self.root = tk.Tk()
         self.root.withdraw()
         self.app = Workbench(self.root, Path(self.temporary.name))
+        self.default_display = self.app.display.get()
+        self.default_mode = self.app.mode.get()
+        self.app.mode.set('maintenance')
+        self.app.display.set('none')
+        # These tests exercise the prepared-workspace lifecycle primitive.
+        # The public Start coordinator has separate staged-workflow tests.
+        self.app.start = self.app._start_prepared
         self.app.diagnostics.path = Path(self.temporary.name) / 'diagnostics/application.jsonl'
 
     def tearDown(self):
@@ -44,7 +51,7 @@ class WorkbenchTests(unittest.TestCase):
         gc.collect()
         self.temporary.cleanup()
 
-    def test_display_selector_includes_native_macos_backend_and_keeps_headless_default(self):
+    def test_display_selector_defaults_to_native_desktop(self):
         pending = [self.root]
         matches = []
         while pending:
@@ -54,7 +61,8 @@ class WorkbenchTests(unittest.TestCase):
                 matches.append(widget)
         self.assertEqual(len(matches), 1)
         self.assertIn('cocoa', matches[0]['values'])
-        self.assertEqual(self.app.display.get(), 'none')
+        self.assertEqual(self.default_display, 'cocoa' if sys.platform == 'darwin' else 'gtk')
+        self.assertEqual(self.default_mode, 'desktop')
 
     def test_editor_saves_exact_content_and_tracks_unsaved_edits(self):
         path = Path(self.temporary.name) / 'example.txt'
@@ -70,7 +78,7 @@ class WorkbenchTests(unittest.TestCase):
         panel = self.app.physical_target()
         self.assertIs(self.app.physical_target(), panel)
         self.assertTrue(all('disabled' in button.state() for button in panel.buttons))
-        self.assertIn('--target-policy', panel.details.get('1.0', 'end'))
+        self.assertIn('Save target', panel.details.get('1.0', 'end'))
         panel.job = 'physical-job'
         with patch('uconsole_workbench.messagebox.showinfo') as notice:
             self.app.close()
@@ -1077,7 +1085,7 @@ class WorkbenchTests(unittest.TestCase):
     def test_console_uses_shared_osc_hyperlink_cleanup(self):
         self.app.append('\x1b]8;;file://guest/etc/service\x1b\\service\x1b]8;;\x1b\\\r\n')
         output = self.app.console.get('1.0', 'end')
-        self.assertIn('service\n', output)
+        self.assertEqual(output.splitlines()[0].rstrip(), 'service')
         self.assertNotIn('\x1b', output)
         self.assertNotIn('file://guest', output)
 

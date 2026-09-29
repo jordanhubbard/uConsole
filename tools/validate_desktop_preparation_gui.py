@@ -112,9 +112,10 @@ def exercise(workspace, cancel):
 
     try:
         with patch('uconsole_workbench.history_default_path', return_value=workspace / 'jobs.sqlite3'), \
+                patch.object(app, 'start', side_effect=app._start_prepared), \
                 patch('forge_controller.subprocess.Popen', side_effect=launch), \
                 patch.object(app, 'launch_locked', side_effect=lambda args: continuation.append(args.mode)):
-            app.start()
+            app._start_prepared()  # Isolate the desktop-preparation primitive.
             record['job_id'] = app.lifecycle
             root.after(50, poll)
             root.mainloop()

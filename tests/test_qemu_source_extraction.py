@@ -70,6 +70,8 @@ class BuildGenerationTests(unittest.TestCase):
                     stream.addfile(member, io.BytesIO(data))
             patches = root / 'Code/patch/qemu'
             patches.mkdir(parents=True)
+            (root / 'tools').mkdir()
+            (root / 'tools/build_emulator_qemu.py').write_text('fixture builder')
             patch = patches / 'fixture.patch'
             model = patches / 'fixture.h'
             model.write_text('first model')

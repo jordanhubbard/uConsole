@@ -19,6 +19,11 @@ class TargetPanelTests(unittest.TestCase):
         from forge_target_gui import TargetPanel
         self.root = tk.Tk()
         self.root.withdraw()
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        config = patch('workbench_targets.default_path', return_value=Path(self.temp.name) / 'hosts.json')
+        config.start()
+        self.addCleanup(config.stop)
         self.owner = MagicMock()
         self.owner.call.return_value = {'execution_granted': True, 'transactions': [{'name': 'proof'}]}
         with patch.object(TargetPanel, 'review'):
@@ -101,7 +106,8 @@ class TargetPanelTests(unittest.TestCase):
                 TargetPanel.plan_summary(self.panel)
 
     def test_declined_service_preparation_does_not_submit(self):
-        with patch('forge_target_gui.simpledialog.askstring', side_effect=['target', 'proof.service']), \
+        self.panel.host_name.set('target')
+        with patch('forge_target_gui.simpledialog.askstring', return_value='proof.service'), \
                 patch('forge_target_gui.filedialog.askopenfilename', return_value='/tmp/proof.service'), \
                 patch('forge_target_gui.filedialog.askdirectory', return_value='/tmp'), \
                 patch('forge_target_gui.messagebox.askyesno', return_value=False):

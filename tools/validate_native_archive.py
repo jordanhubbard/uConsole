@@ -110,6 +110,25 @@ try:
     app = Workbench(root, pathlib.Path(sys.argv[1]))
     root.update()
     if app.audio.get() != 'none': raise RuntimeError('Audio default changed')
+    menu = root.nametowidget(root.cget('menu'))
+    labels = [menu.entrycget(i, 'label') for i in range(menu.index('end')+1)
+              if menu.type(i) == 'cascade']
+    if labels != ['Help']:
+        raise RuntimeError('Help must be the only top-level menu')
+    app.show_wizard()
+    app.setup_wizard.show(3)
+    root.update()
+    if app.setup_wizard.next_button.cget('text') != 'Finish':
+        raise RuntimeError('Packaged setup wizard has no Finish action')
+    app.setup_wizard.window.destroy()
+    app.console.feed('hello\\rX\\x1b[31mR\\x1b[0m'.encode().decode('unicode_escape'))
+    if app.console.get('1.0', '1.5') != 'XRllo':
+        raise RuntimeError('Packaged VT terminal cursor rendering failed')
+    app.console.reset_terminal()
+    app.physical_target()
+    if not hasattr(app.target_panel, 'host_entry'):
+        raise RuntimeError('Missing SSH host configuration')
+    app.target_panel.close()
     from forge_scenario import PROPERTIES
     if not {'adc_input_uv', 'adc_powered'} <= PROPERTIES.keys():
         raise RuntimeError('Missing packaged ADC controls')
@@ -126,9 +145,24 @@ try:
     if 'Errors and diagnostics' not in app.guide.matches:
         raise RuntimeError('Packaged offline guide is missing troubleshooting content')
     app.diagnostics.path = pathlib.Path(sys.argv[1]).parent / 'diagnostics/application.jsonl'
-    app.guard(app.start)  # No image: exercise the actual error UI and persistence.
+    from unittest.mock import patch
+    app.show_setup()
+    app.setup_panel.custom_image.set(True)
+    with patch('uconsole_workbench.filedialog.askopenfilename', return_value=''):
+        app.guard(app.start)
+        import time
+        deadline = time.monotonic() + 10
+        while app.setup_panel.flow_active and time.monotonic() < deadline:
+            root.after(20, root.quit)
+            root.mainloop()
+    if 'cancelled' not in app.setup_panel.status.get():
+        raise RuntimeError('Missing guest did not offer cancellable image selection')
+    app.setup_panel.close()
+    def diagnostic_fixture():
+        raise ValueError('Diagnostic test fixture: machine.json is missing')
+    app.guard(diagnostic_fixture)  # Exercise actual error UI independently of setup.
     diagnostic = json.loads(app.diagnostics.path.read_text())
-    if diagnostic['action'] != 'start' or 'machine.json' not in diagnostic['message']:
+    if diagnostic['action'] != 'diagnostic_fixture' or 'machine.json' not in diagnostic['message']:
         raise RuntimeError('Packaged missing-image diagnostics failed')
     root.update()
     error_window = next(child for child in root.winfo_children()
@@ -211,6 +245,18 @@ def run(archive, output, *, gui=False, preferred_python=None):
                       'Code/patch/qemu/adc101c-reference-profile.patch']
         record['adc_assets'] = {name: sha256(resources / name) for name in adc_assets}
         record['qemu_build_inputs'] = check_qemu_sources(resources)
+        from workbench_emulator import selected
+        emulator = selected(resources, output / 'empty-build-data')
+        if emulator != resources / 'emulator/bin':
+            raise ValueError('Package does not contain a matching standalone emulator')
+        record['bundled_emulator'] = {}
+        for binary, arguments in [('qemu-system-aarch64', ['-machine', 'help']), ('qemu-img', ['--version'])]:
+            result = subprocess.run([str(emulator / binary), *arguments], cwd=output,
+                                    capture_output=True, text=True, timeout=30)
+            record['bundled_emulator'][binary] = dict(exit_code=result.returncode,
+                                                     stdout=result.stdout, stderr=result.stderr)
+            if result.returncode or (binary == 'qemu-system-aarch64' and 'raspi4b' not in result.stdout):
+                raise ValueError('Bundled emulator failed: ' + binary)
         record['agent_skill'] = check_skill(payload)
         env = dict(os.environ, XDG_DATA_HOME=str(output / 'user-data'))
         if preferred_python is not None:

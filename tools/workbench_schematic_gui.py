@@ -13,11 +13,35 @@ from workbench_help import Tooltip
 
 COLORS = {'unknown': '#475569', 'present': '#2563eb', 'configured': '#0369a1',
           'active': '#15803d', 'fault': '#b91c1c', 'disconnected': '#64748b',
-          'stale': '#92400e'}
+          'stale': '#92400e', 'off': '#475569', 'disabled': '#64748b', 'unavailable': '#92400e',
+          'waiting': '#475569'}
+
+
+def presentation(observation, component, *, running, replay=False):
+    """UI vocabulary does not rewrite retained observation evidence."""
+    value = dict(observation)
+    if not running and not replay:
+        value.update(state='off', detail='Emulator is off. Press Start in Workbench. '
+                     'SSH targets do not supply live schematic telemetry.', source='', time=None)
+    elif value['state'] == 'unknown':
+        value['state'] = 'unavailable' if value['source'] else 'waiting'
+        if not value['source']:
+            value['detail'] = 'Waiting for the first observation.' if not replay else 'No observation in this recording yet.'
+    elif value['state'] == 'disconnected' and value['source'] == 'QOM inventory':
+        value['state'] = 'disabled'
+        value['detail'] += ' Not included in this emulator configuration.'
+    guidance = {
+        'keyboard': 'To enable the composite keyboard, shut down and choose Setup → Emulated hardware → Keyboard: composite, then Finish. Generic input does not expose composite keyboard telemetry.',
+        'audio': 'To enable audio, shut down and choose a non-none Audio surrogate in Setup, then Finish. For an already enabled device, use Audio controls → Connect.',
+        'modem': 'To enable the modem, shut down and choose Modem: composite in Setup, then Finish. For an already enabled device, use Modem controls → Connect USB.',
+    }
+    if value['state'] in ('disabled', 'disconnected'):
+        value['detail'] += '\n\n' + guidance.get(component, 'No interactive connection control is available for this component.')
+    return value
 
 
 class Schematic:
-    def __init__(self, parent, navigate, runtime=lambda: None, source_root=None):
+    def __init__(self, parent, navigate, runtime=lambda: None, source_root=None, configure=None):
         self.navigate = navigate
         if source_root is None:
             from uconsole_emulator import ROOT
@@ -44,10 +68,12 @@ class Schematic:
         self.mode = tk.StringVar(value='LIVE • no owned emulator attached')
         ttk.Label(self.window, textvariable=self.mode, padding=8).pack(fill='x')
         ttk.Label(self.window, text='Functional relationships, not electrical simulation. '
-                  'Blue = present/configured · Green = observed activity · Amber = stale · Gray = unknown',
+                  'Blue = present/configured · Green = observed activity · Amber = stale/unavailable · Gray = off/disabled/waiting',
                   wraplength=1050).pack(fill='x', padx=8)
         toolbar = WrappingToolbar(self.window, padding=8)
         toolbar.pack(fill='x')
+        if configure is not None:
+            ttk.Button(toolbar, text='Configure devices…', command=configure).pack(side='left', padx=4)
         ttk.Button(toolbar, text='Zoom +', command=lambda: self.zoom(1.2)).pack(side='left')
         ttk.Button(toolbar, text='Zoom −', command=lambda: self.zoom(1 / 1.2)).pack(side='left')
         ttk.Button(toolbar, text='Reset view', command=self.reset).pack(side='left')
@@ -215,13 +241,15 @@ class Schematic:
     def refresh(self):
         now = time.monotonic() if self.view_time is None else self.view_time
         for component in COMPONENTS:
-            observation = self.observations.view(component.id, now)
+            observation = presentation(self.observations.view(component.id, now), component.id,
+                                       running=self.observations.identity is not None, replay=self.playback is not None)
             self.canvas.itemconfigure(self.boxes[component.id], fill=COLORS[observation['state']],
                                       width=4 if component.id == self.selected else 2)
             self.canvas.itemconfigure(self.labels[component.id], text=component.label + '\n' + observation['state'])
         if self.selected:
             component = BY_ID[self.selected]
-            observation = self.observations.view(self.selected, now)
+            observation = presentation(self.observations.view(self.selected, now), self.selected,
+                                       running=self.observations.identity is not None, replay=self.playback is not None)
             text = (f'{component.label}\n\n{component.hardware}\n\n{component.fidelity}\n\n'
                             f'Reference: {component.reference}\n\n'
                             f'{observation["state"]}: {observation["detail"]}\n'
@@ -254,7 +282,8 @@ class Schematic:
             self.trace_status.set('Recording stopped: owned runtime changed. Save the retained observations.')
         self.collector.bind(runtime)
         self.observations.bind(runtime.identity if runtime else None)
-        self.mode.set('LIVE • ' + (runtime.identity if runtime else 'no owned emulator attached'))
+        self.mode.set('LIVE • ' + (runtime.identity if runtime else 'Emulator off — press Start in Workbench')
+                      + ' • SSH target telemetry is not supported')
         for event in self.collector.take() or ():
             if self.observations.accept(event) and self.recording_active:
                 self.recording.append(event)
