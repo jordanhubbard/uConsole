@@ -27,6 +27,11 @@ class WorkbenchTests(unittest.TestCase):
                         return_value=Path(self.temporary.name) / 'private/jobs.sqlite3')
         history.start()
         self.addCleanup(history.stop)
+        # Prepared-workspace lifecycle tests mock Runtime.start below. They must
+        # not depend on a developer's cached QEMU existing on the test host.
+        emulator = patch('workbench_emulator.selected', return_value=Path(self.temporary.name) / 'mock-qemu')
+        emulator.start()
+        self.addCleanup(emulator.stop)
         self.root = tk.Tk()
         self.root.withdraw()
         self.app = Workbench(self.root, Path(self.temporary.name))

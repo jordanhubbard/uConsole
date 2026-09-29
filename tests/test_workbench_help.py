@@ -146,6 +146,7 @@ class HelpTests(unittest.TestCase):
             app.show_setup()
             app.setup_panel.custom_image.set(True)
             with patch('uconsole_workbench.details_window') as details, patch('sys.stderr'), \
+                    patch('workbench_setup.selected', return_value=Path(directory) / 'mock-qemu'), \
                     patch('uconsole_workbench.filedialog.askopenfilename', return_value=''), \
                     patch('workbench_setup.Setup.check_packages', lambda panel, **kwargs:
                           (setattr(panel, 'dependencies_checked', True), panel.advance())), \
