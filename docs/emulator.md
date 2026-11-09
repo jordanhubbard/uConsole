@@ -20,7 +20,9 @@ completion defect exposed by firmware GPT reads.
 
 The independent [Pi5 FreeBSD SD bootstrap](emulator-pi5-freebsd.md) uses a
 separate Cortex-A76/BCM2712 machine and reaches real multi-user through serial
-login. This is distinct from the Pi4-based selected PCIe2 contract target.
+login. Its additional firmware lane exercises actual U-Boot, EFI loading and
+durable diagnostic capture with framebuffer output. Both remain distinct from
+the Pi4-based selected PCIe2 contract target.
 
 ## Research and adoption decision
 

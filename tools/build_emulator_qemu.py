@@ -30,7 +30,9 @@ PATCHES = ['dummy-cpu-darwin-wakeup.patch', 'bcm2835-watchdog-timer.patch', 'ras
            'forge-observation-counters.patch', 'bcm2838-rng200.patch', 'bcm2838-pcie-disconnected.patch', 'bcm2838-genet-disconnected.patch', 'sdhci-manual-cmd12.patch', 'sd-acmd22-wire-endian.patch',
            'bcm2838-pcie-connected.patch', 'bcm2835-framebuffer-bus-alias.patch',
            'xhci-no-msix-migration.patch', 'xhci-compact-mmio.patch', 'bcm2711-avs-thermal.patch', 'xhci-chained-ioc.patch', 'raspi4-memory-profiles.patch', 'bcm2838-genet-network.patch', 'raspi4-fdt-pcie.patch', 'bcm2712-pcie2-contract.patch', 'raspi5-machine.patch']
-MODEL_SOURCES = [('bcm2712_boot.c', 'hw/misc/bcm2712_boot.c'),
+MODEL_SOURCES = [('bcm2712_mip.c', 'hw/misc/bcm2712_mip.c'),
+                 ('bcm2712_mip.h', 'include/hw/misc/bcm2712_mip.h'),
+                 ('bcm2712_boot.c', 'hw/misc/bcm2712_boot.c'),
                  ('bcm2712_boot.h', 'include/hw/misc/bcm2712_boot.h'),
                  ('raspi5.c', 'hw/arm/raspi5.c'),
                  ('bcm2712_pcie2_contract.c', 'hw/misc/bcm2712_pcie2_contract.c'),
