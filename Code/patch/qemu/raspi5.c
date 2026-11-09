@@ -3,7 +3,9 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * Model scope: Cortex-A76/PSCI, GIC-400, debug PL011, SDHCI and
- * boot-time pin configuration. VideoCore boot ROM and RP1 are not emulated.
+ * boot-time pin configuration, firmware mailbox/framebuffer, SDIO host,
+ * watchdog, SPI and MIP0 host-edge delivery. VideoCore boot ROM, RP1 and
+ * the SDIO Wi-Fi card are not emulated.
  * Address/interrupt references: enrolled BCM2712 D0 firmware FDT and
  * raspberrypi/linux bcm2712.dtsi. No BCM2711 machine is inherited.
  */
@@ -18,8 +20,15 @@
 #include "hw/char/pl011.h"
 #include "hw/sd/sdhci.h"
 #include "hw/sd/sd.h"
+#include "hw/ssi/bcm2835_spi.h"
 #include "hw/misc/bcm2838_rng.h"
 #include "hw/misc/bcm2712_boot.h"
+#include "hw/misc/bcm2712_mip.h"
+#include "hw/misc/bcm2835_mbox.h"
+#include "hw/misc/bcm2835_property.h"
+#include "hw/misc/bcm2835_powermgt.h"
+#include "hw/display/bcm2835_fb.h"
+#include "hw/nvram/bcm2835_otp.h"
 #include "hw/qdev-properties.h"
 #include "hw/qdev-properties-system.h"
 #include "system/address-spaces.h"
@@ -40,21 +49,37 @@ struct Raspi5MachineState {
     ARMCPU *cpu[PI5_CPUS];
     DeviceState *gic;
     struct arm_boot_info boot;
+    MemoryRegion mbox_mr;
+    MemoryRegion mbox_regs;
+    uint32_t board_rev;
+    MemoryRegion vc_dma_mr;
+    MemoryRegion vc_alias[4];
 
 };
 
 static void raspi5_modify_dtb(const struct arm_boot_info *info, void *fdt)
 {
     MachineState *ms = MACHINE(qdev_get_machine());
-    uint32_t banks[12];
+    uint32_t banks[15];
     unsigned count = 0;
     /* The firmware root uses 2 address cells and 1 size cell. Encode all
      * banks as tuples in ONE memory node: the FreeBSD Linux boot ABI's
      * fdt_foreach_mem_region reads that node's complete reg property. */
     for (uint64_t base = 0; base < ms->ram_size; base += 2 * GiB) {
-        banks[count++] = cpu_to_be32(base >> 32);
-        banks[count++] = cpu_to_be32(base);
-        banks[count++] = cpu_to_be32(2 * GiB);
+        if (base == 0) {
+            /* Firmware owns 64 MiB below 1 GiB. Keep it outside ARM-usable
+             * banks, matching the mailbox's ARM/VC memory responses. */
+            banks[count++] = 0;
+            banks[count++] = 0;
+            banks[count++] = cpu_to_be32(0x3c000000);
+            banks[count++] = 0;
+            banks[count++] = cpu_to_be32(0x40000000);
+            banks[count++] = cpu_to_be32(0x40000000);
+        } else {
+            banks[count++] = cpu_to_be32(base >> 32);
+            banks[count++] = cpu_to_be32(base);
+            banks[count++] = cpu_to_be32(2 * GiB);
+        }
     }
     qemu_fdt_setprop(fdt, "/memory@0", "reg", banks, count * sizeof(*banks));
 }
@@ -73,6 +98,19 @@ static void raspi5_init(MachineState *ms)
     if (ms->ram_size != 2 * GiB && ms->ram_size != 4 * GiB &&
         ms->ram_size != 8 * GiB) {
         error_report("raspi5b supports 2, 4 or 8 GiB RAM");
+        exit(1);
+    }
+    uint32_t memory_code = ms->ram_size == 8 * GiB ? 5 :
+                           ms->ram_size == 4 * GiB ? 4 : 3;
+    if (!s->board_rev) {
+        s->board_rev = 0x804170 | (memory_code << 20);
+    }
+    unsigned board_type = (s->board_rev >> 4) & 0xff;
+    if (!(s->board_rev & (1U << 23)) ||
+        ((s->board_rev >> 12) & 0xf) != 4 ||
+        ((s->board_rev >> 20) & 7) != memory_code ||
+        (board_type != 0x17 && board_type != 0x19)) {
+        error_report("raspi5b board-revision must identify BCM2712 Pi5/Pi500 and match RAM");
         exit(1);
     }
     memory_region_add_subregion(sysmem, 0, ms->ram);
@@ -146,11 +184,106 @@ static void raspi5_init(MachineState *ms)
     sysbus_mmio_map(SYS_BUS_DEVICE(regs), 2, 0x107d510700ULL);
     sysbus_mmio_map(SYS_BUS_DEVICE(regs), 3, 0x107d517c00ULL);
 
+    /* The physical tree exposes the second BCM2712 SDHCI host for SDIO.
+     * Register-level host behavior is present; no Wi-Fi card is invented. */
+    DeviceState *sdio = qdev_new(TYPE_SYSBUS_SDHCI);
+    object_property_add_child(OBJECT(ms), "sdio-host", OBJECT(sdio));
+    qdev_prop_set_uint8(sdio, "sd-spec-version", 3);
+    qdev_prop_set_uint64(sdio, "capareg", 0x052134b4);
+    sysbus_realize(SYS_BUS_DEVICE(sdio), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(sdio), 0, 0x1001100000ULL);
+    sysbus_connect_irq(SYS_BUS_DEVICE(sdio), 0, qdev_get_gpio_in(s->gic, 274));
+    DeviceState *sdio_cfg = qdev_new(TYPE_BCM2712_BOOT);
+    object_property_add_child(OBJECT(ms), "sdio-config", OBJECT(sdio_cfg));
+    object_property_set_link(OBJECT(sdio_cfg), "sdhci", OBJECT(sdio), &error_fatal);
+    sysbus_realize(SYS_BUS_DEVICE(sdio_cfg), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(sdio_cfg), 0, 0x1001100400ULL);
+
+    DeviceState *power = qdev_new(TYPE_BCM2835_POWERMGT);
+    object_property_add_child(OBJECT(ms), "power-management", OBJECT(power));
+    sysbus_realize(SYS_BUS_DEVICE(power), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(power), 0, 0x107d200000ULL);
+
+    /* Firmware mailbox transport at the BCM2712 address. Reuse QEMU's
+     * existing property/framebuffer protocol, not a BCM2711 parent machine.
+     * VideoCore's 32-bit bus aliases address the same low 1 GiB of ARM RAM;
+     * they are DMA aliases only and must not replace CPU RAM at 3 GiB.
+     */
+    memory_region_init(&s->mbox_mr, OBJECT(ms), "pi5.mailbox-channels",
+                       MBOX_CHAN_COUNT << MBOX_AS_CHAN_SHIFT);
+    memory_region_init(&s->vc_dma_mr, OBJECT(ms), "pi5.vc-dma", 4 * GiB);
+    for (int i = 0; i < 4; i++) {
+        memory_region_init_alias(&s->vc_alias[i], OBJECT(ms), "pi5.vc-alias",
+                                 ms->ram, 0, GiB);
+        memory_region_add_subregion(&s->vc_dma_mr, (uint64_t)i * GiB,
+                                    &s->vc_alias[i]);
+    }
+    DeviceState *mbox = qdev_new(TYPE_BCM2835_MBOX);
+    object_property_add_child(OBJECT(ms), "mailbox", OBJECT(mbox));
+    object_property_add_const_link(OBJECT(mbox), "mbox-mr", OBJECT(&s->mbox_mr));
+    sysbus_realize(SYS_BUS_DEVICE(mbox), &error_fatal);
+    /* QEMU's shared mailbox model includes the preceding semaphore block.
+     * The BCM2712 DT binding exposes only mailbox registers at +0x80. */
+    memory_region_init_alias(&s->mbox_regs, OBJECT(ms), "pi5.mailbox-registers",
+                             sysbus_mmio_get_region(SYS_BUS_DEVICE(mbox), 0),
+                             0x80, 0x40);
+    memory_region_add_subregion(sysmem, 0x107c013880ULL, &s->mbox_regs);
+    sysbus_connect_irq(SYS_BUS_DEVICE(mbox), 0, qdev_get_gpio_in(s->gic, 33));
+
+    DeviceState *fb = qdev_new(TYPE_BCM2835_FB);
+    object_property_add_child(OBJECT(ms), "framebuffer", OBJECT(fb));
+    object_property_add_const_link(OBJECT(fb), "dma-mr", OBJECT(&s->vc_dma_mr));
+    qdev_prop_set_uint32(fb, "vcram-base", 0x3c000000);
+    qdev_prop_set_uint32(fb, "vcram-size", 64 * MiB);
+    qdev_prop_set_uint32(fb, "bpp", 32);
+    sysbus_realize(SYS_BUS_DEVICE(fb), &error_fatal);
+    memory_region_add_subregion(&s->mbox_mr, MBOX_CHAN_FB << MBOX_AS_CHAN_SHIFT,
+                                sysbus_mmio_get_region(SYS_BUS_DEVICE(fb), 0));
+    sysbus_connect_irq(SYS_BUS_DEVICE(fb), 0,
+                       qdev_get_gpio_in(mbox, MBOX_CHAN_FB));
+    DeviceState *otp = qdev_new(TYPE_BCM2835_OTP);
+    object_property_add_child(OBJECT(ms), "otp", OBJECT(otp));
+    sysbus_realize(SYS_BUS_DEVICE(otp), &error_fatal);
+    DeviceState *property = qdev_new(TYPE_BCM2835_PROPERTY);
+    object_property_add_child(OBJECT(ms), "firmware-property", OBJECT(property));
+    object_property_add_const_link(OBJECT(property), "dma-mr", OBJECT(&s->vc_dma_mr));
+    object_property_add_const_link(OBJECT(property), "fb", OBJECT(fb));
+    object_property_add_const_link(OBJECT(property), "otp", OBJECT(otp));
+    qdev_prop_set_uint32(property, "board-rev", s->board_rev);
+    sysbus_realize(SYS_BUS_DEVICE(property), &error_fatal);
+    memory_region_add_subregion(&s->mbox_mr,
+                                MBOX_CHAN_PROPERTY << MBOX_AS_CHAN_SHIFT,
+                                sysbus_mmio_get_region(SYS_BUS_DEVICE(property), 0));
+    sysbus_connect_irq(SYS_BUS_DEVICE(property), 0,
+                       qdev_get_gpio_in(mbox, MBOX_CHAN_PROPERTY));
+
+    DeviceState *spi = qdev_new(TYPE_BCM2835_SPI);
+    object_property_add_child(OBJECT(ms), "spi0", OBJECT(spi));
+    sysbus_realize(SYS_BUS_DEVICE(spi), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(spi), 0, 0x107d004000ULL);
+    sysbus_connect_irq(SYS_BUS_DEVICE(spi), 0, qdev_get_gpio_in(s->gic, 118));
+
+    DeviceState *mip = qdev_new(TYPE_BCM2712_MIP);
+    object_property_add_child(OBJECT(ms), "mip0", OBJECT(mip));
+    sysbus_realize(SYS_BUS_DEVICE(mip), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(mip), 0, 0x1000130000ULL);
+    for (int i = 0; i < 64; i++) {
+        sysbus_connect_irq(SYS_BUS_DEVICE(mip), i,
+                           qdev_get_gpio_in(s->gic, 128 + i));
+    }
+
     s->boot.loader_start = 0;
     s->boot.ram_size = 2 * GiB;
     s->boot.modify_dtb = raspi5_modify_dtb;
     s->boot.psci_conduit = QEMU_PSCI_CONDUIT_SMC;
     arm_load_kernel(s->cpu[0], ms, &s->boot);
+}
+
+static void raspi5_instance_init(Object *obj)
+{
+    Raspi5MachineState *s = RASPI5_MACHINE(obj);
+    object_property_add_uint32_ptr(obj, "board-revision", &s->board_rev,
+                                   OBJ_PROP_FLAG_READWRITE);
 }
 
 static void raspi5_class_init(ObjectClass *oc, const void *data)
@@ -173,6 +306,7 @@ static const TypeInfo raspi5_type = {
     .parent = TYPE_MACHINE,
     .instance_size = sizeof(Raspi5MachineState),
     .class_init = raspi5_class_init,
+    .instance_init = raspi5_instance_init,
     .interfaces = aarch64_machine_interfaces,
 };
 static void raspi5_register_types(void) { type_register_static(&raspi5_type); }

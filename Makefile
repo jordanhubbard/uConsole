@@ -92,6 +92,7 @@ check-emulator: keyboard-oracle
 	python3 tools/test_emulator_pcie_xhci.py --qemu '$(BUILD_DIR)/emulator/qemu-build/qemu-system-aarch64'
 	python3 tools/test_emulator_pcie_fdt.py --qemu '$(BUILD_DIR)/emulator/qemu-build/qemu-system-aarch64'
 	python3 tools/test_prepare_pi5_boot.py
+	python3 tools/test_pi5_firmware_inputs.py
 	python3 tools/test_emulator_pi5_boot.py --qemu '$(BUILD_DIR)/emulator/qemu-build/qemu-system-aarch64'
 	python3 tools/test_compose_pcie2_contract_dtb.py
 	python3 tools/test_emulator_pcie2_contract.py --qemu '$(BUILD_DIR)/emulator/qemu-build/qemu-system-aarch64'

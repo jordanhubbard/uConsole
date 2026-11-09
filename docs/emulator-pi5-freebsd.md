@@ -8,8 +8,9 @@ controller at their Pi5 physical addresses. It does not inherit the BCM2711
 machine or use a Pi4 device tree. The initial enrolled board tree is the
 captured BCM2712 D0 Pi500 tree; C1 pin layouts are not qualified by this result.
 
-This is an SD/serial digital bootstrap model. VideoCore/EEPROM firmware startup,
-RP1 USB/Ethernet/display/input, PCIe electrical behavior, pad voltages and analog
+This is a digital SD/EFI bootstrap model with serial and firmware framebuffer
+output. VideoCore ROM/EEPROM execution, RP1 USB/Ethernet/input, GPU acceleration,
+physical HDMI behavior, PCIe electrical behavior, pad voltages and analog
 clock/timing behavior are not implemented or qualified here. Use the existing
 selected PCIe2 contract separately for its host/MSI/DMA tests. It is not a
 replacement for physical boot acceptance or an installed desktop distribution.
@@ -20,7 +21,8 @@ The boot path is QEMU's AArch64 Linux boot ABI into FreeBSD's existing
 `LINUX_BOOT_ABI` support. `prepare_pi5_boot.py` converts the ELF load segments
 into an Image, adding the AArch64 Image header in the unused ELF header area.
 The kernel's executable bytes are preserved. A native FreeBSD EFI loader and
-Pi5 U-Boot/firmware handoff are separate paths, not part of this direct boot.
+Pi5 U-Boot/firmware handoff are exercised by the separate firmware lane below;
+they are not part of this direct boot.
 
 The derived FDT preserves the enrolled Pi5 CPU, SoC bus translation, GIC, SD,
 UART, clock, pin and regulator bindings. It explicitly disables unimplemented
@@ -31,7 +33,9 @@ FreeBSD fixed-clock probe also attempts disabled placeholders with no frequency.
 
 The machine accepts 2, 4 and 8 GiB, with 8 GiB default. All RAM banks appear as
 `reg` tuples in one memory node: the FreeBSD direct-boot FDT parser reads that
-node rather than collecting separate root memory nodes. The boot registers
+node rather than collecting separate root memory nodes. The firmware profile
+excludes a 64 MiB low-memory VideoCore/framebuffer window from ARM-usable RAM.
+The boot registers
 have explicit MMIO/reset/migration state; SD card-detect reflects the attached
 QEMU SD card rather than a constant insertion flag. Polled GPIO is the modeled
 subset; general GPIO interrupt delivery is not claimed.
@@ -103,16 +107,71 @@ build/emulator/qemu-build/qemu-system-aarch64 \
   -display none -serial stdio -monitor none -nic none
 ```
 
+## Actual U-Boot and EFI lane
+
+`run_pi5_firmware.py` boots the U-Boot binary extracted from a complete GPT SD
+image, then lets that binary read its own `boot.scr`, enter the actual EFI loader
+and load FreeBSD from SD. Supply the exact board DTB present on the image's ESP.
+The host does not remove devices or replace the kernel with a direct boot here.
+A 4 KiB AArch64 entry transport preserves every U-Boot byte and supplies the
+firmware-equivalent x0/FDT and EL2 entry. VideoCore ROM and EEPROM code are not
+executed. The machine changes RAM sizing for the selected virtual capacity.
+
+The model supplies the BCM2712 mailbox window, QEMU's shared firmware-property
+and framebuffer devices with DMA-only VideoCore aliases, both SDHCI hosts, the
+reset/watchdog block, SPI0 and MIP0 host-edge register/interrupt behavior. The
+second SDIO host has no invented Wi-Fi card. MIP0 is not a complete PCIe host or
+RP1 model; its selected edge mode does not implement VPU or level delivery.
+`board-revision` must match BCM2712 Pi5/Pi500 and the selected RAM capacity.
+
+```sh
+python3 tools/run_pi5_firmware.py \
+  --qemu build/emulator/qemu-build/qemu-system-aarch64 \
+  --image /path/to/instrumented-pi500-hwtrace.img \
+  --dtb /path/to/the-images-bcm2712-rpi-500.dtb \
+  --memory-gib 8 --card-size-gib 32 \
+  --output /path/to/new-firmware-run
+```
+
+This lane expects a diagnostic image whose boot script writes `UBOOT.LOG`
+through the `PI500-HANDOFF-04-ABOUT-TO-ENTER-EFI` checkpoint and whose hwtrace
+root saves `DUMPS/<pending>/done.txt`. It refuses physical devices and existing
+output directories, creates a fresh COW overlay, and verifies unchanged input
+hashes. The default 32 GiB virtual card exercises SDHC addressing; smaller
+SDSC and larger SDHC capacities are explicit options. Captured readback contains
+the source-image-sized GPT/ESP/root/DATRACE prefix, excluding unallocated card
+space. It records serial milestones, actual EFI/init framebuffer PNGs, durable
+dump hashes, each probe's exit status and natural guest reboot. Probe completion
+does not imply every peripheral exists or passed a functional test.
+
+The original unmodified firmware-tree lane exposed an additional native kernel
+panic: the legacy VideoCore framebuffer driver claimed BCM2712 before finding
+that its translation table has no matching SoC. Source
+[PR78](https://github.com/jordanhubbard/daemonarchy-src/pull/78), commit
+`31ec5babf638de96cf6568c9e8e01de4bd64f015`, declines that unsupported probe and
+preserves EFI framebuffer output. Its native kernel SHA256 is
+`70e11bc76666a11d72347fb4a75e9ff419e600ccd822afe030b2c39e503cfb2c`.
+The preceding kernel remains a negative control for that panic.
+
+The development firmware-chain run reaches all four CPUs, SD UFS root, init,
+durable diagnostics and clean reboot with the original Pi500 D0 board bindings
+and PCIe2 disabled. It does not diagnose the physical Pi500's earlier U-Boot
+failure, prove hardware startup, qualify C1 or RP1, or establish persistent EFI
+variables across real power loss. The direct multi-user lane remains a separate
+regression rather than evidence for this firmware path.
+
 ## Regression controls
 
 ```sh
 python3 tools/test_prepare_pi5_boot.py
+python3 tools/test_pi5_firmware_inputs.py
 python3 tools/test_emulator_pi5_boot.py \
   --qemu build/emulator/qemu-build/qemu-system-aarch64
 ```
 
 The model checks exercise actual MMIO masking, real SD-backend presence/absence,
-CPU topology, random words, VMState migration, reset and unsupported RAM/CPU
+mailbox DMA aliases, MIP-to-GIC edge delivery/masking, CPU topology, random
+words, VMState migration, reset and unsupported RAM/CPU
 refusals. They run against rebuilt and packaged QEMU in native package CI.
 Those controls alone do not establish a guest multi-user boot; the native
 FreeBSD console/storage run above is the runtime acceptance.
