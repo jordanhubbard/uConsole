@@ -1,0 +1,323 @@
+--- a/include/hw/char/pl011.h
++++ b/include/hw/char/pl011.h
+@@ -16,6 +16,7 @@
+ #define HW_PL011_H
+ 
+ #include "hw/sysbus.h"
++#include "qemu/timer.h"
+ #include "chardev/char-fe.h"
+ #include "qom/object.h"
+ 
+@@ -44,6 +45,10 @@
+     uint32_t periph_id;
+     uint32_t incoming_fifo_depth;
+     uint32_t incoming_periph_id;
++    bool accurate_rx;
++    bool incoming_accurate_rx;
++    uint32_t rx_divisor;
++    QEMUTimer *rx_timer;
+     uint32_t ilpr;
+     uint32_t ibrd;
+     uint32_t fbrd;
+--- a/hw/char/pl011.c
++++ b/hw/char/pl011.c
+@@ -157,6 +157,50 @@
+     return pl011_is_fifo_enabled(s) ? s->fifo_depth : 1;
+ }
+ 
++/*
++ * The RP1 profile uses the PL011 programmed RX thresholds and a timeout of
++ * 32 baud periods. Legacy boards retain their original wire/profile policy.
++ */
++static void pl011_rx_timeout_update(PL011State *s, bool restart)
++{
++    uint64_t hz, duration;
++    bool enabled = (s->cr & (CR_UARTEN | CR_RXE)) == (CR_UARTEN | CR_RXE);
++
++    if (!s->accurate_rx) {
++        return;
++    }
++    if (!s->read_count) {
++        s->int_level &= ~INT_RT;
++        pl011_update(s);
++    }
++    hz = clock_get_hz(s->clk);
++    if (!enabled || !s->read_count || !(s->rx_divisor >> 6) || !hz ||
++        (s->int_level & INT_RT)) {
++        timer_del(s->rx_timer);
++        return;
++    }
++    if (!restart && timer_pending(s->rx_timer)) {
++        return;
++    }
++    /*
++     * baud = 4 * uartclk / (64 * IBRD + FBRD).
++     * Round up so an interrupt never arrives before the 32nd bit period.
++     */
++    duration = DIV_ROUND_UP(8ULL * s->rx_divisor * 1000000000ULL, hz);
++    timer_mod(s->rx_timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + duration);
++}
++
++static void pl011_rx_timeout(void *opaque)
++{
++    PL011State *s = opaque;
++
++    if (s->accurate_rx && s->read_count &&
++        (s->cr & (CR_UARTEN | CR_RXE)) == (CR_UARTEN | CR_RXE)) {
++        s->int_level |= INT_RT;
++        pl011_update(s);
++    }
++}
++
+ static inline void pl011_reset_rx_fifo(PL011State *s)
+ {
+     s->read_count = 0;
+@@ -165,6 +209,11 @@
+     /* Reset FIFO flags */
+     s->flags &= ~PL011_FLAG_RXFF;
+     s->flags |= PL011_FLAG_RXFE;
++    if (s->accurate_rx) {
++        s->int_level &= ~(INT_RX | INT_RT);
++        timer_del(s->rx_timer);
++        pl011_update(s);
++    }
+ }
+ 
+ static inline void pl011_reset_tx_fifo(PL011State *s)
+@@ -180,11 +229,16 @@
+     int slot;
+     unsigned pipe_depth;
+ 
++    if (s->accurate_rx &&
++        (s->cr & (CR_UARTEN | CR_RXE)) != (CR_UARTEN | CR_RXE)) {
++        return;
++    }
+     pipe_depth = pl011_get_fifo_depth(s);
+     if (s->fifo_depth == 32 && s->read_count >= pipe_depth) {
+         /* A full RP1 RX FIFO drops the new character, preserving old bytes. */
+         s->rsr |= 8;
+         s->int_level |= INT_OE;
++        pl011_rx_timeout_update(s, true);
+         pl011_update(s);
+         return;
+     }
+@@ -197,6 +251,7 @@
+         trace_pl011_fifo_rx_full();
+         s->flags |= PL011_FLAG_RXFF;
+     }
++    pl011_rx_timeout_update(s, true);
+     if (s->read_count == s->read_trigger) {
+         s->int_level |= INT_RX;
+         pl011_update(s);
+@@ -271,6 +326,7 @@
+     }
+     trace_pl011_read_fifo(s->read_count, fifo_depth);
+     s->rsr = c >> 8;
++    pl011_rx_timeout_update(s, false);
+     pl011_update(s);
+     qemu_chr_fe_accept_input(&s->chr);
+     return c;
+@@ -342,22 +398,38 @@
+ 
+ static void pl011_set_read_trigger(PL011State *s)
+ {
+-#if 0
+-    /* The docs say the RX interrupt is triggered when the FIFO exceeds
+-       the threshold.  However linux only reads the FIFO in response to an
+-       interrupt.  Triggering the interrupt when the FIFO is non-empty seems
+-       to make things work.  */
+-    if (s->lcr & LCR_FEN)
+-        s->read_trigger = (s->ifl >> 1) & 0x1c;
+-    else
+-#endif
+-        s->read_trigger = 1;
++    static const unsigned eighths[] = {1, 2, 4, 6, 7};
++    unsigned selection = (s->ifl >> 3) & 7;
++
++    s->read_trigger = 1;
++    if (!s->accurate_rx) {
++        return;
++    }
++    if (pl011_is_fifo_enabled(s)) {
++        if (selection < ARRAY_SIZE(eighths)) {
++            s->read_trigger = s->fifo_depth * eighths[selection] / 8;
++        } else {
++            qemu_log_mask(LOG_GUEST_ERROR,
++                          "pl011: reserved RXIFLSEL %u\n", selection);
++            s->read_trigger = s->fifo_depth + 1;
++        }
++    }
++    if (s->read_count >= s->read_trigger) {
++        s->int_level |= INT_RX;
++    } else {
++        s->int_level &= ~INT_RX;
++    }
++    pl011_update(s);
+ }
+ 
+ static unsigned int pl011_get_baudrate(const PL011State *s)
+ {
+     uint64_t clk;
+ 
++    if (s->accurate_rx) {
++        return s->rx_divisor >> 6 ?
++            4ULL * clock_get_hz(s->clk) / s->rx_divisor : 0;
++    }
+     if (s->ibrd == 0) {
+         return 0;
+     }
+@@ -464,12 +536,21 @@
+             pl011_loopback_break(s, break_enable);
+         }
+         s->lcr = value;
++        if (s->accurate_rx) {
++            s->rx_divisor = (s->ibrd << 6) | s->fbrd;
++            pl011_trace_baudrate_change(s);
++            pl011_rx_timeout_update(s, true);
++        }
+         pl011_set_read_trigger(s);
+         break;
+     case 12: /* UARTCR */
+         /* ??? Need to implement the enable bit.  */
+         s->cr = value;
+         pl011_loopback_mdmctrl(s);
++        pl011_rx_timeout_update(s, true);
++        if (s->accurate_rx) {
++            qemu_chr_fe_accept_input(&s->chr);
++        }
+         break;
+     case 13: /* UARTIFS */
+         s->ifl = value;
+@@ -481,6 +562,9 @@
+         break;
+     case 17: /* UARTICR */
+         s->int_level &= ~value;
++        if (value & INT_RT) {
++            pl011_rx_timeout_update(s, true);
++        }
+         pl011_update(s);
+         break;
+     case 18: /* UARTDMACR */
+@@ -500,6 +584,11 @@
+     PL011State *s = (PL011State *)opaque;
+     unsigned fifo_depth = pl011_get_fifo_depth(s);
+     unsigned fifo_available = fifo_depth - s->read_count;
++
++    if (s->accurate_rx &&
++        (s->cr & (CR_UARTEN | CR_RXE)) != (CR_UARTEN | CR_RXE)) {
++        return 0;
++    }
+ 
+     /*
+      * In theory we should check the UART and RX enable bits here and
+@@ -544,6 +633,7 @@
+     PL011State *s = PL011(opaque);
+ 
+     pl011_trace_baudrate_change(s);
++    pl011_rx_timeout_update(s, true);
+ }
+ 
+ static const MemoryRegionOps pl011_ops = {
+@@ -577,7 +667,9 @@
+     PL011State* s = opaque;
+ 
+     /* Sanity-check input state */
+-    if (s->incoming_fifo_depth != s->fifo_depth ||
++    if (s->incoming_accurate_rx != s->accurate_rx ||
++        s->rx_divisor > 0x3fffff ||
++        s->incoming_fifo_depth != s->fifo_depth ||
+         s->incoming_periph_id != s->periph_id ||
+         s->read_pos < 0 || s->read_pos >= s->fifo_depth ||
+         s->read_count < 0 || s->read_count > s->fifo_depth) {
+@@ -608,6 +700,7 @@
+ static int pl011_pre_save(void *opaque)
+ {
+     PL011State *s = opaque;
++    s->incoming_accurate_rx = s->accurate_rx;
+     s->incoming_fifo_depth = s->fifo_depth;
+     s->incoming_periph_id = s->periph_id;
+     return 0;
+@@ -616,6 +709,7 @@
+ static int pl011_pre_load(void *opaque)
+ {
+     PL011State *s = opaque;
++    s->incoming_accurate_rx = false;
+     s->incoming_fifo_depth = PL011_FIFO_DEPTH;
+     s->incoming_periph_id = 0;
+     return 0;
+@@ -636,6 +730,24 @@
+         VMSTATE_UINT32(incoming_fifo_depth, PL011State),
+         VMSTATE_UINT32(incoming_periph_id, PL011State),
+         VMSTATE_UINT32_SUB_ARRAY(read_fifo, PL011State, 16, 16),
++        VMSTATE_END_OF_LIST()
++    }
++};
++
++static bool pl011_rx_needed(void *opaque)
++{
++    return ((PL011State *)opaque)->accurate_rx;
++}
++
++static const VMStateDescription vmstate_pl011_rx = {
++    .name = "pl011/accurate-rx",
++    .version_id = 1,
++    .minimum_version_id = 1,
++    .needed = pl011_rx_needed,
++    .fields = (const VMStateField[]) {
++        VMSTATE_BOOL(incoming_accurate_rx, PL011State),
++        VMSTATE_UINT32(rx_divisor, PL011State),
++        VMSTATE_TIMER_PTR(rx_timer, PL011State),
+         VMSTATE_END_OF_LIST()
+     }
+ };
+@@ -669,6 +781,7 @@
+     .subsections = (const VMStateDescription * const []) {
+         &vmstate_pl011_clock,
+         &vmstate_pl011_profile,
++        &vmstate_pl011_rx,
+         NULL
+     }
+ };
+@@ -677,6 +790,7 @@
+     DEFINE_PROP_CHR("chardev", PL011State, chr),
+     DEFINE_PROP_UINT32("fifo-depth", PL011State, fifo_depth, PL011_FIFO_DEPTH),
+     DEFINE_PROP_UINT32("periph-id", PL011State, periph_id, 0),
++    DEFINE_PROP_BOOL("accurate-rx", PL011State, accurate_rx, false),
+     DEFINE_PROP_BOOL("migrate-clk", PL011State, migrate_clk, true),
+ };
+ 
+@@ -692,6 +806,7 @@
+         sysbus_init_irq(sbd, &s->irq[i]);
+     }
+ 
++    s->rx_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, pl011_rx_timeout, s);
+     s->clk = qdev_init_clock_in(DEVICE(obj), "clk", pl011_clock_update, s,
+                                 ClockUpdate);
+ 
+@@ -714,6 +829,8 @@
+ {
+     PL011State *s = PL011(dev);
+ 
++    timer_del(s->rx_timer);
++    s->rx_divisor = 0;
+     s->lcr = 0;
+     s->rsr = 0;
+     s->dmacr = 0;
+@@ -740,11 +857,17 @@
+     device_class_set_props(dc, pl011_properties);
+ }
+ 
++static void pl011_finalize(Object *obj)
++{
++    timer_free(PL011(obj)->rx_timer);
++}
++
+ static const TypeInfo pl011_arm_info = {
+     .name          = TYPE_PL011,
+     .parent        = TYPE_SYS_BUS_DEVICE,
+     .instance_size = sizeof(PL011State),
+     .instance_init = pl011_init,
++    .instance_finalize = pl011_finalize,
+     .class_init    = pl011_class_init,
+ };
+ 

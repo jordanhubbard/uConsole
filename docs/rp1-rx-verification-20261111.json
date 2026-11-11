@@ -1,0 +1,67 @@
+{
+  "qemu_sha256": "f4463d41eeebde87e6811e648934328e7705af5e7f66ab7fbfb00d99cfe2643d",
+  "model_sha256": "9e24aaf838e9d883578e7717629d16f8e0d8fff8599b7f45052aeb01e0ea575b",
+  "patch_sha256": "ec91478f4d43ed15dd2a8aa343857729ba54da3583e7577801dbfaadced5d4cb",
+  "build_generation": "6bacbd3683feeb30971732f976dd2b7268bd558e02db05b6563012e30ae688b0",
+  "tests": [
+    {
+      "name": "rx-final",
+      "exit": 0,
+      "elapsed_seconds": 0.416,
+      "log_sha256": "5967577ef10bbff0f798da01d8679632588864e31b3acf7e3aab736556881d4c"
+    },
+    {
+      "name": "rx-uart-final",
+      "exit": 0,
+      "elapsed_seconds": 0.517,
+      "log_sha256": "7e838400ce13ec6003629c58e39b6506fe2f5eb3f95fab5478eccb22dcab5f23"
+    },
+    {
+      "name": "rx-profile-final",
+      "exit": 0,
+      "elapsed_seconds": 1.471,
+      "log_sha256": "35ac6debefabb5a70644c2ba99e77d587ed8121a910e7c1fbfb310bef98038ba"
+    },
+    {
+      "name": "rx-rp1-final",
+      "exit": 0,
+      "elapsed_seconds": 0.315,
+      "log_sha256": "1f8099617b50a5a9580c37dec8523f3b7b3b42a6b812e7a1744e4e3e6a1fb884"
+    },
+    {
+      "name": "rx-pi5-boot-final",
+      "exit": 0,
+      "elapsed_seconds": 0.716,
+      "log_sha256": "17bb491c86aae4f83312f1cc616895177100dd9a329fd2782a1408996d7f10c4"
+    },
+    {
+      "name": "rx-pi5-memory-final",
+      "exit": 0,
+      "elapsed_seconds": 1.57,
+      "log_sha256": "f80df624961418f81d327e0ee2cde28ac0bffda00ec2574bff40b378e2afdb2f"
+    },
+    {
+      "name": "rx-host-final",
+      "exit": 0,
+      "elapsed_seconds": 0.215,
+      "log_sha256": "96eaddbaa8cd2a8de6c1900769c4edf5cba130ff3c79cc106b7d03737a189ea7"
+    }
+  ],
+  "original_uart_model_control": {
+    "exit": 1,
+    "expected_failure": "Below-threshold UART raised RX interrupt",
+    "qemu_sha256": "14bf66cadaa3c5185fc80572f54b45374ef5636e3a156dfbc364cf341143f5be"
+  },
+  "observed_date": "2026-11-11",
+  "scope": "RP1 UART receive thresholds/enable/baud latch/timeouts at a fixed nominal48MHz clock, software virtual-time/PCI MSI-X tests. Not full UART/board/clock-tree fidelity.",
+  "uart_instances": 6,
+  "rx_threshold_characters": [
+    4,
+    8,
+    16,
+    24,
+    28
+  ],
+  "nominal_uart_clock_hz": 48000000,
+  "full_peripheral_fidelity": false
+}

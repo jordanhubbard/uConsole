@@ -17,6 +17,7 @@
 #include "hw/pci/msix.h"
 #include "hw/qdev-core.h"
 #include "hw/qdev-properties.h"
+#include "hw/qdev-clock.h"
 #include "hw/char/pl011.h"
 #include "migration/vmstate.h"
 #include "qom/object.h"
@@ -229,6 +230,9 @@ static void rp1_realize(PCIDevice *dev, Error **errp)
         /* Linux RP1 binding advertises PrimeCell identity 0x00341011. */
         qdev_prop_set_uint32(s->uart[n], "fifo-depth", 32);
         qdev_prop_set_uint32(s->uart[n], "periph-id", 0x00341011);
+        qdev_prop_set_bit(s->uart[n], "accurate-rx", true);
+        /* Fixed nominal clock until the RP1 clock tree is implemented. */
+        clock_set_hz(qdev_get_clock_in(s->uart[n], "clk"), 48000000);
         if (!sysbus_realize(SYS_BUS_DEVICE(s->uart[n]), errp)) {
             return;
         }

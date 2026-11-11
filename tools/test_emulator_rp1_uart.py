@@ -80,8 +80,13 @@ def exercise(binary, root, stack):
         target.cfg(vector, 4, alias=0x800)
         target.message(vector, 0)
         target.write(base, 0xb0 + n)
+        assert not target.read(base + 0x3c) & 0x10
+        assert target.message(vector) == 0
+        for _ in range(15):
+            target.write(base, 0xb0 + n)
         assert target.message(vector) == 0xfeed0000 + vector
-        assert target.read(base) & 0xff == 0xb0 + n
+        for _ in range(16):
+            assert target.read(base) & 0xff == 0xb0 + n
     qmp(target.monitor, 'system_reset')
     configure(target)
     for n in range(6):
