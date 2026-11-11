@@ -25,6 +25,21 @@ def sha(path):
     with path.open('rb') as f: return hashlib.file_digest(f,'sha256').hexdigest()
 
 
+def memory_checks(serial, stats, memory_gib):
+    """Account for every modeled bank, independently of kernel allocations.
+
+    FreeBSD physmem_hardware_region removes page zero before counting realmem;
+    hw.physmem additionally excludes kernel/bootstrap allocations.
+    """
+    physical=re.search(r'(?m)^hw.physmem: (\d+)\r?$',stats)
+    page=re.search(r'(?m)^hw.pagesize: (\d+)\r?$',stats)
+    real=re.search(r'(?m)^real memory\s*=\s*(\d+)',serial)
+    page_size=int(page[1]) if page else 0
+    usable=memory_gib*1024**3-(64<<20)
+    return {'full_modeled_memory':bool(physical and memory_gib*1024**3*.90<int(physical[1])<=memory_gib*1024**3),
+            'memory_banks_exact':bool(real and page_size>0 and page_size&(page_size-1)==0 and
+                                      int(real[1])==usable-page_size)}
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--qemu',type=Path,required=True)
@@ -56,7 +71,7 @@ def main():
     commands=[
         '/usr/bin/id',
         '/usr/bin/uname -a',
-        '/sbin/sysctl hw.ncpu hw.physmem kern.init_path',
+        '/sbin/sysctl hw.ncpu hw.physmem hw.pagesize kern.init_path',
         '/bin/ps -ax -o pid,ppid,state,comm',
         '/sbin/mount -p',
         '/sbin/sha256 -q /boot/kernel/kernel',
@@ -120,7 +135,7 @@ def main():
             ufs_root=bool(re.search(r'/dev/gpt/PI5ROOT\s+/\s+ufs\s+rw',logs[4])),
             matching_kernel=bool(re.search(r'(?m)^'+manifest['source_kernel_sha256']+r'\r?$',logs[5])),
             storage_roundtrip=bool(re.search(r'SHA256 .*'+nonce+r'.*= [0-9a-f]{64}',logs[6])))
-        memory=re.search(r'hw.physmem: (\d+)',logs[2]);checks['full_modeled_memory']=bool(memory and args.memory_gib*1024**3*.90<int(memory[1])<=args.memory_gib*1024**3)
+        checks.update(memory_checks(text,logs[2],args.memory_gib))
     checks['inputs_unchanged']=all(sha(Path(f))==h for f,h in pins.items())
     result={'ok':all(checks.values()),'checks':checks,'failure':failure,'phase':phase,'exit_code':proc.returncode,'command':cmd,'memory_gib':args.memory_gib,'inputs':pins,'console_commands':commands,'command_outputs':logs,'limitations':['SD-only digital BCM2712 D0 model','direct FreeBSD Linux-boot-ABI handoff; no VideoCore/EEPROM emulation','RP1 peripherals not implemented','no physical/electrical qualification']}
     (out/'result.json').write_text(json.dumps(result,indent=2)+'\n')

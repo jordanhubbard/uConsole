@@ -5,8 +5,9 @@ multi-user, runs the standard `/etc/rc`, and provides a real serial getty/login.
 It has four Cortex-A76 CPUs with BCM2712 affinities `0`, `0x100`, `0x200`,
 `0x300`, PSCI, GIC-400, the SoC debug PL011, RNG200 and the native BCM2712 SD
 controller at their Pi5 physical addresses. It does not inherit the BCM2711
-machine or use a Pi4 device tree. The initial enrolled board tree is the
-captured BCM2712 D0 Pi500 tree; C1 pin layouts are not qualified by this result.
+machine or use a Pi4 device tree. The initial enrolled board tree was the captured BCM2712 D0 Pi500 tree.
+The current Model B D0 input and its separate acceptance are recorded below;
+other silicon/pinctrl variants are not qualified by these results.
 
 This is a digital SD/EFI bootstrap model with serial and firmware framebuffer
 output. VideoCore ROM/EEPROM execution, RP1 USB/Ethernet/input, GPU acceleration,
@@ -32,7 +33,8 @@ property/removed clock node. Unsupported clock nodes are omitted because the
 FreeBSD fixed-clock probe also attempts disabled placeholders with no frequency.
 
 The machine accepts 1, 2, 4, 8 and 16 GiB, with 8 GiB default. All RAM banks appear as
-`reg` tuples in one memory node: the FreeBSD direct-boot FDT parser reads that
+`reg` tuples in one memory node, preserving the enrolled root's one or two
+size cells: the FreeBSD direct-boot FDT parser reads that
 node rather than collecting separate root memory nodes. The firmware profile
 excludes a 64 MiB low-memory VideoCore/framebuffer window from ARM-usable RAM.
 The 1 GiB profile has no bank above 1 GiB; the 16 GiB profile keeps
@@ -52,7 +54,9 @@ have explicit MMIO/reset/migration state; SD card-detect reflects the attached
 QEMU SD card rather than a constant insertion flag. Polled GPIO is the modeled
 subset; general GPIO interrupt delivery is not claimed.
 
-A fresh native GENERIC kernel is required. The BCM2712 SD card-detect consumer
+A fresh ARM64 GENERIC kernel with the BCM2712 drivers is required. Record
+its build host and compiler scope separately: a FreeBSD amd64-hosted ARM64
+cross-kernel is a valid simulator input, not native ARM64 qualification. The BCM2712 SD card-detect consumer
 must pass its actual FDT node to the OFW GPIO API. Earlier D520 kernels pass zero
 and panic on the real Pi500 card-detect property. The correction is in
 [daemonarchy-src PR77](https://github.com/jordanhubbard/daemonarchy-src/pull/77),
@@ -70,8 +74,11 @@ PATH whose `pkg-config`, GLib headers/libraries and `gdbus-codegen` agree. The
 recorded Linux build used `/usr/bin:/bin:/usr/local/bin` first and no inherited
 `LD_LIBRARY_PATH`/`DYLD_LIBRARY_PATH`.
 
-On the allocated FreeBSD ARM64 worker, use a matching aarch64 ISO and native
-kernel. Keep all staging and outputs outside source and the live root:
+On an allocated FreeBSD worker, assemble the lab disk from an aarch64 ISO
+and the selected ARM64 kernel. The kernel copied into the disk must match the
+prepared boot input exactly. Keep all staging and outputs outside source and
+the live root; the lab's retained userland is not a final CURRENT distribution
+closure:
 
 ```sh
 sudo sh tools/build_pi5_freebsd_root.sh \
@@ -85,39 +92,74 @@ It retains the actual base `/etc/rc`, init, getty/login and libraries. The priva
 VM has an empty root console password, no SSH service and no emulated NIC in
 the test command. It is not a published general-purpose image.
 
-Copy/decompress `pi5-multiuser.img.xz` to the simulator host. Obtain the enrolled
-`bcm2712-rpi-500.dtb` (SHA256
-`400b2da08abb8fd0ffd65085d1e0e1e6c6d01cadd27385403ea3a3fd5a1537f4`)
-and the same native kernel:
+Copy/decompress `pi5-multiuser.img.xz` to the simulator host. The current Model B
+D0 lane uses the unchanged official
+[`bcm2712d0-rpi-5-b.dtb`](https://github.com/raspberrypi/firmware/blob/016253866bbd6c77fcb2a744a97d81e79ad4884f/boot/bcm2712d0-rpi-5-b.dtb),
+SHA256 `d01e2104a8b747e99e310bfb22aeac8100e3b98df29951b296b5cdc2e95afb53`.
+Do not substitute the similarly named `bcm2712-d-rpi-5-b.dtb`: its mixed main
+pinctrl bindings fail the current D0 driver's default pinctrl admission. That
+failed boot remains a negative observation; it is not acceptance for that variant.
+The historical Pi500 input `400b2da08abb8fd0ffd65085d1e0e1e6c6d01cadd27385403ea3a3fd5a1537f4`
+belongs to the earlier runs, not these new Model B inputs.
+
+The current kernel is built from reviewed source
+`87e0a125850c5c791515fb7ae31ebcb6e8cfce72`; its SHA256 is
+`3604ee5b36b898bec6c069cb1a3d58b13f3e282bf386eeecd86544febc413f54`.
+Its build uses original FreeBSD Makefiles on FreeBSD 16 amd64, targeting ARM64
+GENERIC. Native ARM64, SDK/lifecycle and final distribution qualification remain
+separate. See [the current OS verification record](pi5-os-verification-20261111.json).
+
+Prepare the selected capacity and enroll its board identity:
 
 ```sh
 python3 tools/prepare_pi5_boot.py \
-  --dtb /path/to/bcm2712-rpi-500.dtb --kernel /path/to/kernel \
-  --memory-gib 8 --output /path/to/new-boot-inputs
+  --dtb /path/to/bcm2712d0-rpi-5-b.dtb --kernel /path/to/kernel \
+  --memory-gib 1 --output /path/to/new-boot-inputs
 python3 tools/run_pi5_freebsd.py \
   --qemu build/emulator/qemu-build/qemu-system-aarch64 \
   --boot-inputs /path/to/new-boot-inputs \
-  --disk /path/to/pi5-multiuser.img --memory-gib 8 \
+  --disk /path/to/pi5-multiuser.img --memory-gib 1 \
   --output /path/to/new-run
 ```
 
 The runner hashes its regular-file inputs, creates a fresh COW overlay, drains
 the serial console continuously and bounds command frames. It logs in through
 getty/login, checks four CPUs and full modeled RAM, init/services, native UFS,
-the on-disk kernel hash and storage I/O, then requests reboot. Source image
-invariance, disk synchronization and QEMU natural exit are checked separately.
+the on-disk kernel hash and storage I/O, then requests reboot. It queries the
+actual page size and requires the boot's real-memory count to equal every modeled
+bank, minus the 64 MiB firmware reservation and FreeBSD's excluded first page.
+The separate available-memory check accounts for kernel/bootstrap allocations;
+a percentage threshold alone cannot establish that all hardware banks were read.
+Source image invariance, disk synchronization and QEMU natural exit are checked separately.
 Logs, commands, input hashes and individual guards are saved in `result.json`.
 No physical disk is accessed.
 
-For an interactive console using a separately created writable COW disk:
+For an interactive console using a separately created writable COW disk,
+select the board revision from the prepared manifest and the matching capacity.
+This example uses Model B at 1 GiB:
 
 ```sh
 build/emulator/qemu-build/qemu-system-aarch64 \
-  -M raspi5b -m 8G -kernel /path/to/boot-inputs/FreeBSD-Image \
+  -M raspi5b,board-revision=0xa04171 -m 1G -kernel /path/to/boot-inputs/FreeBSD-Image \
   -dtb /path/to/boot-inputs/pi5-sd.dtb \
   -drive if=sd,format=qcow2,file=/path/to/disposable-overlay.qcow2 \
   -display none -serial stdio -monitor none -nic none
 ```
+
+## Current Model B D0 OS acceptance
+
+All five capacities (1, 2, 4, 8 and 16 GiB) pass the actual FreeBSD multi-user
+runner using the current unchanged official D0 Model B tree, the current kernel
+and a fresh matching native-assembled lab disk. All 21 checks pass per capacity,
+including exact hardware bank accounting, real getty/login, init/services,
+SD/UFS, kernel hash, storage I/O, synchronization, natural reboot and unchanged
+source inputs. The [verification record](pi5-os-verification-20261111.json)
+binds every profile to the actual binary, prepared inputs, runner and serial log
+hashes. The strengthened host refusal control also rejects a missing 1 GiB bank
+at 16 GiB that the old percentage check alone would accept.
+
+This is software SD/bootstrap acceptance. It does not close the remaining RP1,
+GPU, VideoCore, alternate pinctrl profile or complete distribution acceptance.
 
 ## Actual U-Boot and EFI lane
 
