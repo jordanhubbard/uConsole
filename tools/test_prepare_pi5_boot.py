@@ -44,26 +44,31 @@ class Conversion(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)
             (root/'kernel').write_bytes(fixture())
-            (root/'input.dtb').write_bytes(encode(nodes,bytes(16),0))
-            for size,count in ((1,1),(2,2),(4,3),(8,5),(16,9)):
-                with self.subTest(memory_gib=size):
-                    output=root/str(size)
-                    result=subprocess.run([sys.executable,
-                        str(Path(__file__).with_name('prepare_pi5_boot.py')),
-                        '--dtb',str(root/'input.dtb'),'--kernel',str(root/'kernel'),
-                        '--output',str(output),'--memory-gib',str(size)],
-                        capture_output=True,text=True,timeout=10)
-                    self.assertEqual(result.returncode,0,result.stderr)
-                    derived,_,_=decode((output/'pi5-sd.dtb').read_bytes())
-                    banks=[(hi<<32|lo,n) for hi,lo,n in
-                           struct.iter_unpack('>III',derived['/memory@0']['reg'])]
-                    self.assertEqual(len(banks),count)
-                    self.assertEqual(banks[0],(0,0x3c000000))
-                    self.assertEqual(sum(n for _,n in banks),size*(1<<30)-(64<<20))
-                    manifest=json.loads((output/'inputs.json').read_text())
-                    self.assertEqual(manifest['board_revision'],board_revision(derived,size))
-                    self.assertTrue(all(a+n<=size*(1<<30) for a,n in banks))
-                    self.assertTrue(all(a+n<=b for (a,n),(b,_) in zip(banks,banks[1:])))
+            for size_cells in (1,2):
+                nodes['/']['#size-cells']=struct.pack('>I',size_cells)
+                (root/'input.dtb').write_bytes(encode(nodes,bytes(16),0))
+                for size,count in ((1,1),(2,2),(4,3),(8,5),(16,9)):
+                    with self.subTest(memory_gib=size):
+                        output=root/f'{size_cells}-{size}'
+                        result=subprocess.run([sys.executable,
+                            str(Path(__file__).with_name('prepare_pi5_boot.py')),
+                            '--dtb',str(root/'input.dtb'),'--kernel',str(root/'kernel'),
+                            '--output',str(output),'--memory-gib',str(size)],
+                            capture_output=True,text=True,timeout=10)
+                        self.assertEqual(result.returncode,0,result.stderr)
+                        derived,_,_=decode((output/'pi5-sd.dtb').read_bytes())
+                        self.assertEqual(derived['/']['#size-cells'],struct.pack('>I',size_cells))
+                        reg=derived['/memory@0']['reg'];width=(2+size_cells)*4
+                        self.assertEqual(len(reg)%width,0)
+                        banks=[(int.from_bytes(reg[i:i+8],'big'),int.from_bytes(reg[i+8:i+width],'big'))
+                               for i in range(0,len(reg),width)]
+                        self.assertEqual(len(banks),count)
+                        self.assertEqual(banks[0],(0,0x3c000000))
+                        self.assertEqual(sum(n for _,n in banks),size*(1<<30)-(64<<20))
+                        manifest=json.loads((output/'inputs.json').read_text())
+                        self.assertEqual(manifest['board_revision'],board_revision(derived,size))
+                        self.assertTrue(all(a+n<=size*(1<<30) for a,n in banks))
+                        self.assertTrue(all(a+n<=b for (a,n),(b,_) in zip(banks,banks[1:])))
     def test_board_identity_profiles(self):
         # Independent documented board-type and memory fields, including the
         # retained Model B revision for its 1/16 GiB profiles.

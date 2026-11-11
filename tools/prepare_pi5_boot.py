@@ -76,8 +76,10 @@ def main():
     args=p.parse_args()
     raw=args.dtb.read_bytes();n,reserve,boot=decode(raw)
     revision=board_revision(n,args.memory_gib)
-    if n['/'].get('#address-cells')!=struct.pack('>I',2) or n['/'].get('#size-cells')!=struct.pack('>I',1):
+    size_cell=n['/'].get('#size-cells')
+    if n['/'].get('#address-cells')!=struct.pack('>I',2) or size_cell not in (struct.pack('>I',1),struct.pack('>I',2)):
         raise ValueError('unsupported BCM2712 root address/size cells')
+    size_cells=struct.unpack('>I',size_cell)[0]
     before={k:dict(v) for k,v in n.items()}
     soc='/soc@107c000000'
     devices={soc+'/mmc@fff000',soc+'/serial@7d001000',
@@ -99,7 +101,7 @@ def main():
             if args.memory_gib>1:banks.append((0x40000000,0x40000000))
             banks.extend((base,0x80000000) for base in
                          range(0x80000000,args.memory_gib*1024**3,0x80000000))
-            props['reg']=b''.join(struct.pack('>III',base >> 32,base & 0xffffffff,size)
+            props['reg']=b''.join(base.to_bytes(8,'big')+size.to_bytes(size_cells*4,'big')
                                   for base,size in banks)
     n['/chosen']['stdout-path']=(soc+'/serial@7d001000:115200n8\0').encode()
     n['/chosen']['bootargs']=b'FreeBSD: vfs.root.mountfrom=ufs:/dev/gpt/PI5ROOT boot_verbose=YES kern.panic_reboot_wait_time=-1\0'
