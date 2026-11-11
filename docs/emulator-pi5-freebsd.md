@@ -229,3 +229,7 @@ words, VMState migration, reset and unsupported RAM/CPU
 refusals. They run against rebuilt and packaged QEMU in native package CI.
 Those controls alone do not establish a guest multi-user boot; the native
 FreeBSD console/storage run above is the runtime acceptance.
+
+The [RP1 endpoint development record](emulator-rp1.md) tracks the separate PCI
+endpoint and its native MSI-X/IACK/migration tests. The Pi5 board does not yet
+connect it; full southbridge and peripheral behavior remain open.

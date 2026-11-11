@@ -1,0 +1,5 @@
+--- a/hw/misc/meson.build
++++ b/hw/misc/meson.build
+@@ -1,1 +1,2 @@
+ system_ss.add(when: 'CONFIG_APPLESMC', if_true: files('applesmc.c'))
++system_ss.add(when: 'CONFIG_PCI', if_true: files('rp1.c'))
