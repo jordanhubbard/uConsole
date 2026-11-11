@@ -61,29 +61,37 @@ struct Raspi5MachineState {
 static void raspi5_modify_dtb(const struct arm_boot_info *info, void *fdt)
 {
     MachineState *ms = MACHINE(qdev_get_machine());
+    uint32_t acells = qemu_fdt_getprop_cell(fdt, "/", "#address-cells",
+                                          NULL, &error_fatal);
+    uint32_t scells = qemu_fdt_getprop_cell(fdt, "/", "#size-cells",
+                                          NULL, &error_fatal);
+    if (acells != 2 || (scells != 1 && scells != 2)) {
+        error_report("raspi5b FDT requires 2 address cells and 1 or 2 size cells");
+        exit(1);
+    }
     g_autofree uint32_t *banks = g_new(uint32_t,
-        3 * (ms->ram_size / (2 * GiB) + 2));
+        (acells + scells) * (ms->ram_size / (2 * GiB) + 2));
     unsigned count = 0;
-    /* The firmware root uses 2 address cells and 1 size cell. Encode all
-     * banks as tuples in ONE memory node: the FreeBSD Linux boot ABI's
-     * fdt_foreach_mem_region reads that node's complete reg property. */
-    for (uint64_t base = 0; base < ms->ram_size; base += 2 * GiB) {
+    /* Retain the enrolled root cell widths. Current firmware uses two size
+     * cells; older inputs use one. Keep all banks in ONE memory node for
+     * FreeBSD's Linux boot ABI fdt_foreach_mem_region. */
+    for (uint64_t base = 0; base < ms->ram_size;) {
+        uint64_t length;
         if (base == 0) {
-            /* Firmware owns 64 MiB below 1 GiB. Keep it outside ARM-usable
-             * banks, matching the mailbox's ARM/VC memory responses. */
-            banks[count++] = 0;
-            banks[count++] = 0;
-            banks[count++] = cpu_to_be32(0x3c000000);
-            if (ms->ram_size > GiB) {
-                banks[count++] = 0;
-                banks[count++] = cpu_to_be32(GiB);
-                banks[count++] = cpu_to_be32(MIN(GiB, ms->ram_size - GiB));
-            }
+            /* Firmware owns 64 MiB below 1 GiB; mailbox responses agree. */
+            length = 0x3c000000;
+        } else if (base == GiB) {
+            length = MIN(GiB, ms->ram_size - GiB);
         } else {
-            banks[count++] = cpu_to_be32(base >> 32);
-            banks[count++] = cpu_to_be32(base);
-            banks[count++] = cpu_to_be32(2 * GiB);
+            length = MIN(2 * GiB, ms->ram_size - base);
         }
+        banks[count++] = cpu_to_be32(base >> 32);
+        banks[count++] = cpu_to_be32(base);
+        if (scells == 2) {
+            banks[count++] = cpu_to_be32(length >> 32);
+        }
+        banks[count++] = cpu_to_be32(length);
+        base = base == 0 ? GiB : base + length;
     }
     qemu_fdt_setprop(fdt, "/memory@0", "reg", banks, count * sizeof(*banks));
 }

@@ -40,9 +40,13 @@ def run(binary, output, profiles):
                 '/memory@0': {'device_type': b'memory\0',
                               'reg': struct.pack('>III', 0, 0, 0x40000000)}
             }, bytes(16), 0))
-            for size in profiles:
+            for size, size_cells in ((size,cells) for size in profiles for cells in (1,2)):
+                nodes,_,_=decode(dtb.read_bytes())
+                nodes['/']['#size-cells']=struct.pack('>I',size_cells)
+                nodes['/memory@0']['reg']=bytes(8)+(0x40000000).to_bytes(size_cells*4,'big')
+                dtb.write_bytes(encode(nodes,bytes(16),0))
                 with ExitStack() as stack:
-                    machine = Pi5Machine(root, f'ram-{size}', stack, binary,
+                    machine = Pi5Machine(root, f'ram-{size}-cells{size_cells}', stack, binary,
                                          memory_gib=size,
                                          boot_args=('-kernel', str(image),
                                                     '-dtb', str(dtb)))
@@ -51,15 +55,17 @@ def run(binary, output, profiles):
                     magic, length = struct.unpack('>II', raw)
                     assert magic == 0xd00dfeed and 40 <= length <= 65536, raw
                     raw = read_bytes(machine, 128 << 20, length)
-                    (output/f'ram-{size}.dtb').write_bytes(raw)
+                    (output/f'ram-{size}-cells{size_cells}.dtb').write_bytes(raw)
                     nodes, _, _ = decode(raw)
                     memories = [v for v in nodes.values()
                                 if v.get('device_type') == b'memory\0']
                     assert len(memories) == 1, memories
                     reg = memories[0]['reg']
-                    assert len(reg) % 12 == 0
-                    banks = [(hi << 32 | lo, n)
-                             for hi, lo, n in struct.iter_unpack('>III', reg)]
+                    assert nodes['/']['#size-cells']==struct.pack('>I',size_cells)
+                    width=(2+size_cells)*4
+                    assert len(reg) % width == 0, (size,size_cells,len(reg))
+                    banks=[(int.from_bytes(reg[i:i+8],'big'),int.from_bytes(reg[i+8:i+width],'big'))
+                           for i in range(0,len(reg),width)]
                     assert banks[0] == (0, 0x3c000000), banks
                     assert sum(n for _, n in banks) == size*GIB-(64 << 20), banks
                     assert max(a+n for a, n in banks) == (
@@ -85,7 +91,7 @@ def run(binary, output, profiles):
                     assert machine.read(0x180004) == 0x80000000
                     assert machine.read(0x180014) == expected
                     assert machine.read(MBOX) == 0x40180008
-                    results.append({'memory_gib': size, 'banks': banks,
+                    results.append({'memory_gib': size, 'size_cells':size_cells, 'banks': banks,
                                     'board_revision': hex(expected),
                                     'ram_addresses': addresses, 'passed': True})
             for size in profiles:

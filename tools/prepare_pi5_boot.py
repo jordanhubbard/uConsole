@@ -13,6 +13,26 @@ from compose_pcie2_contract_dtb import decode, encode
 
 def digest(data): return hashlib.sha256(data).hexdigest()
 
+def board_revision(nodes, memory_gib):
+    """Keep mailbox board identity consistent with the enrolled board FDT."""
+    compatible = nodes['/'].get('compatible', b'').split(b'\0')
+    if b'brcm,bcm2712' not in compatible:
+        raise ValueError('BCM2712 FDT required')
+    model_b = b'raspberrypi,5-model-b' in compatible
+    pi500 = b'raspberrypi,500' in compatible
+    if model_b == pi500:
+        raise ValueError('one enrolled Pi5 Model B or Pi500 board FDT required')
+    if memory_gib not in (1, 2, 4, 8, 16):
+        raise ValueError('unsupported Pi5 memory capacity')
+    if pi500 and memory_gib not in (8, 16):
+        raise ValueError('Pi500/500+ supports 8 or 16 GiB RAM')
+    board_type = 0x19 if pi500 else 0x17
+    memory_code = {1: 2, 2: 3, 4: 4, 8: 5, 16: 6}[memory_gib]
+    revision = 0x804000 | (board_type << 4) | (memory_code << 20)
+    if model_b and memory_gib in (1, 16):
+        revision |= 1
+    return revision
+
 def kernel_image(data):
     if len(data)<64 or data[:6] != b'\x7fELF\x02\x01' or struct.unpack_from('<H', data, 18)[0] != 183:
         raise ValueError('expected little-endian AArch64 ELF')
@@ -55,10 +75,11 @@ def main():
     p.add_argument('--memory-gib', type=int, choices=[1,2,4,8,16], default=8)
     args=p.parse_args()
     raw=args.dtb.read_bytes();n,reserve,boot=decode(raw)
-    if b'brcm,bcm2712' not in n['/'].get('compatible',b'').split(b'\0'):
-        raise ValueError('expected a BCM2712 tree')
-    if n['/'].get('#address-cells')!=struct.pack('>I',2) or n['/'].get('#size-cells')!=struct.pack('>I',1):
+    revision=board_revision(n,args.memory_gib)
+    size_cell=n['/'].get('#size-cells')
+    if n['/'].get('#address-cells')!=struct.pack('>I',2) or size_cell not in (struct.pack('>I',1),struct.pack('>I',2)):
         raise ValueError('unsupported BCM2712 root address/size cells')
+    size_cells=struct.unpack('>I',size_cell)[0]
     before={k:dict(v) for k,v in n.items()}
     soc='/soc@107c000000'
     devices={soc+'/mmc@fff000',soc+'/serial@7d001000',
@@ -80,7 +101,7 @@ def main():
             if args.memory_gib>1:banks.append((0x40000000,0x40000000))
             banks.extend((base,0x80000000) for base in
                          range(0x80000000,args.memory_gib*1024**3,0x80000000))
-            props['reg']=b''.join(struct.pack('>III',base >> 32,base & 0xffffffff,size)
+            props['reg']=b''.join(base.to_bytes(8,'big')+size.to_bytes(size_cells*4,'big')
                                   for base,size in banks)
     n['/chosen']['stdout-path']=(soc+'/serial@7d001000:115200n8\0').encode()
     n['/chosen']['bootargs']=b'FreeBSD: vfs.root.mountfrom=ufs:/dev/gpt/PI5ROOT boot_verbose=YES kern.panic_reboot_wait_time=-1\0'
@@ -107,5 +128,5 @@ def main():
         for key in n[path].keys()|before[path].keys():
             a,b=before[path].get(key),n[path].get(key)
             if a!=b:changes.append({'path':path,'property':key,'before':None if a is None else a.hex(),'after':None if b is None else b.hex()})
-    (args.output/'inputs.json').write_text(json.dumps({'source_dtb_sha256':digest(raw),'source_kernel_sha256':digest(args.kernel.read_bytes()),'derived_dtb_sha256':digest(derived),'image_sha256':digest(image),'changes':changes,'removed_unmodeled_clock_nodes':removed,'memory_gib':args.memory_gib,'scope':'Pi5 SD-only model; no VideoCore or RP1 qualification'},indent=2)+'\n')
+    (args.output/'inputs.json').write_text(json.dumps({'source_dtb_sha256':digest(raw),'source_kernel_sha256':digest(args.kernel.read_bytes()),'derived_dtb_sha256':digest(derived),'image_sha256':digest(image),'changes':changes,'removed_unmodeled_clock_nodes':removed,'memory_gib':args.memory_gib,'board_revision':revision,'scope':'Pi5 SD-only model; no VideoCore or RP1 qualification'},indent=2)+'\n')
 if __name__=='__main__':main()
