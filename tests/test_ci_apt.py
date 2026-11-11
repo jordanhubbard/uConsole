@@ -44,13 +44,17 @@ class AptBootstrapTests(unittest.TestCase):
         mock.write_text(
             'import json,os,pathlib,sys\n'
             'args=sys.argv[1:];assert args[0]=="apt-get",args\n'
+            'prior=[json.loads(x) for x in pathlib.Path(os.environ["APT_TRACE"]).read_text().splitlines()] if pathlib.Path(os.environ["APT_TRACE"]).exists() else []\n'
             'opts=[args[i+1] for i,x in enumerate(args) if x=="-o"]\n'
             'main=pathlib.Path(next(x.split("=",1)[1] for x in opts if x.startswith("Dir::Etc::sourcelist=")))\n'
             'parts=pathlib.Path(next(x.split("=",1)[1] for x in opts if x.startswith("Dir::Etc::sourceparts=")))\n'
             'record={"args":args,"main":main.read_text(),"parts":{p.name:p.read_text() for p in parts.iterdir()},"temporary":str(main.parent)}\n'
             'with open(os.environ["APT_TRACE"],"a") as f:f.write(json.dumps(record)+"\\n")\n'
             'phase="UPDATE" if "update" in args else "INSTALL"\n'
-            'raise SystemExit(int(os.environ.get("FAIL_"+phase,"0")))\n')
+            'code=int(os.environ.get("FAIL_"+phase,"0"))\n'
+            'if phase=="UPDATE" and not any("update" in row["args"] for row in prior):code=int(os.environ.get("FAIL_UPDATE_ONCE",str(code)))\n'
+            'if code and os.environ.get("FAKE_APT_ERROR"):print(os.environ["FAKE_APT_ERROR"],file=sys.stderr)\n'
+            'raise SystemExit(code)\n')
         commands = {
             'uname': '#!/bin/sh\nprintf "%s\\n" "${FAKE_KERNEL:-Linux}"\n',
             'dpkg': '#!/bin/sh\nprintf "%s\\n" "${FAKE_ARCH:-amd64}"\n',
@@ -129,6 +133,59 @@ class AptBootstrapTests(unittest.TestCase):
         result, records = self.run_helper(args=())
         self.assertEqual(result.returncode, 64)
         self.assertEqual(records, [])
+
+
+    def test_ubuntu_dns_failure_retries_same_signed_archive(self):
+        result, records = self.run_helper(
+            FAIL_UPDATE_ONCE='100', FAKE_APT_ERROR="Temporary failure resolving 'archive.ubuntu.com'")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(records), 3)
+        self.assertIn('https://archive.ubuntu.com/ubuntu', records[0]['parts']['ubuntu.sources'])
+        self.assertEqual(records[1]['parts']['ubuntu.sources'].count('https://mirrors.kernel.org/ubuntu'), 2)
+        self.assertEqual(records[1]['parts']['other.list'], self.other.read_text())
+        self.assertEqual(records[1]['parts']['ubuntu.sources'].count('Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg'), 2)
+
+    def test_signature_failure_is_not_retried(self):
+        result, records = self.run_helper(FAIL_UPDATE='100', FAKE_APT_ERROR='NO_PUBKEY: signature verification failed')
+        self.assertEqual(result.returncode, 100)
+        self.assertEqual(len(records), 1)
+
+    def test_other_feed_dns_failure_is_not_retried(self):
+        result, records = self.run_helper(FAIL_UPDATE='100', FAKE_APT_ERROR="Temporary failure resolving 'example.invalid'")
+        self.assertEqual(result.returncode, 100)
+        self.assertEqual(len(records), 1)
+
+    def test_failed_mirror_preserves_error(self):
+        result, records = self.run_helper(FAIL_UPDATE='100', FAKE_APT_ERROR="Temporary failure resolving 'archive.ubuntu.com'")
+        self.assertEqual(result.returncode, 100)
+        self.assertEqual(len(records), 2)
+        self.assertFalse(any('install' in row['args'] for row in records))
+
+    def test_arm_dns_failure_never_uses_amd64_mirror(self):
+        result, records = self.run_helper(FAKE_ARCH='arm64', FAIL_UPDATE='100', FAKE_APT_ERROR="Temporary failure resolving 'ports.ubuntu.com'")
+        self.assertEqual(result.returncode, 100)
+        self.assertEqual(len(records), 1)
+
+    def test_missing_sources_refused(self):
+        self.ubuntu.unlink()
+        self.other.unlink()
+        self.original = {}
+        result, records = self.run_helper()
+        self.assertEqual(result.returncode, 64)
+        self.assertEqual(records, [])
+
+
+
+    def test_mixed_dns_and_signature_failure_is_not_retried(self):
+        result, records = self.run_helper(FAIL_UPDATE='100', FAKE_APT_ERROR="Temporary failure resolving 'archive.ubuntu.com'\\nNO_PUBKEY")
+        self.assertEqual(result.returncode, 100)
+        self.assertEqual(len(records), 1)
+
+    def test_mixed_dns_and_expired_metadata_is_not_retried(self):
+        result, records = self.run_helper(FAIL_UPDATE='100', FAKE_APT_ERROR="Temporary failure resolving 'archive.ubuntu.com'\\nRelease file example is expired")
+        self.assertEqual(result.returncode, 100)
+        self.assertEqual(len(records), 1)
+
 
 
 if __name__ == '__main__':
