@@ -24,6 +24,7 @@ import zlib
 
 from compose_pcie2_contract_dtb import decode
 from uconsole_emulator import qmp
+from prepare_pi5_boot import board_revision
 
 
 def digest(path):
@@ -117,16 +118,13 @@ def main():
     if b'brcm,bcm2712' not in compatible:
         raise ValueError('BCM2712 FDT required')
     if b'raspberrypi,500' in compatible:
-        board_type = 0x19
         dtb_name = 'bcm2712-rpi-500.dtb'
     elif b'raspberrypi,5-model-b' in compatible:
-        board_type = 0x17
         dtb_name = ('bcm2712-d-rpi-5-b.dtb' if b'brcm,bcm2712-d0' in compatible
                     else 'bcm2712-rpi-5-b.dtb')
     else:
         raise ValueError('enrolled Pi5 Model B or Pi500 board FDT required')
-    if board_type == 0x19 and args.memory_gib not in (8, 16):
-        raise ValueError('Pi500/500+ supports 8 or 16 GiB RAM')
+    revision = board_revision(nodes, args.memory_gib)
     if fat_read(image, first, dtb_name) != dtb.read_bytes():
         raise ValueError('supplied FDT does not match the image boot partition')
     pins = {str(path): digest(path) for path in [binary, qemu_img, image, dtb]}
@@ -145,9 +143,6 @@ def main():
                     str(image), str(overlay)], check=True, env=env, capture_output=True)
     subprocess.run([str(qemu_img), 'resize', str(overlay), str(capacity)],
                    check=True, env=env, capture_output=True)
-    memory_code = {1: 2, 2: 3, 4: 4, 8: 5, 16: 6}[args.memory_gib]
-    revision = 0x804000 | (board_type << 4) | (memory_code << 20)
-    if board_type == 0x17 and args.memory_gib in (1, 16):revision |= 1
     monitor = Path('/tmp') / ('p5fw-' + uuid.uuid4().hex[:16] + '.qmp')
     command = [str(binary), '-M', f'raspi5b,board-revision={revision:#x}',
                '-m', f'{args.memory_gib}G', '-kernel', str(transport), '-dtb', str(dtb),

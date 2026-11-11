@@ -17,6 +17,8 @@ import subprocess
 import time
 import uuid
 from uconsole_emulator import qmp
+from compose_pcie2_contract_dtb import decode
+from prepare_pi5_boot import board_revision
 
 
 def sha(path):
@@ -40,10 +42,14 @@ def main():
     if manifest['memory_gib']!=args.memory_gib:raise ValueError('DT/machine RAM profile mismatch')
     if manifest['image_sha256']!=pins[str(boot/'FreeBSD-Image')] or manifest['derived_dtb_sha256']!=pins[str(boot/'pi5-sd.dtb')]:
         raise ValueError('prepared boot input hash mismatch')
+    nodes,_,_=decode((boot/'pi5-sd.dtb').read_bytes())
+    revision=board_revision(nodes,args.memory_gib)
+    if manifest.get('board_revision')!=revision:
+        raise ValueError('prepared FDT/mailbox board identity mismatch; prepare boot inputs again')
     out=args.output.resolve();out.mkdir(parents=True,exist_ok=False)
     env={k:v for k,v in os.environ.items() if k not in ['LD_LIBRARY_PATH','DYLD_LIBRARY_PATH']}
     subprocess.run([str(q.with_name('qemu-img')),'create','-f','qcow2','-F','raw','-b',str(disk),str(out/'sd.qcow2')],check=True,env=env,capture_output=True)
-    cmd=[str(q),'-M','raspi5b','-m',str(args.memory_gib)+'G','-kernel',str(boot/'FreeBSD-Image'),'-dtb',str(boot/'pi5-sd.dtb'),'-drive',f'if=sd,format=qcow2,file={out}/sd.qcow2','-display','none','-serial','stdio','-monitor','none','-nic','none','-no-reboot']
+    cmd=[str(q),'-M',f'raspi5b,board-revision={revision:#x}','-m',str(args.memory_gib)+'G','-kernel',str(boot/'FreeBSD-Image'),'-dtb',str(boot/'pi5-sd.dtb'),'-drive',f'if=sd,format=qcow2,file={out}/sd.qcow2','-display','none','-serial','stdio','-monitor','none','-nic','none','-no-reboot']
     nonce=uuid.uuid4().hex
     monitor=Path('/tmp')/('pi5-'+nonce[:16]+'.qmp')
     cmd += ['-qmp',f'unix:{monitor},server=on,wait=off']

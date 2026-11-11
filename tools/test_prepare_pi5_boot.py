@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """FreeBSD ELF-to-Image boot ABI layout and refusal controls."""
 import struct
+import json
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 from compose_pcie2_contract_dtb import decode, encode
 import unittest
-from prepare_pi5_boot import kernel_image
+from unittest.mock import patch
+import run_pi5_freebsd
+from prepare_pi5_boot import kernel_image, board_revision
 BASE=0xffff000000000000
 
 def fixture():
@@ -34,7 +37,7 @@ class Conversion(unittest.TestCase):
                soc+'/pinctrl@7d504100',soc+'/pinctrl@7d510700',
                '/timer','/psci','/sd-io-1v8-reg','/sd-vcc-reg']
         nodes={path:{} for path in paths}
-        nodes['/']={'compatible':b'brcm,bcm2712\0',
+        nodes['/']={'compatible':b'raspberrypi,5-model-b\0brcm,bcm2712\0',
                     '#address-cells':struct.pack('>I',2),
                     '#size-cells':struct.pack('>I',1)}
         nodes['/memory@0']={'device_type':b'memory\0'}
@@ -57,8 +60,61 @@ class Conversion(unittest.TestCase):
                     self.assertEqual(len(banks),count)
                     self.assertEqual(banks[0],(0,0x3c000000))
                     self.assertEqual(sum(n for _,n in banks),size*(1<<30)-(64<<20))
+                    manifest=json.loads((output/'inputs.json').read_text())
+                    self.assertEqual(manifest['board_revision'],board_revision(derived,size))
                     self.assertTrue(all(a+n<=size*(1<<30) for a,n in banks))
                     self.assertTrue(all(a+n<=b for (a,n),(b,_) in zip(banks,banks[1:])))
+    def test_board_identity_profiles(self):
+        # Independent documented board-type and memory fields, including the
+        # retained Model B revision for its 1/16 GiB profiles.
+        for family, board, sizes in ((b'raspberrypi,5-model-b',0x17,(1,2,4,8,16)),
+                                     (b'raspberrypi,500',0x19,(8,16))):
+            nodes={'/':{'compatible':family+b'\0brcm,bcm2712\0'}}
+            for size in sizes:
+                with self.subTest(family=family,memory_gib=size):
+                    value=board_revision(nodes,size)
+                    self.assertEqual((value>>4)&0xff,board)
+                    self.assertEqual((value>>20)&7,{1:2,2:3,4:4,8:5,16:6}[size])
+                    self.assertEqual(value&15,int(board==0x17 and size in (1,16)))
+        for size in (1,2,4):
+            with self.assertRaisesRegex(ValueError,'Pi500'):
+                board_revision({'/':{'compatible':b'raspberrypi,500\0brcm,bcm2712\0'}},size)
+    def test_unenrolled_and_ambiguous_board_refused(self):
+        for compatible in (b'brcm,bcm2712\0',
+                           b'raspberrypi,500\0brcm,bcm2711\0',
+                           b'raspberrypi,500\0raspberrypi,5-model-b\0brcm,bcm2712\0'):
+            with self.subTest(compatible=compatible),self.assertRaises(ValueError):
+                board_revision({'/':{'compatible':compatible}},8)
+    def direct_inputs(self, root, revision):
+        nodes={'/':{'compatible':b'raspberrypi,500\0brcm,bcm2712\0'}}
+        for name in ('qemu-system-aarch64','qemu-img','FreeBSD-Image','disk.img'):
+            (root/name).write_bytes(b'independent control input')
+        (root/'pi5-sd.dtb').write_bytes(encode(nodes,bytes(16),0))
+        manifest={'memory_gib':8,'image_sha256':run_pi5_freebsd.sha(root/'FreeBSD-Image'),
+                  'derived_dtb_sha256':run_pi5_freebsd.sha(root/'pi5-sd.dtb')}
+        if revision is not None:manifest['board_revision']=revision
+        (root/'inputs.json').write_text(json.dumps(manifest))
+        return ['run_pi5_freebsd.py','--qemu',str(root/'qemu-system-aarch64'),
+                '--boot-inputs',str(root),'--disk',str(root/'disk.img'),
+                '--output',str(root/'result')]
+    def test_direct_runner_refuses_old_or_cross_board_manifest(self):
+        for revision in (None,0xd04170):
+            with self.subTest(revision=revision),tempfile.TemporaryDirectory() as temp:
+                root=Path(temp);argv=self.direct_inputs(root,revision)
+                with patch.object(sys,'argv',argv),patch.object(run_pi5_freebsd.subprocess,'run') as command:
+                    with self.assertRaisesRegex(ValueError,'board identity mismatch'):
+                        run_pi5_freebsd.main()
+                    command.assert_not_called()
+                    self.assertFalse((root/'result').exists())
+    def test_direct_runner_selects_enrolled_pi500(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);argv=self.direct_inputs(root,0xd04190)
+            with patch.object(sys,'argv',argv),patch.object(run_pi5_freebsd.subprocess,'run'), \
+                 patch.object(run_pi5_freebsd.subprocess,'Popen',side_effect=OSError('captured launch')) as launch:
+                with self.assertRaisesRegex(OSError,'captured launch'):
+                    run_pi5_freebsd.main()
+                command=launch.call_args.args[0]
+                self.assertEqual(command[command.index('-M')+1],'raspi5b,board-revision=0xd04190')
     def test_short_header(self):
         with self.assertRaises(ValueError):kernel_image(b'\x7fELF')
     def test_non_arm_kernel(self):
