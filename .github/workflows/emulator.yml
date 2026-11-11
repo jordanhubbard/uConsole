@@ -61,6 +61,8 @@ jobs:
       - name: Exercise actual Pi5 boot and memory models
         run: |
           python3 tools/test_emulator_rp1.py --qemu build/emulator/qemu-build/qemu-system-aarch64 > pi5-rp1.log 2>&1
+          python3 tools/test_emulator_rp1_uart.py --qemu build/emulator/qemu-build/qemu-system-aarch64 > pi5-rp1-uart.log 2>&1
+          python3 tools/test_emulator_pl011_profile.py --qemu build/emulator/qemu-build/qemu-system-aarch64 > pi5-pl011-profile.log 2>&1
           python3 tools/test_emulator_pi5_boot.py --qemu build/emulator/qemu-build/qemu-system-aarch64 > pi5-boot.log 2>&1
           python3 tools/test_emulator_pi5_memory.py --qemu build/emulator/qemu-build/qemu-system-aarch64 --output _build/pi5-memory > pi5-memory.log 2>&1
           python3 tools/test_prepare_pi5_boot.py > pi5-prepare.log 2>&1

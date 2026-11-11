@@ -1,0 +1,154 @@
+--- a/include/hw/char/pl011.h
++++ b/include/hw/char/pl011.h
+@@ -39,7 +39,11 @@
+     uint32_t dmacr;
+     uint32_t int_enabled;
+     uint32_t int_level;
+-    uint32_t read_fifo[PL011_FIFO_DEPTH];
++    uint32_t read_fifo[32];
++    uint32_t fifo_depth;
++    uint32_t periph_id;
++    uint32_t incoming_fifo_depth;
++    uint32_t incoming_periph_id;
+     uint32_t ilpr;
+     uint32_t ibrd;
+     uint32_t fbrd;
+--- a/hw/char/pl011.c
++++ b/hw/char/pl011.c
+@@ -154,7 +154,7 @@
+ static inline unsigned pl011_get_fifo_depth(PL011State *s)
+ {
+     /* Note: FIFO depth is expected to be power-of-2 */
+-    return pl011_is_fifo_enabled(s) ? PL011_FIFO_DEPTH : 1;
++    return pl011_is_fifo_enabled(s) ? s->fifo_depth : 1;
+ }
+ 
+ static inline void pl011_reset_rx_fifo(PL011State *s)
+@@ -181,6 +181,13 @@
+     unsigned pipe_depth;
+ 
+     pipe_depth = pl011_get_fifo_depth(s);
++    if (s->fifo_depth == 32 && s->read_count >= pipe_depth) {
++        /* A full RP1 RX FIFO drops the new character, preserving old bytes. */
++        s->rsr |= 8;
++        s->int_level |= INT_OE;
++        pl011_update(s);
++        return;
++    }
+     slot = (s->read_pos + s->read_count) & (pipe_depth - 1);
+     s->read_fifo[slot] = value;
+     s->read_count++;
+@@ -316,7 +323,11 @@
+         r = s->dmacr;
+         break;
+     case 0x3f8 ... 0x400:
+-        r = s->id[(offset - 0xfe0) >> 2];
++        if (s->periph_id && offset < 0xff0) {
++            r = (s->periph_id >> (((offset - 0xfe0) >> 2) * 8)) & 0xff;
++        } else {
++            r = s->id[(offset - 0xfe0) >> 2];
++        }
+         break;
+     default:
+         qemu_log_mask(LOG_GUEST_ERROR,
+@@ -566,8 +577,10 @@
+     PL011State* s = opaque;
+ 
+     /* Sanity-check input state */
+-    if (s->read_pos >= ARRAY_SIZE(s->read_fifo) ||
+-        s->read_count > ARRAY_SIZE(s->read_fifo)) {
++    if (s->incoming_fifo_depth != s->fifo_depth ||
++        s->incoming_periph_id != s->periph_id ||
++        s->read_pos < 0 || s->read_pos >= s->fifo_depth ||
++        s->read_count < 0 || s->read_count > s->fifo_depth) {
+         return -1;
+     }
+ 
+@@ -588,10 +601,51 @@
+     return 0;
+ }
+ 
++/*
++ * Keep the original v2 fields and 16-word array unchanged for existing boards.
++ * Larger FIFOs and explicit peripheral identities require a bound subsection.
++ */
++static int pl011_pre_save(void *opaque)
++{
++    PL011State *s = opaque;
++    s->incoming_fifo_depth = s->fifo_depth;
++    s->incoming_periph_id = s->periph_id;
++    return 0;
++}
++
++static int pl011_pre_load(void *opaque)
++{
++    PL011State *s = opaque;
++    s->incoming_fifo_depth = PL011_FIFO_DEPTH;
++    s->incoming_periph_id = 0;
++    return 0;
++}
++
++static bool pl011_profile_needed(void *opaque)
++{
++    PL011State *s = opaque;
++    return s->fifo_depth != PL011_FIFO_DEPTH || s->periph_id != 0;
++}
++
++static const VMStateDescription vmstate_pl011_profile = {
++    .name = "pl011/profile",
++    .version_id = 1,
++    .minimum_version_id = 1,
++    .needed = pl011_profile_needed,
++    .fields = (const VMStateField[]) {
++        VMSTATE_UINT32(incoming_fifo_depth, PL011State),
++        VMSTATE_UINT32(incoming_periph_id, PL011State),
++        VMSTATE_UINT32_SUB_ARRAY(read_fifo, PL011State, 16, 16),
++        VMSTATE_END_OF_LIST()
++    }
++};
++
+ static const VMStateDescription vmstate_pl011 = {
+     .name = "pl011",
+     .version_id = 2,
+     .minimum_version_id = 2,
++    .pre_save = pl011_pre_save,
++    .pre_load = pl011_pre_load,
+     .post_load = pl011_post_load,
+     .fields = (const VMStateField[]) {
+         VMSTATE_UNUSED(sizeof(uint32_t)),
+@@ -602,7 +656,7 @@
+         VMSTATE_UINT32(dmacr, PL011State),
+         VMSTATE_UINT32(int_enabled, PL011State),
+         VMSTATE_UINT32(int_level, PL011State),
+-        VMSTATE_UINT32_ARRAY(read_fifo, PL011State, PL011_FIFO_DEPTH),
++        VMSTATE_UINT32_SUB_ARRAY(read_fifo, PL011State, 0, PL011_FIFO_DEPTH),
+         VMSTATE_UINT32(ilpr, PL011State),
+         VMSTATE_UINT32(ibrd, PL011State),
+         VMSTATE_UINT32(fbrd, PL011State),
+@@ -614,12 +668,15 @@
+     },
+     .subsections = (const VMStateDescription * const []) {
+         &vmstate_pl011_clock,
++        &vmstate_pl011_profile,
+         NULL
+     }
+ };
+ 
+ static const Property pl011_properties[] = {
+     DEFINE_PROP_CHR("chardev", PL011State, chr),
++    DEFINE_PROP_UINT32("fifo-depth", PL011State, fifo_depth, PL011_FIFO_DEPTH),
++    DEFINE_PROP_UINT32("periph-id", PL011State, periph_id, 0),
+     DEFINE_PROP_BOOL("migrate-clk", PL011State, migrate_clk, true),
+ };
+ 
+@@ -645,6 +702,10 @@
+ {
+     PL011State *s = PL011(dev);
+ 
++    if (s->fifo_depth != 16 && s->fifo_depth != 32) {
++        error_setg(errp, "PL011 fifo-depth must be 16 or 32");
++        return;
++    }
+     qemu_chr_fe_set_handlers(&s->chr, pl011_can_receive, pl011_receive,
+                              pl011_event, NULL, s, NULL, true);
+ }

@@ -1,0 +1,17 @@
+--- a/hw/core/sysbus.c
++++ b/hw/core/sysbus.c
+@@ -42,6 +42,14 @@
+     sbdev = (SysBusDevice *)dev;
+ 
+     if (!sbdev) {
++        /*
++         * A bus device owns its internal MMIO devices. They are not dynamic
++         * platform devices and must not be remapped or described in the FDT.
++         * In particular, a PCI endpoint can contain SysBus UARTs in its BARs.
++         */
++        if (object_dynamic_cast(obj, TYPE_DEVICE)) {
++            return 0;
++        }
+         /* Container, traverse it for children */
+         return object_child_foreach(obj, find_sysbus_device, opaque);
+     }
