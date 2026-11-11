@@ -52,7 +52,7 @@ def main():
     p.add_argument('--dtb',type=Path,required=True)
     p.add_argument('--kernel',type=Path,required=True)
     p.add_argument('--output',type=Path,required=True)
-    p.add_argument('--memory-gib', type=int, choices=[2,4,8], default=8)
+    p.add_argument('--memory-gib', type=int, choices=[1,2,4,8,16], default=8)
     args=p.parse_args()
     raw=args.dtb.read_bytes();n,reserve,boot=decode(raw)
     if b'brcm,bcm2712' not in n['/'].get('compatible',b'').split(b'\0'):
@@ -76,8 +76,12 @@ def main():
     # Explicit firmware-equivalent RAM sizing and initialized debug UART.
     for path,props in n.items():
         if props.get('device_type')==b'memory\0':
-            props['reg']=b''.join(struct.pack('>III',base >> 32,base & 0xffffffff,0x80000000)
-                                  for base in range(0,args.memory_gib*1024**3,0x80000000))
+            banks=[(0,0x3c000000)]
+            if args.memory_gib>1:banks.append((0x40000000,0x40000000))
+            banks.extend((base,0x80000000) for base in
+                         range(0x80000000,args.memory_gib*1024**3,0x80000000))
+            props['reg']=b''.join(struct.pack('>III',base >> 32,base & 0xffffffff,size)
+                                  for base,size in banks)
     n['/chosen']['stdout-path']=(soc+'/serial@7d001000:115200n8\0').encode()
     n['/chosen']['bootargs']=b'FreeBSD: vfs.root.mountfrom=ufs:/dev/gpt/PI5ROOT boot_verbose=YES kern.panic_reboot_wait_time=-1\0'
     n[soc+'/serial@7d001000'].pop('skip-init',None)

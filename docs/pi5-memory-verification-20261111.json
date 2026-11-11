@@ -1,0 +1,205 @@
+{
+  "schema": "uconsole/pi5-memory-profile-verification@1",
+  "upstream_qemu": "10.2.4",
+  "host": {
+    "os": "Linux",
+    "architecture": "aarch64"
+  },
+  "qemu_sha256": "2a3637563aecf3bdb8bc6d33225f0fabf913a8f53dcb29465f731de978ab96c6",
+  "model_sha256": "b5af033b3e11f77ed2cb43bf550a3e04c973af61da47af6c3625ed81ef0088cf",
+  "native_qtest": {
+    "passed": true,
+    "profiles": [
+      {
+        "memory_gib": 1,
+        "banks": [
+          [
+            0,
+            1006632960
+          ]
+        ],
+        "board_revision": "0xa04171",
+        "ram_addresses": [
+          1048576,
+          1073741820
+        ],
+        "passed": true
+      },
+      {
+        "memory_gib": 2,
+        "banks": [
+          [
+            0,
+            1006632960
+          ],
+          [
+            1073741824,
+            1073741824
+          ]
+        ],
+        "board_revision": "0xb04170",
+        "ram_addresses": [
+          1048576,
+          2147483644
+        ],
+        "passed": true
+      },
+      {
+        "memory_gib": 4,
+        "banks": [
+          [
+            0,
+            1006632960
+          ],
+          [
+            1073741824,
+            1073741824
+          ],
+          [
+            2147483648,
+            2147483648
+          ]
+        ],
+        "board_revision": "0xc04170",
+        "ram_addresses": [
+          1048576,
+          2147483648,
+          4294967292
+        ],
+        "passed": true
+      },
+      {
+        "memory_gib": 8,
+        "banks": [
+          [
+            0,
+            1006632960
+          ],
+          [
+            1073741824,
+            1073741824
+          ],
+          [
+            2147483648,
+            2147483648
+          ],
+          [
+            4294967296,
+            2147483648
+          ],
+          [
+            6442450944,
+            2147483648
+          ]
+        ],
+        "board_revision": "0xd04170",
+        "ram_addresses": [
+          1048576,
+          2147483648,
+          4294967296,
+          8589934588
+        ],
+        "passed": true
+      },
+      {
+        "memory_gib": 16,
+        "banks": [
+          [
+            0,
+            1006632960
+          ],
+          [
+            1073741824,
+            1073741824
+          ],
+          [
+            2147483648,
+            2147483648
+          ],
+          [
+            4294967296,
+            2147483648
+          ],
+          [
+            6442450944,
+            2147483648
+          ],
+          [
+            8589934592,
+            2147483648
+          ],
+          [
+            10737418240,
+            2147483648
+          ],
+          [
+            12884901888,
+            2147483648
+          ],
+          [
+            15032385536,
+            2147483648
+          ]
+        ],
+        "board_revision": "0xe04171",
+        "ram_addresses": [
+          1048576,
+          2147483648,
+          4294967296,
+          8589934592,
+          17179869180
+        ],
+        "passed": true
+      }
+    ],
+    "family_controls": [
+      {
+        "pi500_gib": 1,
+        "accepted": false
+      },
+      {
+        "pi500_gib": 2,
+        "accepted": false
+      },
+      {
+        "pi500_gib": 4,
+        "accepted": false
+      },
+      {
+        "pi500_gib": 8,
+        "accepted": true
+      },
+      {
+        "pi500_gib": 16,
+        "accepted": true
+      }
+    ],
+    "scope": "native QEMU qtest RAM/FDT/mailbox; no OS or hardware acceptance"
+  },
+  "existing_boot_mmio_mailbox_migration_reset_controls": "pass",
+  "preparation_tests": {
+    "run": 9,
+    "passed": 9
+  },
+  "firmware_input_tests": {
+    "run": 4,
+    "passed": 4
+  },
+  "portable_host_tests": {
+    "run": 33,
+    "passed": 33
+  },
+  "before_control": {
+    "matching_baseline_2g": "pass",
+    "matching_baseline_1g": "refused unsupported RAM"
+  },
+  "limitations": [
+    "Stopped synthetic AArch64 boot input, not an operating-system boot",
+    "No physical or electrical qualification",
+    "RP1 and remaining device fidelity work is still incomplete"
+  ],
+  "references": [
+    "https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#new-style-revision-codes",
+    "https://pip-assets.raspberrypi.com/categories/892-raspberry-pi-5/documents/RP-008348-DS-10-raspberry-pi-5-product-brief.pdf"
+  ]
+}

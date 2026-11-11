@@ -23,11 +23,13 @@ GICD=0x107fff9000
 SDIO=0x1001100000
 
 class Pi5Machine(Machine):
-    def __init__(self,root,name,stack,binary,card=None,incoming=False):
+    def __init__(self,root,name,stack,binary,card=None,incoming=False,memory_gib=2,revision=None,boot_args=()):
         self.monitor=root/(name+'-qmp');test=root/(name+'-qtest')
         log=stack.enter_context((root/(name+'.log')).open('wb'))
-        cmd=[binary,'-M','raspi5b','-m','2G','-accel','qtest','-S','-display','none','-serial','none','-monitor','none','-nic','none',
+        board='raspi5b'+('' if revision is None else f',board-revision={revision:#x}')
+        cmd=[binary,'-M',board,'-m',f'{memory_gib}G','-accel','qtest','-S','-display','none','-serial','none','-monitor','none','-nic','none',
              '-qtest',f'unix:{test},server=on,wait=off','-qmp',f'unix:{self.monitor},server=on,wait=off']
+        cmd+=list(boot_args)
         if card:cmd+=['-drive',f'if=sd,format=raw,file={card}']
         if incoming:cmd+=['-incoming','defer']
         self.process=subprocess.Popen(cmd,stdout=log,stderr=log);stack.callback(self.close)
@@ -114,9 +116,9 @@ def run(binary):
         with card.open('wb') as f:f.truncate(64*1024*1024)
         present=Pi5Machine(root,'present',stack,binary,card=card)
         assert present.read(GPIO+4)&32==0  # same model, actual card attached
-        for bad in [['-m','1G'],['-m','2G','-cpu','cortex-a72']]:
+        for bad in [['-m','3G'],['-m','2G','-cpu','cortex-a72']]:
             proc=subprocess.run([binary,'-M','raspi5b',*bad,'-display','none','-serial','none','-monitor','none','-nic','none'],capture_output=True,timeout=10)
-            assert proc.returncode!=0 and (b'supports 2, 4 or 8' in proc.stderr or b'CPU type' in proc.stderr or b'CPU model' in proc.stderr),proc.stderr
+            assert proc.returncode!=0 and (b'supports 1, 2, 4, 8 or 16' in proc.stderr or b'CPU type' in proc.stderr or b'CPU model' in proc.stderr),proc.stderr
         for revision in ('0x304170', '0xd04190'):
             # Missing new-scheme bit and mismatched 8 GiB identity on a 2 GiB VM.
             proc=subprocess.run([binary,'-M','raspi5b,board-revision='+revision,
