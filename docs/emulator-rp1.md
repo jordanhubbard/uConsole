@@ -79,9 +79,45 @@ Run the new tests with the pinned executable:
 The profile test accepts an optional --legacy-qemu executable for actual
 old/new migration controls. CI runs current/current and profile refusal controls.
 
-The UARTs retain QEMU PL011's immediate TX, nonempty RX interrupt policy and
-host-stream buffering. Timed 32-entry transmit FIFOs, documented RX thresholds
-and timeout behavior, serial-bit/framing/error timing, complete hardware flow
-control and DMA are still required. The RP1 clock/reset and pin-mux models also
+The UARTs retain QEMU PL011's immediate TX and host-stream buffering. The RP1
+receive profile now implements programmed RX thresholds and timeout behavior as
+described below. Timed 32-entry transmit FIFOs, serial-bit/framing/error timing,
+complete hardware flow control and DMA are still required. The RP1 clock/reset and pin-mux models also
 remain open. These initial UART engines do not establish full RP1 UART fidelity
 or a bootable Pi5 RP1 bus.
+
+
+## Programmed receive interrupts and timeout
+
+The RP1 receive profile uses thresholds of 4, 8, 16, 24 or 28 characters for
+its 32-entry FIFO. UARTEN and RXE independently gate reception. The integer
+and fractional baud registers take effect on an LCR_H write. A nonempty FIFO
+raises timeout status after 32 baud periods without a new received character.
+New arrivals restart that deadline; partial reads preserve a latched timeout,
+while draining the FIFO clears it. Raw status, interrupt masking, acknowledgement
+and RP1 IACK remain distinct operations.
+
+The clock is a fixed nominal 48 MHz until the RP1 clock tree is implemented.
+Tests drive controlled byte arrivals through the existing immediate loopback
+path and explicitly enable qtest virtual-timer dispatch. They do not qualify
+serial-bit reception or transmit timing. Timer state and the receive policy
+are migration-bound: a target with a different accurate-rx policy is refused.
+Original default 16-entry UART behavior and wire compatibility remain retained.
+
+Run:
+
+    python3 tools/test_emulator_rp1_rx.py --qemu build/emulator/qemu-build/qemu-system-aarch64
+
+The [native receive result](rp1-rx-verification-20261111.json) records all six
+UARTs at every threshold, exact timeout boundary, fractional rounding, divisor
+latching, independent receive enables, restart/drain behavior, raw versus masked
+interrupts, real MSI-X delivery, remaining-deadline migration and reset
+cancellation. The old UART model fails the below-threshold control. The extended
+UART/external-stream, legacy migration and Pi5 boot/memory regressions pass on
+the same executable.
+
+The common PL011 receive rules are documented in the manufacturer's
+[RP2040 datasheet, UART interrupt and register sections](https://datasheets.raspberrypi.com/rp2040/rp2040-datasheet.pdf);
+RP1's PL011 integration and nominal clock are specified in the
+[RP1 peripheral reference](https://datasheets.raspberrypi.com/rp1/rp1-peripherals.pdf).
+RP2040's surrounding clock/reset and address map are not used for RP1.
