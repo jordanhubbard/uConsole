@@ -11,6 +11,7 @@
  */
 #include "qemu/osdep.h"
 #include "qemu/units.h"
+#include "qemu/host-utils.h"
 #include "qapi/error.h"
 #include "qemu/error-report.h"
 #include "hw/boards.h"
@@ -60,7 +61,8 @@ struct Raspi5MachineState {
 static void raspi5_modify_dtb(const struct arm_boot_info *info, void *fdt)
 {
     MachineState *ms = MACHINE(qdev_get_machine());
-    uint32_t banks[15];
+    g_autofree uint32_t *banks = g_new(uint32_t,
+        3 * (ms->ram_size / (2 * GiB) + 2));
     unsigned count = 0;
     /* The firmware root uses 2 address cells and 1 size cell. Encode all
      * banks as tuples in ONE memory node: the FreeBSD Linux boot ABI's
@@ -72,9 +74,11 @@ static void raspi5_modify_dtb(const struct arm_boot_info *info, void *fdt)
             banks[count++] = 0;
             banks[count++] = 0;
             banks[count++] = cpu_to_be32(0x3c000000);
-            banks[count++] = 0;
-            banks[count++] = cpu_to_be32(0x40000000);
-            banks[count++] = cpu_to_be32(0x40000000);
+            if (ms->ram_size > GiB) {
+                banks[count++] = 0;
+                banks[count++] = cpu_to_be32(GiB);
+                banks[count++] = cpu_to_be32(MIN(GiB, ms->ram_size - GiB));
+            }
         } else {
             banks[count++] = cpu_to_be32(base >> 32);
             banks[count++] = cpu_to_be32(base);
@@ -95,21 +99,24 @@ static void raspi5_init(MachineState *ms)
                                        GTIMER_HYP, GTIMER_SEC};
     static const int timer_ppis[] = {30, 27, 26, 29};
 
-    if (ms->ram_size != 2 * GiB && ms->ram_size != 4 * GiB &&
-        ms->ram_size != 8 * GiB) {
-        error_report("raspi5b supports 2, 4 or 8 GiB RAM");
+    if (ms->ram_size != GiB && ms->ram_size != 2 * GiB &&
+        ms->ram_size != 4 * GiB && ms->ram_size != 8 * GiB &&
+        ms->ram_size != 16 * GiB) {
+        error_report("raspi5b supports 1, 2, 4, 8 or 16 GiB RAM");
         exit(1);
     }
-    uint32_t memory_code = ms->ram_size == 8 * GiB ? 5 :
-                           ms->ram_size == 4 * GiB ? 4 : 3;
+    uint32_t memory_code = ctz64(ms->ram_size / GiB) + 2;
     if (!s->board_rev) {
-        s->board_rev = 0x804170 | (memory_code << 20);
+        /* The documented 1/16 GiB Model B identities use board revision 1.1. */
+        s->board_rev = 0x804170 | (memory_code << 20) |
+                       ((ms->ram_size == GiB || ms->ram_size == 16 * GiB) ? 1 : 0);
     }
     unsigned board_type = (s->board_rev >> 4) & 0xff;
     if (!(s->board_rev & (1U << 23)) ||
         ((s->board_rev >> 12) & 0xf) != 4 ||
         ((s->board_rev >> 20) & 7) != memory_code ||
-        (board_type != 0x17 && board_type != 0x19)) {
+        (board_type != 0x17 && board_type != 0x19) ||
+        (board_type == 0x19 && memory_code < 5)) {
         error_report("raspi5b board-revision must identify BCM2712 Pi5/Pi500 and match RAM");
         exit(1);
     }
@@ -273,7 +280,9 @@ static void raspi5_init(MachineState *ms)
     }
 
     s->boot.loader_start = 0;
-    s->boot.ram_size = 2 * GiB;
+    /* The firmware FDT has one size cell. Let the ARM loader place boot
+     * inputs within low RAM, then publish every bank in modify_dtb. */
+    s->boot.ram_size = MIN(ms->ram_size, 2 * GiB);
     s->boot.modify_dtb = raspi5_modify_dtb;
     s->boot.psci_conduit = QEMU_PSCI_CONDUIT_SMC;
     arm_load_kernel(s->cpu[0], ms, &s->boot);

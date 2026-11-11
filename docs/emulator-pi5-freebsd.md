@@ -31,10 +31,22 @@ UART. Its manifest records the input/output SHA256 identities and every changed
 property/removed clock node. Unsupported clock nodes are omitted because the
 FreeBSD fixed-clock probe also attempts disabled placeholders with no frequency.
 
-The machine accepts 2, 4 and 8 GiB, with 8 GiB default. All RAM banks appear as
+The machine accepts 1, 2, 4, 8 and 16 GiB, with 8 GiB default. All RAM banks appear as
 `reg` tuples in one memory node: the FreeBSD direct-boot FDT parser reads that
 node rather than collecting separate root memory nodes. The firmware profile
 excludes a 64 MiB low-memory VideoCore/framebuffer window from ARM-usable RAM.
+The 1 GiB profile has no bank above 1 GiB; the 16 GiB profile keeps
+64-bit bank addresses without truncation. The 1/16 GiB defaults report the
+documented Model B revision 1.1 memory identities, while explicit board revision
+overrides must still match the selected capacity. See the
+[official revision encoding and model table](https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#new-style-revision-codes).
+The [memory verification record](pi5-memory-verification-20261111.json) binds the
+native QEMU binary and exact model bytes. Run
+`tools/test_emulator_pi5_memory.py --qemu <binary> --output <new-directory>`
+to exercise all five Model B capacities, documented Pi500/500+ capacities,
+invalid family/capacity combinations, actual RAM sentinels, mailbox revision
+responses and the stopped synthetic boot FDT. This does not claim a guest OS
+boot or full peripheral fidelity.
 The boot registers
 have explicit MMIO/reset/migration state; SD card-detect reflects the attached
 QEMU SD card rather than a constant insertion flag. Polled GPIO is the modeled

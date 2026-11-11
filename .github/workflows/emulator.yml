@@ -46,3 +46,29 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m unittest discover -s tests -p test_emulator.py -v
+
+  qemu-models:
+    name: Native QEMU Pi5 memory and boot models
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install QEMU build dependencies
+        run: sudo apt-get update && sudo apt-get install -y ninja-build pkg-config libglib2.0-dev libpixman-1-dev libslirp-dev python3-venv
+      - name: Build the complete pinned model stack
+        run: python3 tools/build_emulator_qemu.py --jobs 4 > qemu-build.log 2>&1
+      - name: Exercise actual Pi5 boot and memory models
+        run: |
+          python3 tools/test_emulator_pi5_boot.py --qemu build/emulator/qemu-build/qemu-system-aarch64 > pi5-boot.log 2>&1
+          python3 tools/test_emulator_pi5_memory.py --qemu build/emulator/qemu-build/qemu-system-aarch64 --output _build/pi5-memory > pi5-memory.log 2>&1
+          python3 tools/test_prepare_pi5_boot.py > pi5-prepare.log 2>&1
+          python3 tools/test_pi5_firmware_inputs.py > pi5-firmware-inputs.log 2>&1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pi5-model-results
+          path: |
+            qemu-build.log
+            pi5-*.log
+            _build/pi5-memory/

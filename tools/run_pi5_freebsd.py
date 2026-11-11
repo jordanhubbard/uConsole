@@ -29,7 +29,7 @@ def main():
     p.add_argument('--boot-inputs',type=Path,required=True)
     p.add_argument('--disk',type=Path,required=True)
     p.add_argument('--output',type=Path,required=True)
-    p.add_argument('--memory-gib',type=int,choices=[2,4,8],default=8)
+    p.add_argument('--memory-gib',type=int,choices=[1,2,4,8,16],default=8)
     args=p.parse_args()
     q=args.qemu.resolve();boot=args.boot_inputs.resolve();disk=args.disk.resolve()
     inputs=[q,q.with_name('qemu-img'),boot/'FreeBSD-Image',boot/'pi5-sd.dtb',boot/'inputs.json',disk]

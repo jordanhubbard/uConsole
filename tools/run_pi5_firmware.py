@@ -101,7 +101,7 @@ def main():
     parser.add_argument('--image', type=Path, required=True)
     parser.add_argument('--dtb', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--memory-gib', type=int, choices=[2, 4, 8], default=8)
+    parser.add_argument('--memory-gib', type=int, choices=[1, 2, 4, 8, 16], default=8)
     parser.add_argument('--timeout', type=int, default=240)
     parser.add_argument('--card-size-gib', type=int, choices=[1, 2, 4, 8, 16, 32, 64],
                         default=32, help='virtual SD capacity; 32 GiB exercises SDHC addressing')
@@ -125,6 +125,8 @@ def main():
                     else 'bcm2712-rpi-5-b.dtb')
     else:
         raise ValueError('enrolled Pi5 Model B or Pi500 board FDT required')
+    if board_type == 0x19 and args.memory_gib not in (8, 16):
+        raise ValueError('Pi500/500+ supports 8 or 16 GiB RAM')
     if fat_read(image, first, dtb_name) != dtb.read_bytes():
         raise ValueError('supplied FDT does not match the image boot partition')
     pins = {str(path): digest(path) for path in [binary, qemu_img, image, dtb]}
@@ -143,8 +145,9 @@ def main():
                     str(image), str(overlay)], check=True, env=env, capture_output=True)
     subprocess.run([str(qemu_img), 'resize', str(overlay), str(capacity)],
                    check=True, env=env, capture_output=True)
-    memory_code = {2: 3, 4: 4, 8: 5}[args.memory_gib]
+    memory_code = {1: 2, 2: 3, 4: 4, 8: 5, 16: 6}[args.memory_gib]
     revision = 0x804000 | (board_type << 4) | (memory_code << 20)
+    if board_type == 0x17 and args.memory_gib in (1, 16):revision |= 1
     monitor = Path('/tmp') / ('p5fw-' + uuid.uuid4().hex[:16] + '.qmp')
     command = [str(binary), '-M', f'raspi5b,board-revision={revision:#x}',
                '-m', f'{args.memory_gib}G', '-kernel', str(transport), '-dtb', str(dtb),
