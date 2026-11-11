@@ -120,6 +120,28 @@ class Conversion(unittest.TestCase):
                     run_pi5_freebsd.main()
                 command=launch.call_args.args[0]
                 self.assertEqual(command[command.index('-M')+1],'raspi5b,board-revision=0xd04190')
+    def test_os_memory_accounts_for_all_five_profiles(self):
+        for size in (1,2,4,8,16):
+            usable=size*(1<<30)-(64<<20)
+            for page in (4096,65536):
+                with self.subTest(memory_gib=size,page_size=page):
+                    serial=f'real memory  = {usable-page} (guest memory)\n'
+                    stats=f'hw.physmem: {usable-(24<<20)}\nhw.pagesize: {page}\n'
+                    self.assertTrue(all(run_pi5_freebsd.memory_checks(serial,stats,size).values()))
+    def test_os_memory_rejects_missing_bank_hidden_by_percentage(self):
+        usable=16*(1<<30)-(64<<20)
+        serial=f'real memory  = {usable-(1<<30)-4096}\n'
+        stats=f'hw.physmem: {usable-(1<<30)-(24<<20)}\nhw.pagesize: 4096\n'
+        checks=run_pi5_freebsd.memory_checks(serial,stats,16)
+        self.assertTrue(checks['full_modeled_memory'])
+        self.assertFalse(checks['memory_banks_exact'])
+    def test_os_memory_requires_page_size_and_correct_page_zero(self):
+        usable=(1<<30)-(64<<20)
+        for serial,stats in ((f'real memory = {usable-8192}',f'hw.physmem: {usable-(24<<20)}\nhw.pagesize: 4096\n'),
+                             (f'real memory = {usable-4096}',f'hw.physmem: {usable-(24<<20)}\n'),
+                             (f'real memory = {usable-3}',f'hw.physmem: {usable-(24<<20)}\nhw.pagesize: 3\n')):
+            with self.subTest(serial=serial,stats=stats):
+                self.assertFalse(run_pi5_freebsd.memory_checks(serial,stats,1)['memory_banks_exact'])
     def test_short_header(self):
         with self.assertRaises(ValueError):kernel_image(b'\x7fELF')
     def test_non_arm_kernel(self):
