@@ -1,0 +1,45 @@
+{
+  "qemu_sha256": "a7506fd85a7ce2ff3fc1652fdba333c813e7ded2de37b04e2a501ac88945fda5",
+  "model_sha256": "56a3d2088d1da01d4e04fb2674455621fe62e33f31b676f41901c311e8a87e77",
+  "build_generation": "a6a36af4eccf2672f6617d0ac158e1e4ea7b92c6d9d0e893c3b6517e40ab9920",
+  "tests": [
+    {
+      "name": "rp1",
+      "exit": 0,
+      "elapsed_seconds": 0.264,
+      "log_sha256": "1f8099617b50a5a9580c37dec8523f3b7b3b42a6b812e7a1744e4e3e6a1fb884"
+    },
+    {
+      "name": "pi5-boot",
+      "exit": 0,
+      "elapsed_seconds": 0.615,
+      "log_sha256": "17bb491c86aae4f83312f1cc616895177100dd9a329fd2782a1408996d7f10c4"
+    },
+    {
+      "name": "pi5-memory",
+      "exit": 0,
+      "elapsed_seconds": 1.418,
+      "log_sha256": "f80df624961418f81d327e0ee2cde28ac0bffda00ec2574bff40b378e2afdb2f"
+    },
+    {
+      "name": "prepare",
+      "exit": 0,
+      "elapsed_seconds": 0.415,
+      "log_sha256": "11578c3197d1cf964be83a013e7a69a722c91d70456e90b307de70d5de2e4311"
+    },
+    {
+      "name": "firmware-inputs",
+      "exit": 0,
+      "elapsed_seconds": 0.064,
+      "log_sha256": "56e03afda220e7ba78bbcecf9a2e53a0149cfc3e311fa10bbd01b25e8e5ba671"
+    }
+  ],
+  "scope": "Native ARM64 QEMU software endpoint on generic virt; not full Pi5 board or RP1 peripheral fidelity.",
+  "full_peripheral_fidelity": false,
+  "connected_vectors": 61,
+  "host_controls": {
+    "run": 33,
+    "passed": 33
+  },
+  "observed_date": "2026-11-11"
+}
