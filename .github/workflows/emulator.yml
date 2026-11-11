@@ -18,7 +18,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install test dependencies
-        run: sudo apt-get update && sudo apt-get install -y shellcheck xvfb python3-tk qemu-utils dosfstools e2fsprogs libasound2-dev
+        run: bash tools/ci_apt.sh shellcheck xvfb python3-tk qemu-utils dosfstools e2fsprogs libasound2-dev
       - name: Run complete tests with GUI and shell checks
         timeout-minutes: 20
         run: xvfb-run -a make check PYTHON=/usr/bin/python3
@@ -55,7 +55,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install QEMU build dependencies
-        run: sudo apt-get update && sudo apt-get install -y ninja-build pkg-config libglib2.0-dev libpixman-1-dev libslirp-dev python3-venv
+        run: bash tools/ci_apt.sh ninja-build pkg-config libglib2.0-dev libpixman-1-dev libslirp-dev python3-venv
       - name: Build the complete pinned model stack
         run: python3 tools/build_emulator_qemu.py --jobs 4 > qemu-build.log 2>&1
       - name: Exercise actual Pi5 boot and memory models
