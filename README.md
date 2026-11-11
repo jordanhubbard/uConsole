@@ -92,7 +92,7 @@ boot, serial console, writable image overlays, file transfer and image export,
 plus a Python/Tk source editor and emulator workbench. This is **partial CM4
 emulation**; the guide records missing uConsole devices and platform validation.
 A separate [Pi5 FreeBSD SD model](docs/emulator-pi5-freebsd.md) boots to
-multi-user on four Cortex-A76 CPUs with up to 8 GiB RAM and also exercises the
+multi-user on four Cortex-A76 CPUs with 1, 2, 4, 8 and 16 GiB RAM profiles and also exercises the
 actual U-Boot/EFI diagnostic boot path with framebuffer output.
 
 The [full-device plan](docs/emulator-device-plan.md) maps the schematics,
