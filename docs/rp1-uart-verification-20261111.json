@@ -1,0 +1,48 @@
+{
+  "qemu_sha256": "14bf66cadaa3c5185fc80572f54b45374ef5636e3a156dfbc364cf341143f5be",
+  "model_sha256": "51619b021b40644cc822f5de703368b01f20b2c4b0d1119121f41206546db291",
+  "legacy_qemu_sha256": "60f75d3c79a4f0e41d9a0cb9836cc44a2898b278fdf13dfdea69ea112611ad58",
+  "build_generation": "43b646ca29f427ba5841da189967fd142c86d52722df57c71cbfc9f51b86f2a6",
+  "tests": [
+    {
+      "name": "uart-final",
+      "exit": 0,
+      "elapsed_seconds": 0.365,
+      "log_sha256": "7e838400ce13ec6003629c58e39b6506fe2f5eb3f95fab5478eccb22dcab5f23"
+    },
+    {
+      "name": "pl011-compat-final",
+      "exit": 0,
+      "elapsed_seconds": 0.967,
+      "log_sha256": "4012770872e11f14f55c12385a5c0c14bc42c4be47d237689a05135a96dd8e16"
+    },
+    {
+      "name": "rp1-uart-regression-final",
+      "exit": 0,
+      "elapsed_seconds": 0.264,
+      "log_sha256": "1f8099617b50a5a9580c37dec8523f3b7b3b42a6b812e7a1744e4e3e6a1fb884"
+    },
+    {
+      "name": "pi5-uart-regression-final",
+      "exit": 0,
+      "elapsed_seconds": 0.615,
+      "log_sha256": "17bb491c86aae4f83312f1cc616895177100dd9a329fd2782a1408996d7f10c4"
+    },
+    {
+      "name": "pi5-memory-uart-final",
+      "exit": 0,
+      "elapsed_seconds": 1.52,
+      "log_sha256": "f80df624961418f81d327e0ee2cde28ac0bffda00ec2574bff40b378e2afdb2f"
+    }
+  ],
+  "observed_date": "2026-11-11",
+  "scope": "Six RP1 UART engines on the generic ARM PCI endpoint; no Pi5 board or complete UART timing/flow/DMA qualification.",
+  "uart_instances": 6,
+  "receive_fifo_capacity": 32,
+  "full_peripheral_fidelity": false,
+  "patch_sha256": {
+    "pl011-rp1-fifo.patch": "c1b3a200452d8df5a8efb371b256f1a1204217c0482d9c7c404af9b35f197b26",
+    "sysbus-contained-devices.patch": "34eedb84b70eb854e8d0d7154053764137501f551f0ffc08f7e47be75451c53e",
+    "rp1-endpoint.patch": "cf53e1f1e12d59f8066cba1275ed0d833f1893372bea202bf9fda19ac4bcb51a"
+  }
+}

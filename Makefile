@@ -97,6 +97,8 @@ check-emulator: keyboard-oracle
 	python3 tools/test_emulator_pi5_memory.py --qemu '$(BUILD_DIR)/emulator/qemu-build/qemu-system-aarch64' --output "$$(mktemp -d '$(BUILD_DIR)/emulator/pi5-memory.XXXXXX')/evidence"
 	python3 tools/test_compose_pcie2_contract_dtb.py
 	python3 tools/test_emulator_rp1.py --qemu '$(BUILD_DIR)/emulator/qemu-build/qemu-system-aarch64'
+	python3 tools/test_emulator_rp1_uart.py --qemu '$(BUILD_DIR)/emulator/qemu-build/qemu-system-aarch64'
+	python3 tools/test_emulator_pl011_profile.py --qemu '$(BUILD_DIR)/emulator/qemu-build/qemu-system-aarch64'
 	python3 tools/test_emulator_pcie2_contract.py --qemu '$(BUILD_DIR)/emulator/qemu-build/qemu-system-aarch64'
 	python3 tools/test_emulator_pi4_memory.py --qemu '$(BUILD_DIR)/emulator/qemu-build/qemu-system-aarch64'
 	python3 tools/test_emulator_framebuffer_alias.py --qemu '$(BUILD_DIR)/emulator/qemu-build/qemu-system-aarch64'

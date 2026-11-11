@@ -5,7 +5,7 @@
  * Register facts: RP1 Peripherals (2023-11-07), chapters 6 and 6.2;
  * raspberrypi/linux drivers/mfd/rp1.c and dt-bindings/mfd/rp1.h.
  * This is the endpoint foundation, not a completed RP1 southbridge:
- * no ROM/management CPUs, clocks, peripheral engines or PCIe PHY yet.
+ * no ROM/management CPUs, clocks, non-UART engines or PCIe PHY yet.
  */
 #include "qemu/osdep.h"
 #include "qemu/log.h"
@@ -16,6 +16,8 @@
 #include "hw/pci/pcie.h"
 #include "hw/pci/msix.h"
 #include "hw/qdev-core.h"
+#include "hw/qdev-properties.h"
+#include "hw/char/pl011.h"
 #include "migration/vmstate.h"
 #include "qom/object.h"
 
@@ -35,7 +37,9 @@ struct RP1State {
     PCIDevice parent_obj;
     MemoryRegion bar0;
     MemoryRegion peripherals;
+    MemoryRegion unimplemented;
     MemoryRegion sram;
+    DeviceState *uart[6];
     uint32_t cfg[RP1_CFG_REGS];
     uint64_t inputs;
     uint64_t blocked;
@@ -180,13 +184,30 @@ static void rp1_config_write(PCIDevice *dev, uint32_t address, uint32_t val,
     msix_write_config(dev, address, val, len);
 }
 
+static void rp1_init(Object *obj)
+{
+    RP1State *s = RP1(obj);
+
+    for (unsigned n = 0; n < ARRAY_SIZE(s->uart); n++) {
+        g_autofree char *name = g_strdup_printf("uart%u", n);
+        s->uart[n] = qdev_new(TYPE_PL011);
+        g_autofree char *child = g_strdup_printf("serial%u", n);
+        object_property_add_child(obj, child, OBJECT(s->uart[n]));
+        object_property_add_alias(obj, name, OBJECT(s->uart[n]), "chardev");
+        object_unref(OBJECT(s->uart[n]));
+    }
+}
+
 static void rp1_realize(PCIDevice *dev, Error **errp)
 {
     RP1State *s = RP1(dev);
 
     memory_region_init(&s->bar0, OBJECT(s), "rp1-msix", 0x4000);
-    memory_region_init_io(&s->peripherals, OBJECT(s), &rp1_ops, s,
-                          "rp1-peripherals", 0x400000);
+    memory_region_init(&s->peripherals, OBJECT(s), "rp1-peripherals", 0x400000);
+    memory_region_init_io(&s->unimplemented, OBJECT(s), &rp1_ops, s,
+                          "rp1-unimplemented", 0x400000);
+    memory_region_add_subregion_overlap(&s->peripherals, 0,
+                                        &s->unimplemented, -1);
     if (!memory_region_init_ram(&s->sram, OBJECT(s), "rp1-sram",
                                 0x10000, errp)) {
         return;
@@ -204,6 +225,18 @@ static void rp1_realize(PCIDevice *dev, Error **errp)
         msix_vector_use(dev, n);
     }
     qdev_init_gpio_in(DEVICE(s), rp1_input, RP1_VECTORS);
+    for (unsigned n = 0; n < ARRAY_SIZE(s->uart); n++) {
+        /* Linux RP1 binding advertises PrimeCell identity 0x00341011. */
+        qdev_prop_set_uint32(s->uart[n], "fifo-depth", 32);
+        qdev_prop_set_uint32(s->uart[n], "periph-id", 0x00341011);
+        if (!sysbus_realize(SYS_BUS_DEVICE(s->uart[n]), errp)) {
+            return;
+        }
+        memory_region_add_subregion(&s->peripherals, 0x30000 + 0x4000 * n,
+            sysbus_mmio_get_region(SYS_BUS_DEVICE(s->uart[n]), 0));
+        sysbus_connect_irq(SYS_BUS_DEVICE(s->uart[n]), 0,
+            qdev_get_gpio_in(DEVICE(s), n == 0 ? 25 : 41 + n));
+    }
 }
 
 static void rp1_exit(PCIDevice *dev)
@@ -251,6 +284,7 @@ static const TypeInfo rp1_type = {
     .name = TYPE_RP1,
     .parent = TYPE_PCI_DEVICE,
     .instance_size = sizeof(RP1State),
+    .instance_init = rp1_init,
     .class_init = rp1_class_init,
     .interfaces = (const InterfaceInfo[]) {
         { INTERFACE_PCIE_DEVICE },

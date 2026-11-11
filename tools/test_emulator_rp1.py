@@ -23,14 +23,16 @@ MESSAGE = 0x41000000
 
 
 class Machine(PCIMachine):
-    def __init__(self, root, name, stack, binary, incoming=False):
+    def __init__(self, root, name, stack, binary, incoming=False,
+                 endpoint_options="", device_args=()):
         sockets = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix='rp1-')))
         self.monitor = sockets / 'qmp'
         test = sockets / 'qtest'
         log = stack.enter_context((root / (name + '.log')).open('wb'))
         self.process = subprocess.Popen([
             binary, '-nodefaults', '-M', 'virt,highmem=off', '-m', '128M',
-            '-device', 'raspberrypi-rp1,id=rp1,addr=1.0',
+            '-device', 'raspberrypi-rp1,id=rp1,addr=1.0' + endpoint_options,
+            *device_args,
             '-accel', 'qtest', '-S', '-display', 'none', '-serial', 'none',
             '-monitor', 'none', '-nic', 'none',
             '-qtest', f'unix:{test},server=on,wait=off',
