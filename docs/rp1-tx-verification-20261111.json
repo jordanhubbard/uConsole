@@ -1,0 +1,115 @@
+{
+  "observed_utc": "2026-11-11T14:56:16.767802+00:00",
+  "qemu_version": "10.2.4",
+  "native_model_host": "Linux ARM64",
+  "qemu_sha256": "73acaf53a9ac40b925dc0bf774effcbc577dc718df1edd18a00d4fe5c3f893fa",
+  "build_generation": "f52fe830c6e97018b9d9fc65baa52911633189afcd51dc7b077053c6cbefb0b2",
+  "rp1_model_sha256": "38ea47b22c7c9cbce318a650cd66807b621a12a6a61b918bbc761f8a2dd917fa",
+  "tx_patch_sha256": "6b6dea8c5f015d795839203f877bc22ba21e459ca6f16d411fc7d820d1775d03",
+  "prepared_pl011_c_sha256": "cdd5536833467c22f7c345b86fc50cc99a3ef2727ff4bcc61a75051971b1a23b",
+  "prepared_pl011_h_sha256": "81400d5990ff0f22111bcd64ef153fabe54ef2eea28f88b7816a9a8c77060d3f",
+  "tests": [
+    {
+      "name": "tx-r2",
+      "exit": 0,
+      "log_sha256": "e748e8b22879c11bd3912682bcbe71dedc3f93da3b4c7125139b48965554ef62"
+    },
+    {
+      "name": "tx-rx-r3",
+      "exit": 0,
+      "log_sha256": "5967577ef10bbff0f798da01d8679632588864e31b3acf7e3aab736556881d4c"
+    },
+    {
+      "name": "tx-uart-r2",
+      "exit": 0,
+      "log_sha256": "7e838400ce13ec6003629c58e39b6506fe2f5eb3f95fab5478eccb22dcab5f23"
+    },
+    {
+      "name": "tx-profile-r2",
+      "exit": 0,
+      "log_sha256": "227329d272453e599fd90d94c56937359fa4e450cf71618eed9e27a00f393e86"
+    },
+    {
+      "name": "tx-rp1-final",
+      "exit": 0,
+      "log_sha256": "1f8099617b50a5a9580c37dec8523f3b7b3b42a6b812e7a1744e4e3e6a1fb884"
+    },
+    {
+      "name": "tx-pi5-boot-final",
+      "exit": 0,
+      "log_sha256": "17bb491c86aae4f83312f1cc616895177100dd9a329fd2782a1408996d7f10c4"
+    },
+    {
+      "name": "tx-pi5-memory-final",
+      "exit": 0,
+      "log_sha256": "f80df624961418f81d327e0ee2cde28ac0bffda00ec2574bff40b378e2afdb2f"
+    },
+    {
+      "name": "tx-host-final",
+      "exit": 0,
+      "run": 33,
+      "passed": 33,
+      "skipped": 0,
+      "log_sha256": "805de4cc737c3b198334f8ed904427c498846cf4fe4270efe79843b16640d6cc"
+    },
+    {
+      "name": "tx-managed-display-final",
+      "exit": 0,
+      "run": 5,
+      "passed": 5,
+      "skipped": 0,
+      "log_sha256": "50e7d9f9add0e7c12cac24120507fefde39719bb54543e751cba8a059df1c57f"
+    },
+    {
+      "name": "tx-source-final",
+      "exit": 0,
+      "run": 11,
+      "passed": 11,
+      "skipped": 0,
+      "log_sha256": "869cc1ca767971aa2df1dc4f8c43d0177da3660b5c73758eccb9014ec383e16c"
+    },
+    {
+      "name": "tx-prepare-final",
+      "exit": 0,
+      "run": 16,
+      "passed": 16,
+      "skipped": 0,
+      "log_sha256": "5d9bf743d2df45854476bceac1ce1a9c0a786b9587dd2966c00d0bd217c731df"
+    },
+    {
+      "name": "tx-firmware-final",
+      "exit": 0,
+      "run": 4,
+      "passed": 4,
+      "skipped": 0,
+      "log_sha256": "56e03afda220e7ba78bbcecf9a2e53a0149cfc3e311fa10bbd01b25e8e5ba671"
+    }
+  ],
+  "host_controls_passed": 69,
+  "checkpatch": {
+    "errors": 0,
+    "warnings": 0,
+    "checked_lines": 498,
+    "embedded_patch_signoff_check": "not applicable; raw embedded source patch, not an email submission"
+  },
+  "original_model_control": {
+    "qemu_sha256": "f4463d41eeebde87e6811e648934328e7705af5e7f66ab7fbfb00d99cfe2643d",
+    "exit": 1,
+    "expected_failure": "Queued TX FIFO did not set BUSY/TXFF",
+    "log_sha256": "5955dda1f55bc88bee558a380f8c74a00501552d66baae68fa7e14f7aaec32e8"
+  },
+  "initial_candidate_observations": {
+    "tx_and_rx": "Failed because timer expiry is removed before callback; explicit serialized frame deadline fixes chronology. Original failures and build retained.",
+    "uart_test": "Zero-duration qtest clock advance refused; positive1ns query records source time for target alignment.",
+    "rx_test": "Timed arrival started10us earlier to preserve original31999ns byte-arrival boundary; original timeout assertions retained.",
+    "managed_gui": "Initial displayless run skipped2 GUI controls. Existing Xvfb rerun passes all5 without skips."
+  },
+  "scope": "Seven native model groups plus69 original host/preparation/firmware controls. All6 UARTs/all5 TX thresholds, separate shift/32or1entry FIFO, frame and fractional timing, enables, actual CTS input/RTS output/external streams, modem edges, auto-RTS, chronological RX timeout, active/wrapped/blocked migration and reset. Original16entry old/new migration passes both directions; RX/TX policy mismatches refused.",
+  "remaining": [
+    "Serial-bit parity/framing/error injection and break/IrDA timing",
+    "Nonblocking host writer and backpressure qualification",
+    "DMA, RP1 pin routing, clock/reset tree and actual Pi5 PCIe integration",
+    "Full documented RPi4/RPi5 peripheral and final OS/distribution acceptance"
+  ],
+  "full_peripheral_fidelity": false
+}

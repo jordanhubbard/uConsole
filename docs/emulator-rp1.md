@@ -30,11 +30,13 @@ the real migration stream. It also exercises PCI memory decode, reset and
 post-reset interrupt delivery. Host CI runs it with the other native models.
 
 The endpoint does not yet implement RP1 management cores/ROM, peripheral
-engines other than the initial UART implementation, system clocks/resets,\npower management, AXI configuration, nonzero
+engines other than the initial UART implementation, system clocks/resets,
+power management, AXI configuration, nonzero
 PCI function/traffic-class routing, or PCIe PHY/link timing. Unsupported
 peripheral accesses report unimplemented operations rather than returning
 fabricated ready flags. BAR2 provides 64 KiB storage; reset retention has not
-been qualified against silicon. Full GPIO/SPI/I2C, UART timing/flow control,\nDMA, USB, Ethernet,
+been qualified against silicon. Full GPIO/SPI/I2C, remaining UART serial/error behavior,
+DMA, USB, Ethernet,
 audio/video and board integration still require implementation and tests.
 The existing BCM2711 PCIe2 contract remains a separate synthetic test machine.
 
@@ -79,12 +81,11 @@ Run the new tests with the pinned executable:
 The profile test accepts an optional --legacy-qemu executable for actual
 old/new migration controls. CI runs current/current and profile refusal controls.
 
-The UARTs retain QEMU PL011's immediate TX and host-stream buffering. The RP1
-receive profile now implements programmed RX thresholds and timeout behavior as
-described below. Timed 32-entry transmit FIFOs, serial-bit/framing/error timing,
-complete hardware flow control and DMA are still required. The RP1 clock/reset and pin-mux models also
-remain open. These initial UART engines do not establish full RP1 UART fidelity
-or a bootable Pi5 RP1 bus.
+The RP1 receive and transmit profiles implement programmed FIFO interrupts and
+virtual-time deadlines as described below. Serial-bit error/break timing, IrDA,
+host-stream backpressure, DMA and the RP1 clock/reset/pin-mux models remain open.
+These engines do not establish full RP1 UART fidelity or a bootable Pi5 RP1 bus.
+
 
 
 ## Programmed receive interrupts and timeout
@@ -98,9 +99,9 @@ while draining the FIFO clears it. Raw status, interrupt masking, acknowledgemen
 and RP1 IACK remain distinct operations.
 
 The clock is a fixed nominal 48 MHz until the RP1 clock tree is implemented.
-Tests drive controlled byte arrivals through the existing immediate loopback
-path and explicitly enable qtest virtual-timer dispatch. They do not qualify
-serial-bit reception or transmit timing. Timer state and the receive policy
+Tests complete timed loopback frames before checking receive deadlines and
+explicitly enable qtest virtual-timer dispatch. They do not qualify serial-bit
+reception or the unfinished clock tree. Timer state and the receive policy
 are migration-bound: a target with a different accurate-rx policy is refused.
 Original default 16-entry UART behavior and wire compatibility remain retained.
 
@@ -121,3 +122,32 @@ The common PL011 receive rules are documented in the manufacturer's
 RP1's PL011 integration and nominal clock are specified in the
 [RP1 peripheral reference](https://datasheets.raspberrypi.com/rp1/rp1-peripherals.pdf).
 RP2040's surrounding clock/reset and address map are not used for RP1.
+
+## Timed transmit and flow control
+
+The RP1 profile has a 32-entry TX FIFO (one holding register with FEN clear)
+and a separate shift register. TXFE/TXFF describe queued data; BUSY also covers
+the active frame. Programmed thresholds generate interrupts on FIFO crossings.
+UARTEN, TXE and CTS stop between frames while preserving queued data. Frame
+duration includes the selected5–8 data bits, parity and1–2 stop bits, with
+fractional baud rounding and LCR_H divisor latching.
+
+The asserted-level CTS input and RTS output are named GPIOs on each UART child.
+Automatic RTS follows the receive watermark; loopback connects it to CTS.
+Both modem edges latch until ICR. Migration binds the TX policy, queue, shift,
+modem input and exact deadline; reset cancels pending transmissions. Default
+legacy PL011 profiles retain their original wire format.
+
+Run:
+
+    python3 tools/test_emulator_rp1_tx.py --qemu build/emulator/qemu-build/qemu-system-aarch64
+
+The [native TX observation](rp1-tx-verification-20261111.json) records frame
+boundaries, actual MSI-X writes, external CTS/RTS/byte streams, wrapped and blocked
+migration, reset, receive regressions and old/new legacy migration.
+
+This is frame-level UART behavior. Serial-bit parity/framing errors, break/IrDA,
+DMA, pin routing and clock-tree fidelity still require implementation. The
+inherited blocking host writer also needs replacement and backpressure tests.
+The [manufacturer's PL011 reference](https://documentation-service.arm.com/static/5e8e36c2fd977155116a90b5)
+defines the FIFO, flag, framing, interrupt and flow-control rules.

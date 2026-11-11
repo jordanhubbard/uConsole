@@ -1,0 +1,527 @@
+--- a/include/hw/char/pl011.h
++++ b/include/hw/char/pl011.h
+@@ -49,6 +49,19 @@
+     bool incoming_accurate_rx;
+     uint32_t rx_divisor;
+     QEMUTimer *rx_timer;
++    bool accurate_tx;
++    bool incoming_accurate_tx;
++    bool external_cts;
++    bool tx_active;
++    bool tx_loopback;
++    bool tx_rx_active;
++    uint8_t tx_fifo[32];
++    uint8_t tx_shift;
++    uint32_t tx_pos;
++    uint32_t tx_count;
++    QEMUTimer *tx_timer;
++    int64_t tx_deadline;
++    qemu_irq rts;
+     uint32_t ilpr;
+     uint32_t ibrd;
+     uint32_t fbrd;
+--- a/hw/char/pl011.c
++++ b/hw/char/pl011.c
+@@ -54,6 +54,7 @@
+ #define PL011_FLAG_RXFF 0x40
+ #define PL011_FLAG_TXFF 0x20
+ #define PL011_FLAG_RXFE 0x10
++#define PL011_FLAG_BUSY 0x08
+ #define PL011_FLAG_DCD  0x04
+ #define PL011_FLAG_DSR  0x02
+ #define PL011_FLAG_CTS  0x01
+@@ -81,6 +82,8 @@
+ #define LCR_BRK     (1 << 0)
+ 
+ /* Control Register, UARTCR */
++#define CR_CTSEN    (1 << 15)
++#define CR_RTSEN    (1 << 14)
+ #define CR_OUT2     (1 << 13)
+ #define CR_OUT1     (1 << 12)
+ #define CR_RTS      (1 << 11)
+@@ -161,7 +164,11 @@
+  * The RP1 profile uses the PL011 programmed RX thresholds and a timeout of
+  * 32 baud periods. Legacy boards retain their original wire/profile policy.
+  */
+-static void pl011_rx_timeout_update(PL011State *s, bool restart)
++static void pl011_tx_start(PL011State *s, int64_t when);
++static void pl011_loopback_mdmctrl(PL011State *s);
++
++static void pl011_rx_timeout_update_at(PL011State *s, bool restart,
++                                       int64_t when)
+ {
+     uint64_t hz, duration;
+     bool enabled = (s->cr & (CR_UARTEN | CR_RXE)) == (CR_UARTEN | CR_RXE);
+@@ -187,7 +194,13 @@
+      * Round up so an interrupt never arrives before the 32nd bit period.
+      */
+     duration = DIV_ROUND_UP(8ULL * s->rx_divisor * 1000000000ULL, hz);
+-    timer_mod(s->rx_timer, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + duration);
++    timer_mod(s->rx_timer, when + duration);
++}
++
++static void pl011_rx_timeout_update(PL011State *s, bool restart)
++{
++    pl011_rx_timeout_update_at(s, restart,
++                              qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
+ }
+ 
+ static void pl011_rx_timeout(void *opaque)
+@@ -216,29 +229,66 @@
+     }
+ }
+ 
++/* IRQs arise on a FIFO crossing, not merely from enabling an empty UART. */
++static unsigned pl011_tx_trigger(PL011State *s)
++{
++    static const unsigned eighths[] = {1, 2, 4, 6, 7};
++    unsigned selection = s->ifl & 7;
++
++    if (!pl011_is_fifo_enabled(s)) {
++        return 0;
++    }
++    return selection < ARRAY_SIZE(eighths) ?
++        s->fifo_depth * eighths[selection] / 8 : s->fifo_depth;
++}
++
++static void pl011_tx_update(PL011State *s, unsigned previous_count)
++{
++    unsigned trigger = pl011_tx_trigger(s);
++
++    s->flags &= ~(PL011_FLAG_TXFF | PL011_FLAG_TXFE | PL011_FLAG_BUSY);
++    if (!s->tx_count) {
++        s->flags |= PL011_FLAG_TXFE;
++    }
++    if (s->tx_count == pl011_get_fifo_depth(s)) {
++        s->flags |= PL011_FLAG_TXFF;
++    }
++    if (s->tx_count || s->tx_active) {
++        s->flags |= PL011_FLAG_BUSY;
++    }
++    if (s->tx_count > trigger) {
++        s->int_level &= ~INT_TX;
++    } else if (previous_count > trigger) {
++        s->int_level |= INT_TX;
++    }
++    pl011_update(s);
++}
++
+ static inline void pl011_reset_tx_fifo(PL011State *s)
+ {
++    if (s->accurate_tx) {
++        s->tx_count = s->tx_pos = 0;
++        s->int_level &= ~INT_TX;
++        pl011_tx_update(s, 0);
++        return;
++    }
+     /* Reset FIFO flags */
+     s->flags &= ~PL011_FLAG_TXFF;
+     s->flags |= PL011_FLAG_TXFE;
+ }
+ 
+-static void pl011_fifo_rx_put(void *opaque, uint32_t value)
+-{
+-    PL011State *s = (PL011State *)opaque;
++static void pl011_fifo_rx_put_at(PL011State *s, uint32_t value,
++                                 int64_t when)
++{
+     int slot;
+     unsigned pipe_depth;
+ 
+-    if (s->accurate_rx &&
+-        (s->cr & (CR_UARTEN | CR_RXE)) != (CR_UARTEN | CR_RXE)) {
+-        return;
+-    }
+     pipe_depth = pl011_get_fifo_depth(s);
+     if (s->fifo_depth == 32 && s->read_count >= pipe_depth) {
+         /* A full RP1 RX FIFO drops the new character, preserving old bytes. */
+         s->rsr |= 8;
+         s->int_level |= INT_OE;
+-        pl011_rx_timeout_update(s, true);
++        pl011_rx_timeout_update_at(s, true, when);
+         pl011_update(s);
+         return;
+     }
+@@ -251,11 +301,26 @@
+         trace_pl011_fifo_rx_full();
+         s->flags |= PL011_FLAG_RXFF;
+     }
+-    pl011_rx_timeout_update(s, true);
++    pl011_rx_timeout_update_at(s, true, when);
+     if (s->read_count == s->read_trigger) {
+         s->int_level |= INT_RX;
+         pl011_update(s);
+     }
++    if (s->accurate_tx) {
++        pl011_loopback_mdmctrl(s);
++        pl011_tx_start(s, when);
++    }
++}
++
++static void pl011_fifo_rx_put(void *opaque, uint32_t value)
++{
++    PL011State *s = opaque;
++
++    if (s->accurate_rx &&
++        (s->cr & (CR_UARTEN | CR_RXE)) != (CR_UARTEN | CR_RXE)) {
++        return;
++    }
++    pl011_fifo_rx_put_at(s, value, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
+ }
+ 
+ static void pl011_loopback_tx(PL011State *s, uint32_t value)
+@@ -286,8 +351,66 @@
+     pl011_fifo_rx_put(s, value);
+ }
+ 
++static void pl011_tx_start(PL011State *s, int64_t when)
++{
++    uint64_t hz = clock_get_hz(s->clk);
++    uint64_t duration;
++    unsigned data_bits, frame_bits, previous_count;
++
++    if (!s->accurate_tx || s->tx_active || !s->tx_count ||
++        (s->cr & (CR_UARTEN | CR_TXE)) != (CR_UARTEN | CR_TXE) ||
++        ((s->cr & CR_CTSEN) && !(s->flags & PL011_FLAG_CTS)) ||
++        (s->lcr & LCR_BRK) || !hz || !(s->rx_divisor >> 6) ||
++        (s->rx_divisor > (IBRD_MASK << 6))) {
++        return;
++    }
++    data_bits = 5 + ((s->lcr >> 5) & 3);
++    frame_bits = 1 + data_bits + ((s->lcr & 2) != 0) +
++                 ((s->lcr & 8) ? 2 : 1);
++    duration = DIV_ROUND_UP(frame_bits * (uint64_t)s->rx_divisor *
++                           1000000000ULL, 4 * hz);
++    previous_count = s->tx_count--;
++    s->tx_shift = s->tx_fifo[s->tx_pos] & ((1U << data_bits) - 1);
++    s->tx_pos = (s->tx_pos + 1) & 31;
++    s->tx_active = true;
++    s->tx_loopback = pl011_loopback_enabled(s);
++    s->tx_rx_active = (s->cr & (CR_UARTEN | CR_RXE)) ==
++                     (CR_UARTEN | CR_RXE);
++    s->tx_deadline = when + duration;
++    timer_mod(s->tx_timer, s->tx_deadline);
++    pl011_tx_update(s, previous_count);
++}
++
++static void pl011_tx_complete(void *opaque)
++{
++    PL011State *s = opaque;
++    int64_t when = s->tx_deadline;
++
++    /*
++     * Keep active set while publishing RX/RTS changes: they may otherwise
++     * start the next frame at the callback time rather than this deadline.
++     */
++    qemu_chr_fe_write_all(&s->chr, &s->tx_shift, 1);
++    if (s->tx_loopback && s->tx_rx_active) {
++        pl011_fifo_rx_put_at(s, s->tx_shift, when);
++    }
++    s->tx_active = false;
++    pl011_tx_update(s, s->tx_count);
++    pl011_tx_start(s, when);
++}
++
+ static void pl011_write_txdata(PL011State *s, uint8_t data)
+ {
++    if (s->accurate_tx) {
++        if (s->tx_count == pl011_get_fifo_depth(s)) {
++            qemu_log_mask(LOG_GUEST_ERROR, "pl011: write to full TX FIFO\n");
++            return;
++        }
++        s->tx_fifo[(s->tx_pos + s->tx_count) & 31] = data;
++        pl011_tx_update(s, s->tx_count++);
++        pl011_tx_start(s, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
++        return;
++    }
+     if (!(s->cr & CR_UARTEN)) {
+         qemu_log_mask(LOG_GUEST_ERROR,
+                       "PL011 data written to disabled UART\n");
+@@ -327,6 +450,10 @@
+     trace_pl011_read_fifo(s->read_count, fifo_depth);
+     s->rsr = c >> 8;
+     pl011_rx_timeout_update(s, false);
++    if (s->accurate_tx) {
++        pl011_loopback_mdmctrl(s);
++        pl011_tx_start(s, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
++    }
+     pl011_update(s);
+     qemu_chr_fe_accept_input(&s->chr);
+     return c;
+@@ -426,7 +553,7 @@
+ {
+     uint64_t clk;
+ 
+-    if (s->accurate_rx) {
++    if (s->accurate_rx || s->accurate_tx) {
+         return s->rx_divisor >> 6 ?
+             4ULL * clock_get_hz(s->clk) / s->rx_divisor : 0;
+     }
+@@ -447,43 +574,55 @@
+ 
+ static void pl011_loopback_mdmctrl(PL011State *s)
+ {
+-    uint32_t cr, fr, il;
+-
+-    if (!pl011_loopback_enabled(s)) {
+-        return;
+-    }
+-
+-    /*
+-     * Loopback software-driven modem control outputs to modem status inputs:
+-     *   FR.RI  <= CR.Out2
+-     *   FR.DCD <= CR.Out1
+-     *   FR.CTS <= CR.RTS
+-     *   FR.DSR <= CR.DTR
+-     *
+-     * The loopback happens immediately even if this call is triggered
+-     * by setting only CR.LBE.
+-     *
+-     * CTS/RTS updates due to enabled hardware flow controls are not
+-     * dealt with here.
+-     */
+-    cr = s->cr;
++    uint32_t cr = s->cr;
++    uint32_t fr, changed, il;
++    bool rts = (cr & CR_RTS) != 0;
++    bool loopback = pl011_loopback_enabled(s);
++
++    if (!loopback && !s->accurate_tx) {
++        return;
++    }
++    if (s->accurate_tx && (cr & CR_RTSEN)) {
++        rts = (cr & (CR_UARTEN | CR_RXE)) == (CR_UARTEN | CR_RXE) &&
++              s->read_count < s->read_trigger;
++    }
+     fr = s->flags & ~(PL011_FLAG_RI | PL011_FLAG_DCD |
+                       PL011_FLAG_DSR | PL011_FLAG_CTS);
+-    fr |= (cr & CR_OUT2) ? PL011_FLAG_RI  : 0;
+-    fr |= (cr & CR_OUT1) ? PL011_FLAG_DCD : 0;
+-    fr |= (cr & CR_RTS)  ? PL011_FLAG_CTS : 0;
+-    fr |= (cr & CR_DTR)  ? PL011_FLAG_DSR : 0;
+-
+-    /* Change interrupts based on updated FR */
+-    il = s->int_level & ~(INT_DSR | INT_DCD | INT_CTS | INT_RI);
+-    il |= (fr & PL011_FLAG_DSR) ? INT_DSR : 0;
+-    il |= (fr & PL011_FLAG_DCD) ? INT_DCD : 0;
+-    il |= (fr & PL011_FLAG_CTS) ? INT_CTS : 0;
+-    il |= (fr & PL011_FLAG_RI)  ? INT_RI  : 0;
+-
++    if (loopback) {
++        fr |= (cr & CR_OUT2) ? PL011_FLAG_RI : 0;
++        fr |= (cr & CR_OUT1) ? PL011_FLAG_DCD : 0;
++        fr |= rts ? PL011_FLAG_CTS : 0;
++        fr |= (cr & CR_DTR) ? PL011_FLAG_DSR : 0;
++    } else {
++        fr |= s->external_cts ? PL011_FLAG_CTS : 0;
++    }
++    /*
++     * Accurate modem interrupts latch either edge until ICR. Legacy boards
++     * retain their previous software-loopback interrupt policy.
++     */
++    changed = s->accurate_tx ? (s->flags ^ fr) : fr;
++    il = s->accurate_tx ? s->int_level : s->int_level & ~INT_MS;
++    il |= (changed & PL011_FLAG_DSR) ? INT_DSR : 0;
++    il |= (changed & PL011_FLAG_DCD) ? INT_DCD : 0;
++    il |= (changed & PL011_FLAG_CTS) ? INT_CTS : 0;
++    il |= (changed & PL011_FLAG_RI) ? INT_RI : 0;
+     s->flags = fr;
+     s->int_level = il;
++    if (s->accurate_tx) {
++        qemu_set_irq(s->rts, rts);
++    }
+     pl011_update(s);
++}
++
++static void pl011_cts_input(void *opaque, int n, int level)
++{
++    PL011State *s = opaque;
++
++    if (s->accurate_tx) {
++        s->external_cts = level != 0;
++        pl011_loopback_mdmctrl(s);
++        pl011_tx_start(s, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
++    }
+ }
+ 
+ static void pl011_loopback_break(PL011State *s, int brk_enable)
+@@ -536,17 +675,22 @@
+             pl011_loopback_break(s, break_enable);
+         }
+         s->lcr = value;
+-        if (s->accurate_rx) {
++        if (s->accurate_rx || s->accurate_tx) {
+             s->rx_divisor = (s->ibrd << 6) | s->fbrd;
+             pl011_trace_baudrate_change(s);
+             pl011_rx_timeout_update(s, true);
+         }
+         pl011_set_read_trigger(s);
++        if (s->accurate_tx) {
++            pl011_loopback_mdmctrl(s);
++            pl011_tx_start(s, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
++        }
+         break;
+     case 12: /* UARTCR */
+-        /* ??? Need to implement the enable bit.  */
++        /* Legacy profiles retain the historical continuously enabled path. */
+         s->cr = value;
+         pl011_loopback_mdmctrl(s);
++        pl011_tx_start(s, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
+         pl011_rx_timeout_update(s, true);
+         if (s->accurate_rx) {
+             qemu_chr_fe_accept_input(&s->chr);
+@@ -555,6 +699,11 @@
+     case 13: /* UARTIFS */
+         s->ifl = value;
+         pl011_set_read_trigger(s);
++        if (s->accurate_tx) {
++            pl011_tx_update(s, s->tx_count);
++            pl011_loopback_mdmctrl(s);
++            pl011_tx_start(s, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
++        }
+         break;
+     case 14: /* UARTIMSC */
+         s->int_enabled = value;
+@@ -634,6 +783,7 @@
+ 
+     pl011_trace_baudrate_change(s);
+     pl011_rx_timeout_update(s, true);
++    pl011_tx_start(s, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
+ }
+ 
+ static const MemoryRegionOps pl011_ops = {
+@@ -667,7 +817,13 @@
+     PL011State* s = opaque;
+ 
+     /* Sanity-check input state */
+-    if (s->incoming_accurate_rx != s->accurate_rx ||
++    if (s->incoming_accurate_tx != s->accurate_tx ||
++        (s->accurate_tx &&
++         (s->tx_count > pl011_get_fifo_depth(s) || s->tx_pos >= 32 ||
++          s->tx_active != timer_pending(s->tx_timer) ||
++          (s->tx_active &&
++           s->tx_deadline != timer_expire_time_ns(s->tx_timer)))) ||
++        s->incoming_accurate_rx != s->accurate_rx ||
+         s->rx_divisor > 0x3fffff ||
+         s->incoming_fifo_depth != s->fifo_depth ||
+         s->incoming_periph_id != s->periph_id ||
+@@ -689,6 +845,10 @@
+ 
+     s->ibrd &= IBRD_MASK;
+     s->fbrd &= FBRD_MASK;
++    if (s->accurate_tx) {
++        pl011_loopback_mdmctrl(s);
++        pl011_tx_start(s, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
++    }
+ 
+     return 0;
+ }
+@@ -700,6 +860,7 @@
+ static int pl011_pre_save(void *opaque)
+ {
+     PL011State *s = opaque;
++    s->incoming_accurate_tx = s->accurate_tx;
+     s->incoming_accurate_rx = s->accurate_rx;
+     s->incoming_fifo_depth = s->fifo_depth;
+     s->incoming_periph_id = s->periph_id;
+@@ -709,6 +870,7 @@
+ static int pl011_pre_load(void *opaque)
+ {
+     PL011State *s = opaque;
++    s->incoming_accurate_tx = false;
+     s->incoming_accurate_rx = false;
+     s->incoming_fifo_depth = PL011_FIFO_DEPTH;
+     s->incoming_periph_id = 0;
+@@ -748,6 +910,33 @@
+         VMSTATE_BOOL(incoming_accurate_rx, PL011State),
+         VMSTATE_UINT32(rx_divisor, PL011State),
+         VMSTATE_TIMER_PTR(rx_timer, PL011State),
++        VMSTATE_END_OF_LIST()
++    }
++};
++
++static bool pl011_tx_needed(void *opaque)
++{
++    return ((PL011State *)opaque)->accurate_tx;
++}
++
++static const VMStateDescription vmstate_pl011_tx = {
++    .name = "pl011/accurate-tx",
++    .version_id = 1,
++    .minimum_version_id = 1,
++    .needed = pl011_tx_needed,
++    .fields = (const VMStateField[]) {
++        VMSTATE_BOOL(incoming_accurate_tx, PL011State),
++        VMSTATE_BOOL(external_cts, PL011State),
++        VMSTATE_BOOL(tx_active, PL011State),
++        VMSTATE_BOOL(tx_loopback, PL011State),
++        VMSTATE_BOOL(tx_rx_active, PL011State),
++        VMSTATE_UINT8_ARRAY(tx_fifo, PL011State, 32),
++        VMSTATE_UINT8(tx_shift, PL011State),
++        VMSTATE_UINT32(tx_pos, PL011State),
++        VMSTATE_UINT32(tx_count, PL011State),
++        VMSTATE_UINT32(rx_divisor, PL011State),
++        VMSTATE_INT64(tx_deadline, PL011State),
++        VMSTATE_TIMER_PTR(tx_timer, PL011State),
+         VMSTATE_END_OF_LIST()
+     }
+ };
+@@ -782,6 +971,7 @@
+         &vmstate_pl011_clock,
+         &vmstate_pl011_profile,
+         &vmstate_pl011_rx,
++        &vmstate_pl011_tx,
+         NULL
+     }
+ };
+@@ -791,6 +981,7 @@
+     DEFINE_PROP_UINT32("fifo-depth", PL011State, fifo_depth, PL011_FIFO_DEPTH),
+     DEFINE_PROP_UINT32("periph-id", PL011State, periph_id, 0),
+     DEFINE_PROP_BOOL("accurate-rx", PL011State, accurate_rx, false),
++    DEFINE_PROP_BOOL("accurate-tx", PL011State, accurate_tx, false),
+     DEFINE_PROP_BOOL("migrate-clk", PL011State, migrate_clk, true),
+ };
+ 
+@@ -807,6 +998,9 @@
+     }
+ 
+     s->rx_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, pl011_rx_timeout, s);
++    s->tx_timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, pl011_tx_complete, s);
++    qdev_init_gpio_in_named(DEVICE(obj), pl011_cts_input, "cts", 1);
++    qdev_init_gpio_out_named(DEVICE(obj), &s->rts, "rts", 1);
+     s->clk = qdev_init_clock_in(DEVICE(obj), "clk", pl011_clock_update, s,
+                                 ClockUpdate);
+ 
+@@ -830,6 +1024,11 @@
+     PL011State *s = PL011(dev);
+ 
+     timer_del(s->rx_timer);
++    timer_del(s->tx_timer);
++    s->tx_active = s->tx_loopback = s->tx_rx_active = false;
++    s->tx_shift = 0;
++    s->tx_deadline = 0;
++    s->tx_pos = s->tx_count = 0;
+     s->rx_divisor = 0;
+     s->lcr = 0;
+     s->rsr = 0;
+@@ -845,6 +1044,12 @@
+     s->flags = 0;
+     pl011_reset_rx_fifo(s);
+     pl011_reset_tx_fifo(s);
++    if (s->accurate_tx) {
++        /* CTS is a physical input and survives resetting the UART itself. */
++        pl011_loopback_mdmctrl(s);
++        s->int_level = 0;
++        pl011_update(s);
++    }
+ }
+ 
+ static void pl011_class_init(ObjectClass *oc, const void *data)
+@@ -860,6 +1065,7 @@
+ static void pl011_finalize(Object *obj)
+ {
+     timer_free(PL011(obj)->rx_timer);
++    timer_free(PL011(obj)->tx_timer);
+ }
+ 
+ static const TypeInfo pl011_arm_info = {
