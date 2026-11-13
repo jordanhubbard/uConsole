@@ -130,9 +130,39 @@ Staging and existing packet/PHY suite receipts are `stg7-freeze.log` and
 `packets-build7.log` in the same local evidence directory. The baseline failure is
 `staging-before.log`; the unrelated RARP capture is `stg7-rarp.log`.
 
-Hardware MIB counter fidelity, full PHY electrical/forced-mode behavior, jumbo RX,
-and RX checksum verification remain outside qualification. Native OS acceptance
+Full PHY electrical/forced-mode behavior, jumbo RX, RX checksum verification and
+the remaining MIB statistics remain outside qualification. Native OS acceptance
 and physical performance remain separate from these model controls.
+
+## Packet MIB registers
+
+The connected profile now counts completed MAC transmissions and consumed MAC
+receives in the UniMAC RX/TX total-packet registers. A split TX frame counts once
+at EOP, rather than once per descriptor. An RX ring discard still represents a
+frame received by the MAC; its descriptor discard field is separate. Disabled
+MAC receive and unsuccessful receive callbacks do not advance the packet count.
+
+The MIB register window is read-only. RX, TX and RUNT reset selection uses the
+documented independent control bits; a held RX/TX reset keeps that packet counter
+zero while packet DMA continues. Releasing reset allows counting again. The
+existing register-array VMState retains the counters and reset controls, and
+cold reset clears them.
+
+The register offsets, read-only access and reset-bit map follow Broadcom's
+[production GENET header](https://github.com/raspberrypi/linux/blob/ea17ae02ca28483e508b05c7c44190c01a1ef8eb/drivers/net/ethernet/broadcom/genet/bcmgenet.h)
+and [driver initialization](https://github.com/raspberrypi/linux/blob/ea17ae02ca28483e508b05c7c44190c01a1ef8eb/drivers/net/ethernet/broadcom/genet/bcmgenet.c).
+This implements the two total-packet counters, not the complete MIB. Octet,
+histogram, control/error statistics, physical loss/collision behavior and their
+driver-level qualification remain open. In particular, these total-packet
+registers must not be treated as good-packet or DMA-completion counters.
+
+`tools/test_emulator_genet_mib.py` exercises actual socketpair packets and guest
+RAM, split descriptors, a full RX ring, read-only registers, independent reset
+selection, held/reset release, cold reset and an actual migration followed by
+continued packet DMA. It is part of `make check-emulator`. The retained baseline
+`bb79102f…` delivers the exact packets but fails the packet-counter assertion
+with `(0, 0)` instead of `(1, 1)`; a separate baseline control also reproduced
+writable counters and ineffective MIB reset. No physical Pi is involved.
 
 ## Actual Linux and FreeBSD network controls
 
