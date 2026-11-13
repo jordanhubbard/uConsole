@@ -438,6 +438,30 @@ static uint64_t bcm2838_genet_make_u64(uint32_t hi, uint32_t lo)
     return ((uint64_t)hi << 32) | lo;
 }
 
+/* UniMAC has 0x80-byte RX, TX and RUNT MIB banks.  The packet counters
+ * are word 10 of RX/TX; reset bits are RX=0, RUNT=1, TX=2.  Keep these
+ * MAC counters separate from descriptor completions and DMA discards. */
+static void bcm2838_genet_count_packet(BCM2838GenetNetState *s, bool tx)
+{
+    unsigned reset = tx ? 4 : 1;
+    unsigned index = (tx ? 32 : 0) + 10;
+
+    if (!(s->regs.umac.mib_ctrl & reset)) {
+        s->regs.umac.mib[index]++;
+    }
+}
+
+static void bcm2838_genet_mib_reset(BCM2838GenetNetState *s, uint32_t value)
+{
+    static const unsigned reset_bits[] = { 1, 4, 2 };
+
+    for (unsigned bank = 0; bank < ARRAY_SIZE(reset_bits); bank++) {
+        if (value & reset_bits[bank]) {
+            memset(s->regs.umac.mib + bank * 32, 0, 32 * sizeof(uint32_t));
+        }
+    }
+}
+
 static bool bcm2838_genet_xmit_packet(BCM2838GenetNetState *dev, void *packet,
                                       size_t size, size_t status_size)
 {
@@ -461,6 +485,7 @@ static bool bcm2838_genet_xmit_packet(BCM2838GenetNetState *dev, void *packet,
     }
 
     qemu_send_packet(qemu_get_queue(dev->nic), buf, len);
+    bcm2838_genet_count_packet(dev, true);
     return true;
 }
 
@@ -761,6 +786,14 @@ static void bcm2838_genet_write(void *opaque, hwaddr offset, uint64_t value,
     }
 
     switch (offset) {
+    case BCM2838_GENET_UMAC_REG(mib)
+        ... BCM2838_GENET_UMAC_REG(mib) + sizeof(s->regs.umac.mib) - 1:
+        /* Hardware counters and the reserved words between them are not RAM. */
+        return;
+    case BCM2838_GENET_UMAC_REG(mib_ctrl):
+        value &= 7;
+        bcm2838_genet_mib_reset(s, value);
+        break;
     case BCM2838_GENET_INTRL0_SET:
         s->regs.intrl0.stat |= value;
         break;
@@ -982,6 +1015,12 @@ static ssize_t bcm2838_genet_receive(NetClientState *nc, const uint8_t *buf,
         }
     }
 
+    if (bytes_received >= 0 &&
+        FIELD_EX32(s->regs.umac.cmd, GENET_UMAC_CMD, RX_EN)) {
+        /* A consumed frame reached the MAC even if DMA discarded it.
+         * Do not count an unsuccessful receive callback. */
+        bcm2838_genet_count_packet(s, false);
+    }
     bcm2838_genet_set_irq_default(s);
     bcm2838_genet_set_irq_prio(s);
 

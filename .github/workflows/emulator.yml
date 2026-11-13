@@ -58,6 +58,11 @@ jobs:
         run: bash tools/ci_apt.sh ninja-build pkg-config libglib2.0-dev libpixman-1-dev libslirp-dev python3-venv
       - name: Build the complete pinned model stack
         run: python3 tools/build_emulator_qemu.py --jobs 4 > qemu-build.log 2>&1
+      - name: Exercise Pi4 GENET packets and MIB registers
+        run: |
+          python3 tools/test_emulator_genet_network.py --qemu-system build/emulator/qemu-build/qemu-system-aarch64 > pi4-genet-network.log 2>&1
+          python3 tools/test_emulator_genet_tx_staging.py --qemu-system build/emulator/qemu-build/qemu-system-aarch64 > pi4-genet-staging.log 2>&1
+          python3 tools/test_emulator_genet_mib.py --qemu-system build/emulator/qemu-build/qemu-system-aarch64 > pi4-genet-mib.log 2>&1
       - name: Exercise actual Pi5 boot and memory models
         run: |
           python3 tools/test_emulator_rp1.py --qemu build/emulator/qemu-build/qemu-system-aarch64 > pi5-rp1.log 2>&1
@@ -75,5 +80,6 @@ jobs:
           name: pi5-model-results
           path: |
             qemu-build.log
+            pi4-*.log
             pi5-*.log
             _build/pi5-memory/
