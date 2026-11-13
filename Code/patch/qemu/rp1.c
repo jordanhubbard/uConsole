@@ -231,6 +231,7 @@ static void rp1_realize(PCIDevice *dev, Error **errp)
         qdev_prop_set_uint32(s->uart[n], "fifo-depth", 32);
         qdev_prop_set_uint32(s->uart[n], "periph-id", 0x00341011);
         qdev_prop_set_bit(s->uart[n], "accurate-rx", true);
+        qdev_prop_set_bit(s->uart[n], "accurate-tx", true);
         /* Fixed nominal clock until the RP1 clock tree is implemented. */
         clock_set_hz(qdev_get_clock_in(s->uart[n], "clk"), 48000000);
         if (!sysbus_realize(SYS_BUS_DEVICE(s->uart[n]), errp)) {

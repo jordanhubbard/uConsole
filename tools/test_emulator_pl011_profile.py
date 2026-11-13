@@ -62,6 +62,17 @@ def exercise(binary, legacy):
             qmp(source.monitor, 'migrate', {'uri': uri})
             assert target.process.wait(timeout=30) != 0, 'RX policy mismatch admitted'
             assert 'pl011' in (root/f'rt{index}.log').read_text()
+        for index, (source_mode, target_mode) in enumerate([('on', 'off'), ('off', 'on')]):
+            source = Machine(root, f'ts{index}', stack, binary, generic=True,
+                             device_args=('-global', f'pl011.accurate-tx={source_mode}'))
+            target = Machine(root, f'tt{index}', stack, binary, generic=True,
+                             incoming=True,
+                             device_args=('-global', f'pl011.accurate-tx={target_mode}'))
+            uri = 'unix:' + str(root/f'tx-mismatch{index}')
+            qmp(target.monitor, 'migrate-incoming', {'uri': uri})
+            qmp(source.monitor, 'migrate', {'uri': uri})
+            assert target.process.wait(timeout=30) != 0, 'TX policy mismatch admitted'
+            assert 'pl011' in (root/f'tt{index}.log').read_text()
         for depth in (0, 1, 17, 64):
             rejected = False
             try:
@@ -71,7 +82,7 @@ def exercise(binary, legacy):
                 rejected = 'fifo-depth must be 16 or 32' in str(error)
             assert rejected, ('Invalid FIFO size admitted', depth)
     print('PASS: PL01116 wrapped FIFO migration; both32/16 profile mismatch '
-          'directions, RX-policy mismatches and invalid depths rejected' +
+          'directions, RX/TX-policy mismatches and invalid depths rejected' +
           ('; old/new and new/old wire compatibility' if legacy else ''))
 
 
