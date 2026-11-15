@@ -9,6 +9,10 @@ machine or use a Pi4 device tree. The initial enrolled board tree was the captur
 The current Model B D0 input and its separate acceptance are recorded below;
 other silicon/pinctrl variants are not qualified by these results.
 
+The new [CQHCI controller development](emulator-pi5-cqhci.md) has separate
+runtime and migration gates. The historical OS results below retain their
+original binary identities and do not qualify that controller's queued DMA.
+
 This is a digital SD/EFI bootstrap model with serial and firmware framebuffer
 output. VideoCore ROM/EEPROM execution, RP1 USB/Ethernet/input, GPU acceleration,
 physical HDMI behavior, PCIe electrical behavior, pad voltages and analog

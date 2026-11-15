@@ -10,7 +10,8 @@ import subprocess
 import tempfile
 
 from compose_pcie2_contract_dtb import decode, encode
-from test_emulator_pi5_boot import Pi5Machine, MBOX
+from uconsole_emulator import qmp
+from test_emulator_pi5_boot import Pi5Machine, MBOX, ram_profile
 
 GIB = 1 << 30
 
@@ -50,6 +51,14 @@ def run(binary, output, profiles):
                                          memory_gib=size,
                                          boot_args=('-kernel', str(image),
                                                     '-dtb', str(dtb)))
+                    _, ram_args = ram_profile('raspi5b', size)
+                    actual_ram = qmp(machine.monitor, 'query-memory-size-summary')['base-memory']
+                    assert actual_ram == size*GIB
+                    if ram_args:
+                        assert qmp(machine.monitor, 'qom-get', {
+                            'path': '/objects/pi5-test-memory', 'property': 'size'}) == size*GIB
+                        assert qmp(machine.monitor, 'qom-get', {
+                            'path': '/objects/pi5-test-memory', 'property': 'reserve'}) is False
                     # The stopped ARM boot stub passes the FDT at 128 MiB.
                     raw = read_bytes(machine, 128 << 20, 8)
                     magic, length = struct.unpack('>II', raw)
@@ -91,15 +100,19 @@ def run(binary, output, profiles):
                     assert machine.read(0x180004) == 0x80000000
                     assert machine.read(0x180014) == expected
                     assert machine.read(MBOX) == 0x40180008
-                    results.append({'memory_gib': size, 'size_cells':size_cells, 'banks': banks,
+                    results.append({'memory_gib': size, 'actual_ram_bytes': actual_ram,
+                                    'host_swap_reservation': 'off' if ram_args else 'default',
+                                    'size_cells':size_cells, 'banks': banks,
                                     'board_revision': hex(expected),
                                     'ram_addresses': addresses, 'passed': True})
             for size in profiles:
                 # A revision for a different capacity must be rejected.
                 revision = 0xb04170 if size != 2 else 0xd04170
-                command = [binary, '-M', f'raspi5b,board-revision={revision:#x}',
+                board, ram_args = ram_profile(f'raspi5b,board-revision={revision:#x}', size)
+                command = [binary, '-M', board,
                            '-m', f'{size}G', '-display', 'none', '-serial', 'none',
                            '-monitor', 'none', '-nic', 'none']
+                command += ram_args
                 result = subprocess.run(command, capture_output=True, timeout=10)
                 assert result.returncode != 0 and b'board-revision' in result.stderr
             family_controls = []

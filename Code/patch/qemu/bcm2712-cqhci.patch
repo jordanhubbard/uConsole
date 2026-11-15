@@ -1,0 +1,81 @@
+--- a/include/hw/sd/sdhci.h
++++ b/include/hw/sd/sdhci.h
+@@ -105,6 +105,8 @@
+      * to be protected. Set wp_inverted to invert the signal.
+      */
+     bool wp_inverted;
++    bool cqhci_capable, cqhci_irq;
++    qemu_irq cqhci_reset;
+ };
+ typedef struct SDHCIState SDHCIState;
+ 
+--- a/hw/sd/sdhci.c
++++ b/hw/sd/sdhci.c
+@@ -220,11 +220,27 @@
+ /* Return true if IRQ was pending and delivered */
+ static bool sdhci_update_irq(SDHCIState *s)
+ {
+-    bool pending = sdhci_slotint(s);
+-
++    bool pending;
++
++    if (s->cqhci_capable) {
++        if (s->cqhci_irq && (s->norintstsen & (1u << 14))) {
++            s->norintsts |= 1u << 14;
++        } else {
++            s->norintsts &= ~(1u << 14);
++        }
++    }
++    pending = sdhci_slotint(s);
+     qemu_set_irq(s->irq, pending);
+ 
+     return pending;
++}
++
++/* CQHCI's interrupt source is separate from its SDHCI status/signal masks. */
++static void sdhci_cqhci_irq(void *opaque, int n, int level)
++{
++    SDHCIState *s = opaque;
++    s->cqhci_irq = level;
++    sdhci_update_irq(s);
+ }
+ 
+ static void sdhci_raise_insertion_irq(void *opaque)
+@@ -310,6 +326,10 @@
+     if (s->vendor == SDHCI_VENDOR_FSL) {
+         s->norintstsen = 0x013f;
+         s->errintstsen = 0x117f;
++    }
++    if (s->cqhci_capable) {
++        qemu_set_irq(s->cqhci_reset, 1);
++        qemu_set_irq(s->cqhci_reset, 0);
+     }
+ }
+ 
+@@ -1459,6 +1479,8 @@
+                                      sdhci_data_transfer, s);
+ 
+     s->io_ops = &sdhci_mmio_le_ops;
++    qdev_init_gpio_in_named(DEVICE(s), sdhci_cqhci_irq, "cqhci-irq", 1);
++    qdev_init_gpio_out_named(DEVICE(s), &s->cqhci_reset, "cqhci-reset", 1);
+ }
+ 
+ void sdhci_uninitfn(SDHCIState *s)
+@@ -1587,6 +1609,7 @@
+ 
+ static const Property sdhci_sysbus_properties[] = {
+     DEFINE_SDHCI_COMMON_PROPERTIES(SDHCIState),
++    DEFINE_PROP_BOOL("cqhci", SDHCIState, cqhci_capable, false),
+     DEFINE_PROP_BOOL("pending-insert-quirk", SDHCIState, pending_insert_quirk,
+                      false),
+     DEFINE_PROP_LINK("dma", SDHCIState,
+--- a/hw/sd/meson.build
++++ b/hw/sd/meson.build
+@@ -1,6 +1,6 @@
+ system_ss.add(when: 'CONFIG_PL181', if_true: files('pl181.c'))
+ system_ss.add(when: 'CONFIG_SD', if_true: files('sd.c', 'core.c'))
+-system_ss.add(when: 'CONFIG_SDHCI', if_true: files('sdhci.c'))
++system_ss.add(when: 'CONFIG_SDHCI', if_true: files('sdhci.c', 'bcm2712_cqhci.c'))
+ system_ss.add(when: 'CONFIG_SDHCI_PCI', if_true: files('sdhci-pci.c'))
+ system_ss.add(when: 'CONFIG_SSI_SD', if_true: files('ssi-sd.c'))
+ 

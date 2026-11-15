@@ -122,7 +122,7 @@ build_ide() {
     cp -R "$root/tools/vendor" "$stage/libexec/uconsole-workbench/tools/"
     python3 "$root/tools/workbench_emulator.py" "$build_dir" "$root" "$stage/libexec/uconsole-workbench"
     cp "$root"/Code/patch/qemu/*.patch "$stage/libexec/uconsole-workbench/Code/patch/qemu/"
-    cp "$root"/Code/patch/qemu/*.[ch] \
+    cp "$root"/Code/patch/qemu/*.[ch] "$root"/Code/patch/qemu/*.inc \
         "$stage/libexec/uconsole-workbench/Code/patch/qemu/"
     cp -R "$root/Code/uconsole_keyboard" "$stage/libexec/uconsole-workbench/Code/"
     mkdir -p "$stage/libexec/uconsole-workbench/assets"

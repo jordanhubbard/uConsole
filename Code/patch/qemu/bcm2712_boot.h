@@ -11,5 +11,7 @@ struct BCM2712BootState {
     DeviceState *sdhci;
     uint32_t cfg_ctrl, cfg_mode;
     uint32_t pin[8], aon[7], gpio[16];
+    bool cqhci_profile, incoming_cqhci_profile;
+    uint32_t incoming_cqhci_cookie;
 };
 #endif

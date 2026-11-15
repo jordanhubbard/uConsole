@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import subprocess
 import struct
+import sys
 import tempfile
 from test_emulator_pcie_xhci import Machine
 from test_emulator_pmic import connect
@@ -22,14 +23,24 @@ MIP=0x1000130000
 GICD=0x107fff9000
 SDIO=0x1001100000
 
+def ram_profile(board, memory_gib):
+    # Like the Pi4 address-map fixtures, large sparse qtest guests must not
+    # reserve host swap for untouched RAM. This changes no guest capacity.
+    if sys.platform.startswith('linux') and memory_gib >= 8:
+        return (board + ',memory-backend=pi5-test-memory',
+                ['-object', f'memory-backend-ram,id=pi5-test-memory,size={memory_gib}G,reserve=off'])
+    return board, []
+
+
 class Pi5Machine(Machine):
     def __init__(self,root,name,stack,binary,card=None,incoming=False,memory_gib=2,revision=None,boot_args=()):
         self.monitor=root/(name+'-qmp');test=root/(name+'-qtest')
         log=stack.enter_context((root/(name+'.log')).open('wb'))
         board='raspi5b'+('' if revision is None else f',board-revision={revision:#x}')
+        board, ram_args = ram_profile(board, memory_gib)
         cmd=[binary,'-M',board,'-m',f'{memory_gib}G','-accel','qtest','-S','-display','none','-serial','none','-monitor','none','-nic','none',
              '-qtest',f'unix:{test},server=on,wait=off','-qmp',f'unix:{self.monitor},server=on,wait=off']
-        cmd+=list(boot_args)
+        cmd+=ram_args+list(boot_args)
         if card:cmd+=['-drive',f'if=sd,format=raw,file={card}']
         if incoming:cmd+=['-incoming','defer']
         self.process=subprocess.Popen(cmd,stdout=log,stderr=log);stack.callback(self.close)
