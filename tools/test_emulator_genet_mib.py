@@ -17,6 +17,10 @@ from uconsole_emulator import executable, qmp
 RX_PACKETS = 0xc28
 TX_PACKETS = 0xca8
 MIB_CONTROL = 0xd80
+RX_CLASSES = (0xc30, 0xc34, 0xc68)  # multicast, broadcast, unicast
+TX_CLASSES = (0xcac, 0xcb0, 0xcf0)
+MULTICAST = bytes.fromhex('01005e000001') + PACKET[6:]
+BROADCAST = bytes.fromhex('ffffffffffff') + PACKET[6:]
 
 
 def counters(m, rx, tx):
@@ -26,27 +30,118 @@ def counters(m, rx, tx):
     assert (m.read(RX_PACKETS), m.read(TX_PACKETS)) == actual
 
 
-def transmit(m, tx):
+def transmit(m, tx, packet=PACKET):
     index = m.read(tx + 8) & 0xffff
-    descriptor(m, index % 4, bytes(64) + PACKET, 0x6000)
+    descriptor(m, index % 4, bytes(64) + packet, 0x6000)
     m.write(tx + 12, (index + 1) & 0xffff)
-    assert m.receive_wire() == PACKET
+    assert m.receive_wire() == packet
     assert m.read(tx + 8) & 0xffff == (index + 1) & 0xffff
 
 
-def receive(m, rx):
+def receive(m, rx, packet=PACKET):
     index = m.read(rx + 8) & 0xffff
-    m.send_wire(PACKET)
+    m.send_wire(packet)
     wait_index(m, rx + 8, (index + 1) & 0xffff)
     assert m.inspect(0x120000000 + (index % 4) * 4096 + 66,
-                     len(PACKET)) == PACKET
+                     len(packet)) == packet
     m.write(rx + 12, (index + 1) & 0xffff)
+
+
+def classes(m, rx, tx):
+    actual_rx = tuple(m.read(offset) for offset in RX_CLASSES)
+    actual_tx = tuple(m.read(offset) for offset in TX_CLASSES)
+    assert (actual_rx, actual_tx) == (rx, tx), (
+        f'packet classes {(actual_rx, actual_tx)}, expected {(rx, tx)}')
+    assert tuple(m.read(offset) for offset in RX_CLASSES) == actual_rx
+    assert tuple(m.read(offset) for offset in TX_CLASSES) == actual_tx
+
+
+def class_case(m, rx, tx, root, stack, binary, case):
+    transmit(m, tx)
+    receive(m, rx)
+    classes(m, (0, 0, 1), (0, 0, 1))
+    transmit(m, tx, MULTICAST)
+    receive(m, rx, MULTICAST)
+    transmit(m, tx, BROADCAST)
+    receive(m, rx, BROADCAST)
+    classes(m, (1, 1, 1), (1, 1, 1))
+
+    if case == 'classes':
+        # Consuming an SOP cannot count the eventual multicast frame twice.
+        index = m.read(tx + 8) & 0xffff
+        descriptor(m, index % 4, bytes(64) + MULTICAST[:30], 0x2000)
+        m.write(tx + 12, (index + 1) & 0xffff)
+        silence(m)
+        classes(m, (1, 1, 1), (1, 1, 1))
+        descriptor(m, (index + 1) % 4, MULTICAST[30:], 0x4000)
+        m.write(tx + 12, (index + 2) & 0xffff)
+        assert m.receive_wire() == MULTICAST
+        classes(m, (1, 1, 1), (2, 1, 1))
+        # MAC classification also counts a broadcast discarded by a full ring.
+        index = m.read(rx + 8) & 0xffff
+        for increment in range(1, 5):
+            m.send_wire(BROADCAST)
+            wait_index(m, rx + 8, (index + increment) & 0xffff)
+        m.send_wire(BROADCAST)
+        deadline = time.monotonic() + 5
+        while not m.read(rx + 8) >> 16:
+            if time.monotonic() >= deadline:
+                raise TimeoutError('RX ring did not record class-test discard')
+        classes(m, (1, 6, 1), (2, 1, 1))
+        for offset in RX_CLASSES + TX_CLASSES:
+            before = m.read(offset)
+            m.write(offset, 0xffffffff)
+            assert m.read(offset) == before
+        print('PASS: exact unicast/multicast/broadcast DMA, exclusive classes, '
+              'split TX, RX ring discard and read-only counters')
+        return
+
+    m.write(MIB_CONTROL, 1)
+    classes(m, (0, 0, 0), (1, 1, 1))
+    if case == 'class-migration':
+        target = Machine(root, 'target', stack, binary, incoming=True)
+        migrate_staging(m, target, root)
+        if qmp(target.monitor, 'query-status')['status'] != 'running':
+            qmp(target.monitor, 'cont')
+        classes(target, (0, 0, 0), (1, 1, 1))
+        assert target.read(MIB_CONTROL) == 1
+        receive(target, rx, MULTICAST)
+        classes(target, (0, 0, 0), (1, 1, 1))
+        target.write(MIB_CONTROL, 0)
+        receive(target, rx, BROADCAST)
+        transmit(target, tx, MULTICAST)
+        classes(target, (0, 1, 0), (2, 1, 1))
+        print('PASS: actual migration retains packet classes and held reset; '
+              'classification continues after release')
+        return
+
+    receive(m, rx, MULTICAST)
+    transmit(m, tx, BROADCAST)
+    classes(m, (0, 0, 0), (1, 2, 1))
+    m.write(MIB_CONTROL, 0)
+    receive(m, rx, BROADCAST)
+    m.write(MIB_CONTROL, 2)  # RUNT reset must not clear either packet bank.
+    classes(m, (0, 1, 0), (1, 2, 1))
+    m.write(MIB_CONTROL, 4)
+    transmit(m, tx, MULTICAST)
+    receive(m, rx)
+    classes(m, (0, 1, 1), (0, 0, 0))
+    m.write(MIB_CONTROL, 0)
+    transmit(m, tx)
+    classes(m, (0, 1, 1), (0, 0, 1))
+    qmp(m.monitor, 'system_reset')
+    classes(m, (0, 0, 0), (0, 0, 0))
+    print('PASS: independent packet-class bank resets, held reset, release '
+          'and cold reset')
 
 
 def run(binary, root, case):
     with ExitStack() as stack:
         m = Machine(root, 'source', stack, binary)
         rx, tx = setup(m)
+        if case in ('classes', 'class-reset', 'class-migration'):
+            class_case(m, rx, tx, root, stack, binary, case)
+            return
         if case == 'readonly':
             for offset in range(0xc00, 0xd80, 4):
                 before = m.read(offset)
@@ -133,13 +228,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--qemu-system')
     parser.add_argument('--output', type=Path)
-    parser.add_argument('--case', choices=('all', 'readonly', 'packets', 'reset', 'migration'),
+    parser.add_argument('--case', choices=('all', 'readonly', 'packets', 'reset', 'migration',
+                                         'classes', 'class-reset', 'class-migration'),
                         default='all')
     args = parser.parse_args()
     binary = args.qemu_system or str(executable('qemu-system-aarch64'))
 
     def exercise(root):
-        cases = ('readonly', 'packets', 'reset', 'migration') if args.case == 'all' else (args.case,)
+        cases = (('readonly', 'packets', 'reset', 'migration', 'classes',
+                  'class-reset', 'class-migration') if args.case == 'all' else (args.case,))
         for case in cases:
             directory = root / case
             directory.mkdir()

@@ -151,7 +151,7 @@ cold reset clears them.
 The register offsets, read-only access and reset-bit map follow Broadcom's
 [production GENET header](https://github.com/raspberrypi/linux/blob/ea17ae02ca28483e508b05c7c44190c01a1ef8eb/drivers/net/ethernet/broadcom/genet/bcmgenet.h)
 and [driver initialization](https://github.com/raspberrypi/linux/blob/ea17ae02ca28483e508b05c7c44190c01a1ef8eb/drivers/net/ethernet/broadcom/genet/bcmgenet.c).
-This implements the two total-packet counters, not the complete MIB. Octet,
+The packet totals and class counters below do not implement the complete MIB. Octet,
 histogram, control/error statistics, physical loss/collision behavior and their
 driver-level qualification remain open. In particular, these total-packet
 registers must not be treated as good-packet or DMA-completion counters.
@@ -163,6 +163,31 @@ continued packet DMA. It is part of `make check-emulator`. The retained baseline
 `bb79102f…` delivers the exact packets but fails the packet-counter assertion
 with `(0, 0)` instead of `(1, 1)`; a separate baseline control also reproduced
 writable counters and ineffective MIB reset. No physical Pi is involved.
+
+### Destination packet classes
+
+The connected model also counts multicast, broadcast and unicast destinations
+separately. Broadcast frames increment only the broadcast class; their group bit
+does not also increment multicast. Classification occurs at the same MAC event as
+the packet total: TX counts once at completed EOP, and RX includes a consumed frame
+discarded by a full descriptor ring. It does not count individual descriptors.
+
+The production header linked above defines different RX and TX layouts: RX has a
+byte counter between total packets and multicast; TX does not. The offsets below
+are relative to GENET, including the UniMAC window.
+
+| Direction | Multicast | Broadcast | Unicast |
+| --- | --- | --- | --- |
+| RX | `0xc30` | `0xc34` | `0xc68` |
+| TX | `0xcac` | `0xcb0` | `0xcf0` |
+
+These counters share their existing RX/TX bank reset, read-only access and VMState
+storage. A held bank reset inhibits its classes while DMA continues; RUNT reset
+does not clear either packet bank. The MIB fixture includes actual destination
+packet bytes, a split multicast TX, broadcast RX ring overflow, independent/held
+resets, cold reset and migration followed by more packet traffic. These are
+software register/packet controls, not physical Ethernet qualification or a
+complete MIB implementation.
 
 ## Actual Linux and FreeBSD network controls
 
