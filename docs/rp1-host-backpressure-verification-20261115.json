@@ -1,0 +1,93 @@
+{
+  "observed_utc": "2026-11-15T23:28:33.972512+00:00",
+  "scope": "Native RP1 UART host-backpressure controls; not physical or distribution acceptance",
+  "qemu_version": "10.2.4",
+  "source_parent": "4799f51b343b41b455e5927ea327a0fb6d57b633",
+  "build_generation": "2fcc194764f11e96e74e300da14af75a0ceb8b65a73b2aa3aa51b1c4fb9c7ee0",
+  "harness_sha256": "d9b1ca12e6b465a4dc5706ca979e63fe664afd92b5a23408eecddf0254ba1d1e",
+  "compiled_input_files": 74,
+  "frozen_component_archive": {
+    "files": 379,
+    "sha256": "f67861aba46d749fafa70bbd2e005411005910f3e4135139ff909576d36db288",
+    "scope": "QEMU recipe/model inputs and native Python fixtures, not whole product"
+  },
+  "patch_normalization": {
+    "raw_sha256": "e6f6d8792001ddceb646fc1b07eb7c230f6835bd8a76ee7325e9e3c1340f1817",
+    "normalized_sha256": "dd0ee06bac87d8bcc30443952c531640c699b1341f86db44fdbc2045e033af73",
+    "compiled_files": {
+      "hw/char/pl011.c": "77a303717189e31b9fa33d462f1a8d1004e1bcd2e67c88f2209aad059896376e",
+      "include/hw/char/pl011.h": "f564271194f50f1a760a1012efc5bf8990e99a96957ab3813a686e5c021f5c89"
+    },
+    "exact_compiled_bytes_equal": true
+  },
+  "native_results": {
+    "Linux ARM64": {
+      "qemu_sha256": "188964045c903cd79bb85ab396a660da2b759fd800c4cc361fb8c66c23397f70",
+      "controls": 18,
+      "all_input_bytes_unchanged": true,
+      "other_suites": [
+        "RP1 endpoint",
+        "six UART banks",
+        "RX timing",
+        "TX timing/flow control",
+        "PL011 profile/legacy migration",
+        "Pi5 boot"
+      ],
+      "ram_fdt_profiles": 10,
+      "prior_binary_same_fixture": "TimeoutError before any backpressure control passes",
+      "independent_evidence_sha256": "a86928336de640dfd5781e7496757ac57a5a11af16d789a8c84a9d8a4199005e"
+    },
+    "macOS ARM64": {
+      "qemu_sha256": "c03fd515ef57218aff6e95608c6881838a04e85015cd6399c2f2ef52a5e90587",
+      "controls": 18,
+      "all_input_bytes_unchanged": true,
+      "other_suites": [
+        "RP1 endpoint",
+        "six UART banks",
+        "RX timing",
+        "TX timing/flow control",
+        "PL011 profile/legacy migration",
+        "Pi5 boot"
+      ],
+      "ram_fdt_profiles": 10,
+      "prior_binary_same_fixture": "TimeoutError before any backpressure control passes",
+      "independent_evidence_sha256": "55119c496600a86c4f913f8853fbae726e6dbf541c51b35bcf2aabe67bcd9ea2"
+    }
+  },
+  "control_names": [
+    "uart0: blocked host retains shift/full FIFO; qtest/QMP/other UART progress",
+    "uart0: drain preserves every accepted byte, full-FIFO refusal and frame deadlines",
+    "uart1: blocked host retains shift/full FIFO; qtest/QMP/other UART progress",
+    "uart1: drain preserves every accepted byte, full-FIFO refusal and frame deadlines",
+    "uart2: blocked host retains shift/full FIFO; qtest/QMP/other UART progress",
+    "uart2: drain preserves every accepted byte, full-FIFO refusal and frame deadlines",
+    "uart3: blocked host retains shift/full FIFO; qtest/QMP/other UART progress",
+    "uart3: drain preserves every accepted byte, full-FIFO refusal and frame deadlines",
+    "uart4: blocked host retains shift/full FIFO; qtest/QMP/other UART progress",
+    "uart4: drain preserves every accepted byte, full-FIFO refusal and frame deadlines",
+    "uart5: blocked host retains shift/full FIFO; qtest/QMP/other UART progress",
+    "uart5: drain preserves every accepted byte, full-FIFO refusal and frame deadlines",
+    "reset removes host watch and cancels only unaccepted shift/queued data; UART restarts",
+    "disconnect releases pending transport; reconnect receives only new accepted frames",
+    "real VMState retains host-blocked shift and queued bytes; destination recreates local watch",
+    "ordinary partial TX wire migration direction0 retains old format",
+    "ordinary partial TX wire migration direction1 retains old format",
+    "old destination explicitly rejects host-pending subsection instead of dropping its byte"
+  ],
+  "guard_unit_tests": {
+    "archive_validation": 11,
+    "qemu_source_extraction": 11
+  },
+  "failures_retained": [
+    "Prior Linux and macOS binaries time out in the same final native host-backpressure fixture",
+    "First macOS fixture used a receive buffer below sender low-water mark; independent socket-pair control proves writable-event suppression despite a one-byte write succeeding. Corrected fixture retains native socket defaults.",
+    "First regression wrappers omitted required memory output argument; separate corrected runs pass all ten profiles on both hosts."
+  ],
+  "migration": "Ordinary TX streams preserve their old wire format in both directions. A host-pending shift uses an optional subsection; an older destination rejects it explicitly. GLib watch IDs remain local resources. External socket queues are outside VMState and require a coordinated transport handoff.",
+  "limitations": [
+    "Register/frame-level virtual UART and actual host-byte-stream controls; serial-bit errors, IrDA, DMA, clock tree and pin mux remain unfinished",
+    "RP1 remains a separate endpoint on ARM virt; raspi5b BCM2712 PCIe/RP1 board integration is not supplied by this repair",
+    "No new guest OS, matched CURRENT system image, native per-unit SDK/lifecycle, physical or release acceptance",
+    "Ten RAM/FDT profiles check actual size and selected addresses, not full resident-memory stress"
+  ]
+}
