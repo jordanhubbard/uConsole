@@ -80,6 +80,8 @@ jobs:
           python3 tools/test_emulator_sdhci_adma_stop.py --qemu build/emulator/qemu-build/qemu-system-aarch64 > pi4-sdhci-dma.log 2>&1
       - name: Exercise CQHCI card commands, interrupts, reset and migration
         run: python3 tools/test_emulator_pi5_cqhci.py --qemu build/emulator/qemu-build/qemu-system-aarch64 --output _build/pi5-cqhci > pi5-cqhci.log 2>&1
+      - name: Exercise real eMMC queued data and ordinary ADMA initialization
+        run: python3 tools/test_emulator_cqhci_data.py --qemu build/emulator/qemu-build/qemu-system-aarch64 --output _build/pi5-cqhci-data > pi5-cqhci-data.log 2>&1
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -91,3 +93,5 @@ jobs:
             _build/pi5-memory/
             _build/pi5-cqhci/*.json
             _build/pi5-cqhci/*.log
+            _build/pi5-cqhci-data/*.json
+            _build/pi5-cqhci-data/*.log

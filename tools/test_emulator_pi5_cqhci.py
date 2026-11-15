@@ -33,7 +33,8 @@ def digest(path):
 
 
 class Controller(Machine):
-    def __init__(self, root, name, stack, binary, *, card=None, incoming=False, profile=None):
+    def __init__(self, root, name, stack, binary, *, card=None, incoming=False, profile=None,
+                 emmc=False, memory_gib=1):
         sockets = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix='cq-')))
         self.monitor = sockets / 'qmp'
         test = sockets / 'qtest'
@@ -41,12 +42,15 @@ class Controller(Machine):
         machine = 'raspi5b'
         if profile is not None:
             machine += ',sd-cqhci=' + ('on' if profile else 'off')
-        command = [str(binary), '-M', machine, '-m', '1G', '-accel', 'qtest', '-S',
+        if emmc:
+            machine += ',sd-emmc=on'
+        command = [str(binary), '-M', machine, '-m', str(memory_gib) + 'G', '-accel', 'qtest', '-S',
                    '-display', 'none', '-serial', 'none', '-monitor', 'none', '-nic', 'none',
                    '-qtest', f'unix:{test},server=on,wait=off',
                    '-qmp', f'unix:{self.monitor},server=on,wait=off']
         if card:
-            command += ['-drive', f'if=sd,format=raw,file={card}']
+            command += ['-drive', f'if=sd,format=raw,file={card}' +
+                        (',cache=writethrough' if emmc else '')]
         if incoming:
             command += ['-incoming', 'defer']
         self.process = subprocess.Popen(command, stdout=log, stderr=log)

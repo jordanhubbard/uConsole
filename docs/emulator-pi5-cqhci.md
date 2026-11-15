@@ -5,12 +5,13 @@ registers. The controller submits commands through the actual QEMU SD bus and
 reads descriptors and data through the host's DMA address space. An unsupported
 card command reports an error; it cannot produce a successful data completion.
 
-This is development work. The current QEMU SD v2/v3 card does not implement
-command queuing. Positive queued read/write DMA, scatter/gather boundaries,
-coalescing and migration during queued data transfer still need qualification
-with a command-queue-capable card backend. A successful Linux probe or direct
-CMD13 does not establish those results. Existing FreeBSD boot records identify
-their original binaries and do not qualify this new controller.
+This is development work. The default QEMU SD v2/v3 card does not implement
+command queuing. The opt-in [virtual eMMC transport](emulator-emmc-cmdq.md)
+provides a separate command-queue-capable backend and real queued data controls.
+Its [native observations](pi5-emmc-cmdq-verification-20261115.json) identify the
+exact implementation and remaining qualification. A successful Linux probe or
+direct CMD13 alone does not establish queued-data integrity. Existing FreeBSD
+boot records identify their original binaries.
 
 The [November 15 observation](pi5-cqhci-verification-20261115.json) binds the
 native Linux ARM64 binary and model bytes to 37 passing CQHCI controls, the

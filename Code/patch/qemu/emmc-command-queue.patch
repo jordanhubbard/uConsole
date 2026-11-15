@@ -1,0 +1,259 @@
+--- a/hw/sd/sd.c
++++ b/hw/sd/sd.c
+@@ -68,6 +68,7 @@
+     sd_r3,        /* OCR register */
+     sd_r6 = 6,    /* Published RCA response */
+     sd_r7,        /* Operating voltage */
++    sd_r1_task_status, /* Command queue task status */
+     sd_r1b = -1,
+     sd_illegal = -2,
+ } sd_rsp_type_t;
+@@ -138,6 +139,10 @@
+ 
+ QEMU_BUILD_BUG_MSG(sizeof(RPMBDataFrame) != 512,
+                    "invalid RPMBDataFrame size");
++
++#define EMMC_CMDQ_MODE_EN 15
++#define EMMC_CMDQ_DEPTH 307
++#define EMMC_CMDQ_SUPPORT 308
+ 
+ struct SDState {
+     DeviceState parent_obj;
+@@ -162,6 +167,10 @@
+ 
+     /* Static properties */
+ 
++    bool cmdq_capable, cmdq_incoming, cmdq_params_valid;
++    uint32_t cmdq_cookie, cmdq_pending, cmdq_params;
++    uint32_t cmdq_tasks[32], cmdq_addresses[32];
++    int32_t cmdq_active;
+     uint8_t spec_version;
+     uint64_t boot_part_size;
+     uint64_t rpmb_part_size;
+@@ -283,6 +292,7 @@
+         [sd_r3]     = "RESP#3 (OCR reg)",
+         [sd_r6]     = "RESP#6 (RCA)",
+         [sd_r7]     = "RESP#7 (operating voltage)",
++        [sd_r1_task_status] = "RESP#1 (task status)",
+     };
+     if (rsp == sd_illegal) {
+         return "ILLEGAL RESP";
+@@ -537,7 +547,12 @@
+     sd->ext_csd[205] = 0x46; /* Min read perf for 4bit@26Mhz */
+     sd->ext_csd[EXT_CSD_CARD_TYPE] = 0b11;
+     sd->ext_csd[EXT_CSD_STRUCTURE] = 2;
+-    sd->ext_csd[EXT_CSD_REV] = 5;
++    sd->ext_csd[EXT_CSD_REV] = sd->cmdq_capable ? 8 : 5;
++    if (sd->cmdq_capable) {
++        sd->ext_csd[EMMC_CMDQ_DEPTH] = 31;
++        sd->ext_csd[EMMC_CMDQ_SUPPORT] = 1;
++        sd->ext_csd[EXT_CSD_REL_WR_SEC_C] = 0;
++    }
+     sd->ext_csd[EXT_CSD_RPMB_MULT] = sd->rpmb_part_size / (128 * KiB);
+     sd->ext_csd[EXT_CSD_PARTITION_SUPPORT] = 0b111;
+ 
+@@ -775,6 +790,7 @@
+     case sd_r7:
+         return sd_is_spi(sd) ? 5 : 4;
+ 
++    case sd_r1_task_status:
+     case sd_r6:
+         assert(!sd_is_spi(sd));
+         return 4;
+@@ -805,6 +821,10 @@
+ 
+     /* Clear the "clear on read" status bits */
+     sd->card_status &= ~CARD_STATUS_C;
++    if (sd->cmdq_capable) {
++        /* eMMC SWITCH_ERROR clears after the response reports it. */
++        sd->card_status &= ~R_CSR_SWITCH_ERROR_MASK;
++    }
+ }
+ 
+ static void spi_response_r2_make(SDState *sd, uint8_t *resp)
+@@ -956,6 +976,12 @@
+     sd->dat_lines = 0xf;
+     sd->cmd_line = true;
+     sd->multi_blk_cnt = 0;
++    sd->cmdq_cookie = 0x434d5131;
++    sd->cmdq_pending = sd->cmdq_params = 0;
++    sd->cmdq_params_valid = sd->cmdq_incoming = false;
++    sd->cmdq_active = -1;
++    memset(sd->cmdq_tasks, 0, sizeof(sd->cmdq_tasks));
++    memset(sd->cmdq_addresses, 0, sizeof(sd->cmdq_addresses));
+ }
+ 
+ static bool sd_get_inserted(SDState *sd)
+@@ -1060,6 +1086,9 @@
+     },
+ };
+ 
++static inline bool sd_wp_addr(SDState *sd, uint64_t addr);
++#include "emmc_cmdq.inc"
++
+ static int sd_vmstate_pre_load(void *opaque)
+ {
+     SDState *sd = opaque;
+@@ -1069,6 +1098,8 @@
+      * is included, this will be replaced by the state restore.
+      */
+     sd_ocr_powerup(sd);
++    sd->cmdq_incoming = false;
++    sd->cmdq_cookie = 0;
+ 
+     return 0;
+ }
+@@ -1078,6 +1109,7 @@
+     .version_id = 2,
+     .minimum_version_id = 2,
+     .pre_load = sd_vmstate_pre_load,
++    .post_load = emmc_cmdq_profile_post_load,
+     .fields = (const VMStateField[]) {
+         VMSTATE_UNUSED(4),
+         VMSTATE_INT32(state, SDState),
+@@ -1109,6 +1141,7 @@
+         &sd_ocr_vmstate,
+         &emmc_extcsd_vmstate,
+         &emmc_rpmb_vmstate,
++        &emmc_cmdq_vmstate,
+         NULL
+     },
+ };
+@@ -1431,6 +1464,21 @@
+     case EXT_CSD_ACCESS_MODE_WRITE_BYTE:
+         b = value;
+         break;
++    }
++
++    if (sd->cmdq_capable && index == EMMC_CMDQ_MODE_EN &&
++        !(b & 1) && sd->cmdq_pending) {
++        sd->card_status |= ILLEGAL_COMMAND;
++        return;
++    }
++    if (sd->cmdq_capable &&
++        ((index == EMMC_CMDQ_MODE_EN &&
++          ((b & ~1) ||
++           ((b & 1) && (sd->ext_csd[EXT_CSD_PART_CONFIG] & 7)))) ||
++         (index == EXT_CSD_PART_CONFIG && (b & 7) &&
++          (sd->ext_csd[EMMC_CMDQ_MODE_EN] & 1)))) {
++        sd->card_status |= R_CSR_SWITCH_ERROR_MASK;
++        return;
+     }
+ 
+     if (index == EXT_CSD_PART_CONFIG) {
+@@ -2357,9 +2405,25 @@
+     /* Not interpreting this as an app command */
+     sd->card_status &= ~APP_CMD;
+ 
++    if (sd_is_emmc(sd) && sd->cmdq_capable) {
++        if (req.cmd != 45) {
++            sd->cmdq_params_valid = false;
++        }
++        if ((req.cmd >= 44 && req.cmd <= 48) ||
++            (req.cmd == 13 && (req.arg & (1u << 15)))) {
++            return emmc_cmdq_command(sd, req);
++        }
++        if ((sd->ext_csd[EMMC_CMDQ_MODE_EN] & 1) &&
++            req.cmd != 0 && req.cmd != 6 && req.cmd != 8 &&
++            req.cmd != 12 && req.cmd != 13) {
++            return sd_illegal;
++        }
++    }
++
+     /* CMD23 (set block count) must be immediately followed by CMD18 or CMD25
+      * if not, its effects are cancelled */
+-    if (sd->multi_blk_cnt != 0 && !(req.cmd == 18 || req.cmd == 25)) {
++    if ((!sd->cmdq_capable || sd->cmdq_active < 0) &&
++        sd->multi_blk_cnt != 0 && !(req.cmd == 18 || req.cmd == 25)) {
+         sd->multi_blk_cnt = 0;
+     }
+ 
+@@ -2498,6 +2562,8 @@
+                             uint8_t *response, size_t respsz)
+ {
+     int last_state;
++    int last_cmdq_active = sd->cmdq_capable ? sd->cmdq_active : -1;
++    uint8_t last_data_cmd = sd->current_cmd;
+     sd_rsp_type_t rtype;
+     int rsplen;
+ 
+@@ -2562,6 +2628,10 @@
+     assert(rsplen <= respsz);
+ 
+     switch (rtype) {
++    case sd_r1_task_status:
++        stl_be_p(response, sd->cmdq_pending &
++                 (sd->cmdq_active < 0 ? UINT32_MAX : ~(1u << sd->cmdq_active)));
++        break;
+     case sd_r1:
+     case sd_r1b:
+         sd_response_r1_make(sd, response);
+@@ -2606,7 +2676,7 @@
+     }
+     trace_sdcard_response(sd_response_name(rtype), rsplen);
+ 
+-    if (rtype != sd_illegal) {
++    if (rtype != sd_illegal && rtype != sd_r1_task_status) {
+         /* Clear the "clear on valid command" status bits now we've
+          * sent any response
+          */
+@@ -2617,7 +2687,14 @@
+     qemu_hexdump(stderr, "Response", response, rsplen);
+ #endif
+ 
+-    sd->current_cmd = rtype == sd_illegal ? 0 : req->cmd;
++    if (sd->cmdq_capable && req->cmd == 12 &&
++        sd->state == sd_transfer_state && rtype != sd_illegal) {
++        emmc_cmdq_finish(sd);
++        sd->multi_blk_cnt = sd->data_offset = 0;
++    }
++    sd->current_cmd = last_cmdq_active >= 0 &&
++                      sd->cmdq_active == last_cmdq_active ? last_data_cmd :
++                      rtype == sd_illegal ? 0 : req->cmd;
+ 
+     return rsplen;
+ }
+@@ -2681,6 +2758,7 @@
+         }
+         break;
+ 
++    case 47:  /* CMD47:  EXECUTE_WRITE_TASK */
+     case 25:  /* CMD25:  WRITE_MULTIPLE_BLOCK */
+         if (sd->data_offset == 0) {
+             /* Start of the block - let's check the address is valid */
+@@ -2716,6 +2794,9 @@
+                 if (--sd->multi_blk_cnt == 0) {
+                     /* Stop! */
+                     sd->state = sd_transfer_state;
++                    if (sd->cmdq_capable) {
++                        emmc_cmdq_finish(sd);
++                    }
+                     break;
+                 }
+             }
+@@ -2826,6 +2907,7 @@
+         sd_generic_read_byte(sd, &ret);
+         break;
+ 
++    case 46:  /* CMD46:  EXECUTE_READ_TASK */
+     case 18:  /* CMD18:  READ_MULTIPLE_BLOCK */
+         if (sd->data_offset == 0) {
+             if (!address_in_range(sd, "READ_MULTIPLE_BLOCK",
+@@ -2850,6 +2932,9 @@
+                 if (--sd->multi_blk_cnt == 0) {
+                     /* Stop! */
+                     sd->state = sd_transfer_state;
++                    if (sd->cmdq_capable) {
++                        emmc_cmdq_finish(sd);
++                    }
+                     break;
+                 }
+             }
+@@ -3166,6 +3251,7 @@
+ };
+ 
+ static const Property emmc_properties[] = {
++    DEFINE_PROP_BOOL("command-queue", SDState, cmdq_capable, false),
+     DEFINE_PROP_UINT64("boot-partition-size", SDState, boot_part_size, 0),
+     DEFINE_PROP_UINT8("boot-config", SDState, boot_config, 0x0),
+     DEFINE_PROP_UINT64("rpmb-partition-size", SDState, rpmb_part_size, 0),

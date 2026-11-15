@@ -29,8 +29,9 @@ PATCHES = ['dummy-cpu-darwin-wakeup.patch', 'bcm2835-watchdog-timer.patch', 'ras
            'adc101c-reference-profile.patch', 'forge-modem.patch', 'usb-net-composite.patch',
            'forge-observation-counters.patch', 'bcm2838-rng200.patch', 'bcm2838-pcie-disconnected.patch', 'bcm2838-genet-disconnected.patch', 'sdhci-manual-cmd12.patch', 'sd-acmd22-wire-endian.patch',
            'bcm2838-pcie-connected.patch', 'bcm2835-framebuffer-bus-alias.patch',
-           'xhci-no-msix-migration.patch', 'xhci-compact-mmio.patch', 'bcm2711-avs-thermal.patch', 'xhci-chained-ioc.patch', 'raspi4-memory-profiles.patch', 'bcm2838-genet-network.patch', 'raspi4-fdt-pcie.patch', 'bcm2712-pcie2-contract.patch', 'raspi5-machine.patch', 'rp1-endpoint.patch', 'pl011-rp1-fifo.patch', 'sysbus-contained-devices.patch', 'pl011-rp1-rx-timeout.patch', 'pl011-rp1-tx-timing.patch', 'bcm2712-cqhci.patch']
+           'xhci-no-msix-migration.patch', 'xhci-compact-mmio.patch', 'bcm2711-avs-thermal.patch', 'xhci-chained-ioc.patch', 'raspi4-memory-profiles.patch', 'bcm2838-genet-network.patch', 'raspi4-fdt-pcie.patch', 'bcm2712-pcie2-contract.patch', 'raspi5-machine.patch', 'rp1-endpoint.patch', 'pl011-rp1-fifo.patch', 'sysbus-contained-devices.patch', 'pl011-rp1-rx-timeout.patch', 'pl011-rp1-tx-timing.patch', 'bcm2712-cqhci.patch', 'emmc-command-queue.patch', 'sdhci-adma-only-enable.patch']
 MODEL_SOURCES = [('rp1.c', 'hw/misc/rp1.c'),
+                 ('emmc_cmdq.inc', 'hw/sd/emmc_cmdq.inc'),
                  ('bcm2712_cqhci.c', 'hw/sd/bcm2712_cqhci.c'),
                  ('bcm2712_cqhci.h', 'include/hw/sd/bcm2712_cqhci.h'),
                  ('bcm2712_mip.c', 'hw/misc/bcm2712_mip.c'),
@@ -54,8 +55,10 @@ MODEL_SOURCES = [('rp1.c', 'hw/misc/rp1.c'),
                  ('adc101c.c', 'hw/adc/adc101c.c'),
                  ('forge-modem.c', 'hw/usb/forge-modem.c'),
                  ('usb-net-internal.h', 'hw/usb/usb-net-internal.h')]
+# Raspberry Pi targets do not use Apple's paravirtual GPU. Avoid auto-enabling
+# that unrelated device against SDKs which have removed its QEMU 10.2 API.
 CONFIGURE = ['--target-list=aarch64-softmmu', '--disable-docs', '--disable-werror',
-             '--disable-guest-agent', '--enable-slirp', '--enable-vnc', '--disable-debug-info']
+             '--disable-guest-agent', '--disable-pvg', '--enable-slirp', '--enable-vnc', '--disable-debug-info']
 
 
 def generation_key(patches):

@@ -55,6 +55,7 @@ struct Raspi5MachineState {
     MemoryRegion mbox_regs;
     uint32_t board_rev;
     bool sd_cqhci;
+    bool sd_emmc;
     bool sd_initialized;
     MemoryRegion vc_dma_mr;
     MemoryRegion vc_alias[4];
@@ -109,6 +110,11 @@ static void raspi5_init(MachineState *ms)
     static const int timer_outputs[] = {GTIMER_PHYS, GTIMER_VIRT,
                                        GTIMER_HYP, GTIMER_SEC};
     static const int timer_ppis[] = {30, 27, 26, 29};
+
+    if (s->sd_emmc && !s->sd_cqhci) {
+        error_report("virtual eMMC queue tests require sd-cqhci=on");
+        exit(1);
+    }
 
     if (ms->ram_size != GiB && ms->ram_size != 2 * GiB &&
         ms->ram_size != 4 * GiB && ms->ram_size != 8 * GiB &&
@@ -185,13 +191,23 @@ static void raspi5_init(MachineState *ms)
     object_property_add_child(OBJECT(ms), "sdhci", OBJECT(sd));
     qdev_prop_set_bit(sd, "cqhci", s->sd_cqhci);
     qdev_prop_set_uint8(sd, "sd-spec-version", 3);
-    qdev_prop_set_uint64(sd, "capareg", 0x052134b4);
+    /* The opt-in eMMC transport profile can exercise 64-bit CQ descriptor
+     * paths. It is a virtual test host, not BCM2712 capability evidence. */
+    qdev_prop_set_uint64(sd, "capareg",
+                         s->sd_emmc ? 0x152934b4 : 0x052134b4);
     sysbus_realize(SYS_BUS_DEVICE(sd), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(sd), 0, 0x1000fff000ULL);
     sysbus_connect_irq(SYS_BUS_DEVICE(sd), 0, qdev_get_gpio_in(s->gic, 273));
     di = drive_get(IF_SD, 0, 0);
+    if (s->sd_emmc && !di) {
+        error_report("virtual eMMC queue profile requires an SD drive image");
+        exit(1);
+    }
     if (di) {
-        card = qdev_new(TYPE_SD_CARD);
+        card = qdev_new(s->sd_emmc ? TYPE_EMMC : TYPE_SD_CARD);
+        if (s->sd_emmc) {
+            qdev_prop_set_bit(card, "command-queue", true);
+        }
         qdev_prop_set_drive_err(card, "drive", blk_by_legacy_dinfo(di), &error_fatal);
         qdev_realize_and_unref(card, qdev_get_child_bus(sd, "sd-bus"), &error_fatal);
     }
@@ -327,6 +343,19 @@ static void raspi5_set_sd_cqhci(Object *obj, bool value, Error **errp)
     }
     s->sd_cqhci = value;
 }
+static bool raspi5_get_sd_emmc(Object *obj, Error **errp)
+{
+    return RASPI5_MACHINE(obj)->sd_emmc;
+}
+static void raspi5_set_sd_emmc(Object *obj, bool value, Error **errp)
+{
+    Raspi5MachineState *s = RASPI5_MACHINE(obj);
+    if (s->sd_initialized) {
+        error_setg(errp, "sd-emmc must be configured before machine initialization");
+        return;
+    }
+    s->sd_emmc = value;
+}
 static void raspi5_instance_init(Object *obj)
 {
     Raspi5MachineState *s = RASPI5_MACHINE(obj);
@@ -335,6 +364,10 @@ static void raspi5_instance_init(Object *obj)
                               raspi5_set_sd_cqhci);
     object_property_set_description(obj, "sd-cqhci",
         "Model CQHCI on the SD host; off retains the pre-CQHCI migration profile");
+    object_property_add_bool(obj, "sd-emmc", raspi5_get_sd_emmc,
+                              raspi5_set_sd_emmc);
+    object_property_set_description(obj, "sd-emmc",
+        "Attach opt-in virtual eMMC for CQHCI transport tests, not Pi5 hardware");
     object_property_add_uint32_ptr(obj, "board-revision", &s->board_rev,
                                    OBJ_PROP_FLAG_READWRITE);
 }
