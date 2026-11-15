@@ -132,6 +132,7 @@ jobs:
           python3 "$resources/tools/test_emulator_avs_thermal.py" > "$evidence/avs-thermal.log" 2>&1
           python3 "$resources/tools/test_emulator_sdhci_stop.py" > "$evidence/sdhci-stop.log" 2>&1
           python3 "$resources/tools/test_emulator_sdhci_adma_stop.py" > "$evidence/sdhci-dma-stop.log" 2>&1
+          python3 "$resources/tools/test_emulator_rp1_backpressure.py" --qemu "$UCONSOLE_BUILD_DIR/emulator/qemu-build/qemu-system-aarch64" --output "$evidence/rp1-backpressure-rebuilt" > "$evidence/rp1-backpressure-rebuilt.log" 2>&1
           python3 "$resources/tools/test_emulator_pi5_cqhci.py" --qemu "$UCONSOLE_BUILD_DIR/emulator/qemu-build/qemu-system-aarch64" --output "$evidence/cqhci-rebuilt" > "$evidence/cqhci-rebuilt.log" 2>&1
           python3 "$resources/tools/test_emulator_cqhci_data.py" --qemu "$UCONSOLE_BUILD_DIR/emulator/qemu-build/qemu-system-aarch64" --output "$evidence/cqhci-data-rebuilt" > "$evidence/cqhci-data-rebuilt.log" 2>&1
       - name: Test the exact bundled Pi models and high-memory profiles
@@ -154,6 +155,7 @@ jobs:
           python3 "$resources/tools/test_emulator_genet_network.py" --qemu-system "$qemu" > "$evidence/bundled-genet-network.log" 2>&1
           python3 "$resources/tools/test_emulator_genet_tx_staging.py" --qemu-system "$qemu" > "$evidence/bundled-genet-tx-staging.log" 2>&1
           python3 "$resources/tools/test_emulator_genet_mib.py" --qemu-system "$qemu" > "$evidence/bundled-genet-mib.log" 2>&1
+          python3 "$resources/tools/test_emulator_rp1_backpressure.py" --qemu "$qemu" --output "$evidence/rp1-backpressure-bundled" > "$evidence/rp1-backpressure-bundled.log" 2>&1
           python3 "$resources/tools/test_emulator_pi5_cqhci.py" --qemu "$qemu" --output "$evidence/cqhci-bundled" > "$evidence/cqhci-bundled.log" 2>&1
           python3 "$resources/tools/test_emulator_cqhci_data.py" --qemu "$qemu" --output "$evidence/cqhci-data-bundled" > "$evidence/cqhci-data-bundled.log" 2>&1
       - name: Record public factory desktop on native x86_64
@@ -215,6 +217,8 @@ jobs:
             build/native-archive-validation/pi4-memory/result.json
             build/native-archive-validation/pi4-memory/migration-registers.json
             build/native-archive-validation/pi4-memory/*.log
+            build/native-archive-validation/rp1-backpressure-*/*.json
+            build/native-archive-validation/rp1-backpressure-*/*.log
             build/native-archive-validation/cqhci-*/*.json
             build/native-archive-validation/cqhci-*/*.log
             build/native-archive-validation/pcie2-contract-*/**/*.log

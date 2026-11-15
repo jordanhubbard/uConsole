@@ -147,7 +147,44 @@ boundaries, actual MSI-X writes, external CTS/RTS/byte streams, wrapped and bloc
 migration, reset, receive regressions and old/new legacy migration.
 
 This is frame-level UART behavior. Serial-bit parity/framing errors, break/IrDA,
-DMA, pin routing and clock-tree fidelity still require implementation. The
-inherited blocking host writer also needs replacement and backpressure tests.
+DMA, pin routing and clock-tree fidelity still require implementation. Host output backpressure is covered by the separate controls below.
 The [manufacturer's PL011 reference](https://documentation-service.arm.com/static/5e8e36c2fd977155116a90b5)
 defines the FIFO, flag, framing, interrupt and flow-control rules.
+
+
+## Host output backpressure
+
+The RP1 timed TX profile uses nonblocking host writes. If a connected serial
+client stops reading, the completed byte stays in the shift register and the
+bounded TX FIFO retains queued bytes. A writable-event callback retries that
+byte; other UARTs, virtual timers and QMP can continue. Host
+backpressure does not invent a CTS edge. After acceptance, the next frame keeps
+its full programmed duration rather than bursting at an expired deadline.
+Reset removes the local watch and cancels unaccepted data. Disconnect retires
+work onto the unconnected wire; a later connection receives new transmissions.
+This host transport policy is not a physical flow-control or baud-performance
+measurement.
+
+The [native observation](rp1-host-backpressure-verification-20261115.json)
+records the old binaries' stalls, 18 controls on Linux and macOS ARM64, all six
+UARTs, exact host byte readback, reset/disconnect, real migration and both
+ordinary old/new wire directions. The original ordinary TX stream stays
+unchanged. A host-pending shift adds an optional VMState subsection; a target
+without it refuses migration. Watch IDs are reconstructed local resources.
+Bytes already accepted into external socket queues are outside VMState. A
+migration manager must coordinate the serial transport handoff; the test stops
+the old source before draining that old external queue.
+
+Run:
+
+```sh
+python3 tools/test_emulator_rp1_backpressure.py \
+  --qemu /path/to/qemu --output /path/to/new-results
+```
+
+Optional `--legacy-qemu /path/to/previous-rp1-timed-tx/qemu` also checks ordinary wire compatibility and refusal of an unrepresentable pending
+shift by the old destination. CI runs current/current controls on the rebuilt
+and exact bundled executables for all three native package platforms. Original
+failures, socket-watermark controls and source normalization proofs remain in
+the independently hashed evidence archives. These controls do not establish
+whole-board RP1 integration, missing peripheral behavior or release acceptance.

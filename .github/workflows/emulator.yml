@@ -78,6 +78,8 @@ jobs:
         run: |
           python3 tools/test_emulator_sdhci_stop.py --qemu build/emulator/qemu-build/qemu-system-aarch64 > pi4-sdhci-stop.log 2>&1
           python3 tools/test_emulator_sdhci_adma_stop.py --qemu build/emulator/qemu-build/qemu-system-aarch64 > pi4-sdhci-dma.log 2>&1
+      - name: Exercise RP1 UART host backpressure and migration
+        run: python3 tools/test_emulator_rp1_backpressure.py --qemu build/emulator/qemu-build/qemu-system-aarch64 --output _build/rp1-backpressure > pi5-rp1-backpressure.log 2>&1
       - name: Exercise CQHCI card commands, interrupts, reset and migration
         run: python3 tools/test_emulator_pi5_cqhci.py --qemu build/emulator/qemu-build/qemu-system-aarch64 --output _build/pi5-cqhci > pi5-cqhci.log 2>&1
       - name: Exercise real eMMC queued data and ordinary ADMA initialization
@@ -91,6 +93,8 @@ jobs:
             pi4-*.log
             pi5-*.log
             _build/pi5-memory/
+            _build/rp1-backpressure/*.json
+            _build/rp1-backpressure/*.log
             _build/pi5-cqhci/*.json
             _build/pi5-cqhci/*.log
             _build/pi5-cqhci-data/*.json

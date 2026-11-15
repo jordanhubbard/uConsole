@@ -1,0 +1,170 @@
+--- a/include/hw/char/pl011.h
++++ b/include/hw/char/pl011.h
+@@ -53,6 +53,8 @@
+     bool incoming_accurate_tx;
+     bool external_cts;
+     bool tx_active;
++    bool tx_backend_pending;
++    guint tx_watch;
+     bool tx_loopback;
+     bool tx_rx_active;
+     uint8_t tx_fifo[32];
+--- a/hw/char/pl011.c
++++ b/hw/char/pl011.c
+@@ -381,16 +381,48 @@
+     pl011_tx_update(s, previous_count);
+ }
+
++static void pl011_tx_complete(void *opaque);
++
++static gboolean pl011_tx_watch(void *unused, GIOCondition condition,
++                                void *opaque)
++{
++    PL011State *s = opaque;
++
++    s->tx_watch = 0;
++    pl011_tx_complete(s);
++    return G_SOURCE_REMOVE;
++}
++
+ static void pl011_tx_complete(void *opaque)
+ {
+     PL011State *s = opaque;
+     int64_t when = s->tx_deadline;
++    bool was_pending = s->tx_backend_pending;
++    int written;
+
+     /*
+      * Keep active set while publishing RX/RTS changes: they may otherwise
+      * start the next frame at the callback time rather than this deadline.
+      */
+-    qemu_chr_fe_write_all(&s->chr, &s->tx_shift, 1);
++    written = qemu_chr_fe_write(&s->chr, &s->tx_shift, 1);
++    if (written == 0 || (written < 0 && errno == EAGAIN)) {
++        assert(!s->tx_watch);
++        s->tx_watch = qemu_chr_fe_add_watch(&s->chr, G_IO_OUT | G_IO_HUP,
++                                           pl011_tx_watch, s);
++        if (s->tx_watch) {
++            /* One completed frame waits in the shift register. Never block
++             * the main loop or turn host backpressure into a guest CTS edge.
++             */
++            s->tx_backend_pending = true;
++            return;
++        }
++        /* An absent/disconnected backend is an unconnected serial wire. */
++    }
++    s->tx_backend_pending = false;
++    if (was_pending) {
++        /* Do not burst subsequent frames at stale, already elapsed dates. */
++        when = MAX(when, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
++    }
+     if (s->tx_loopback && s->tx_rx_active) {
+         pl011_fifo_rx_put_at(s, s->tx_shift, when);
+     }
+@@ -818,10 +850,13 @@
+
+     /* Sanity-check input state */
+     if (s->incoming_accurate_tx != s->accurate_tx ||
++        (s->tx_backend_pending &&
++         (!s->accurate_tx || !s->tx_active || timer_pending(s->tx_timer))) ||
+         (s->accurate_tx &&
+          (s->tx_count > pl011_get_fifo_depth(s) || s->tx_pos >= 32 ||
+-          s->tx_active != timer_pending(s->tx_timer) ||
+-          (s->tx_active &&
++          s->tx_active != (timer_pending(s->tx_timer) ||
++                           s->tx_backend_pending) ||
++          (s->tx_active && !s->tx_backend_pending &&
+            s->tx_deadline != timer_expire_time_ns(s->tx_timer)))) ||
+         s->incoming_accurate_rx != s->accurate_rx ||
+         s->rx_divisor > 0x3fffff ||
+@@ -845,6 +880,18 @@
+
+     s->ibrd &= IBRD_MASK;
+     s->fbrd &= FBRD_MASK;
++    if (s->tx_backend_pending) {
++        s->tx_watch = qemu_chr_fe_add_watch(&s->chr, G_IO_OUT | G_IO_HUP,
++                                           pl011_tx_watch, s);
++        if (!s->tx_watch) {
++            /* Revisit the completed frame after loading, even when the
++             * destination has no connected character backend.
++             */
++            s->tx_backend_pending = false;
++            s->tx_deadline = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
++            timer_mod(s->tx_timer, s->tx_deadline);
++        }
++    }
+     if (s->accurate_tx) {
+         pl011_loopback_mdmctrl(s);
+         pl011_tx_start(s, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
+@@ -870,6 +917,12 @@
+ static int pl011_pre_load(void *opaque)
+ {
+     PL011State *s = opaque;
++
++    if (s->tx_watch) {
++        g_source_remove(s->tx_watch);
++        s->tx_watch = 0;
++    }
++    s->tx_backend_pending = false;
+     s->incoming_accurate_tx = false;
+     s->incoming_accurate_rx = false;
+     s->incoming_fifo_depth = PL011_FIFO_DEPTH;
+@@ -937,6 +990,26 @@
+         VMSTATE_UINT32(rx_divisor, PL011State),
+         VMSTATE_INT64(tx_deadline, PL011State),
+         VMSTATE_TIMER_PTR(tx_timer, PL011State),
++        VMSTATE_END_OF_LIST()
++    }
++};
++
++static bool pl011_tx_backend_needed(void *opaque)
++{
++    return ((PL011State *)opaque)->tx_backend_pending;
++}
++
++/* Ordinary streams retain their exact old wire format. An older destination
++ * cannot resume a host-blocked frame and must reject this optional subsection.
++ * GLib watch IDs are local resources and never enter the migration stream.
++ */
++static const VMStateDescription vmstate_pl011_tx_backend = {
++    .name = "pl011/tx-backend-pending",
++    .version_id = 1,
++    .minimum_version_id = 1,
++    .needed = pl011_tx_backend_needed,
++    .fields = (const VMStateField[]) {
++        VMSTATE_BOOL(tx_backend_pending, PL011State),
+         VMSTATE_END_OF_LIST()
+     }
+ };
+@@ -972,6 +1045,7 @@
+         &vmstate_pl011_profile,
+         &vmstate_pl011_rx,
+         &vmstate_pl011_tx,
++        &vmstate_pl011_tx_backend,
+         NULL
+     }
+ };
+@@ -1025,6 +1099,11 @@
+
+     timer_del(s->rx_timer);
+     timer_del(s->tx_timer);
++    if (s->tx_watch) {
++        g_source_remove(s->tx_watch);
++        s->tx_watch = 0;
++    }
++    s->tx_backend_pending = false;
+     s->tx_active = s->tx_loopback = s->tx_rx_active = false;
+     s->tx_shift = 0;
+     s->tx_deadline = 0;
+@@ -1064,6 +1143,11 @@
+
+ static void pl011_finalize(Object *obj)
+ {
++    PL011State *s = PL011(obj);
++
++    if (s->tx_watch) {
++        g_source_remove(s->tx_watch);
++    }
+     timer_free(PL011(obj)->rx_timer);
+     timer_free(PL011(obj)->tx_timer);
+ }
