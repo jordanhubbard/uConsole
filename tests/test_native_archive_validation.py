@@ -33,6 +33,44 @@ class NativeArchiveGuards(unittest.TestCase):
                 with self.subTest(destination=destination), self.assertRaisesRegex(ValueError, 'model source'):
                     validation.check_qemu_sources(root)
 
+    def test_c_include_inputs_remain_complete_hashed_and_contained(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root/'tools').mkdir()
+            assets = root/'Code/patch/qemu'
+            assets.mkdir(parents=True)
+            (assets/'model.patch').write_text('patch')
+            include = assets/'emmc_cmdq.inc'
+            include.write_text('static int queue_depth = 32;')
+            builder = root/'tools/build_emulator_qemu.py'
+            def declare(name='emmc_cmdq.inc', destination='hw/sd/emmc_cmdq.inc'):
+                builder.write_text("PATCHES = ['model.patch']\nMODEL_SOURCES = " +
+                                   repr([(name, destination)]) + '\n')
+            declare()
+            key = 'Code/patch/qemu/emmc_cmdq.inc'
+            before = validation.check_qemu_sources(root)[key]
+            include.write_text('static int queue_depth = 16;')
+            self.assertNotEqual(before, validation.check_qemu_sources(root)[key])
+            include.unlink()
+            with self.assertRaises(FileNotFoundError):
+                validation.check_qemu_sources(root)
+            include.write_text('')
+            with self.assertRaisesRegex(ValueError, 'Invalid or escaping'):
+                validation.check_qemu_sources(root)
+            with tempfile.TemporaryDirectory() as outside:
+                other = Path(outside)/'outside.inc'
+                other.write_text('outside')
+                include.unlink()
+                include.symlink_to(other)
+                with self.assertRaisesRegex(ValueError, 'escaping'):
+                    validation.check_qemu_sources(root)
+            for name, destination in [('emmc_cmdq.inc', 'hw/../outside.inc'),
+                                      ('../outside.inc', 'hw/sd/model.inc'),
+                                      ('model.py', 'hw/sd/model.py')]:
+                declare(name, destination)
+                with self.subTest(destination=destination), self.assertRaisesRegex(ValueError, 'model source'):
+                    validation.check_qemu_sources(root)
+
     def test_all_packaged_builder_inputs_are_required(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
