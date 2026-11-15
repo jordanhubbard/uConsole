@@ -352,5 +352,13 @@
       "kernel_sha256": "02839a682ed150c6d0ab2daba48e88efbbc246167c0ac7c2bd91e5bdee121322",
       "scope": "Older retained FreeBSD ARM64 reference context, not the newly built AMD64 source aggregate or final matched CURRENT release"
     }
+  },
+  "patch_context_normalization": {
+    "scope": "Remove only the final empty context line of the patch; resulting compiled SDHCI source is byte-identical",
+    "tested_patch_sha256": "055997e6cf21efc1c614a4e9429c341e43a9512c2a250a639fa66a92fe43c8ca",
+    "normalized_patch_sha256": "5ea01bbd9b323af5448bf8820ef9cb1f894afd9f2e1036d35be1e175c6d7db62",
+    "patched_sdhci_c_sha256": "59ce351626aefd3074f3fecdd5a90c8991bd6b3e2d771cce582f907de41ee574",
+    "reverse_then_apply_comparison": "identical",
+    "other_model_and_test_inputs_changed": false
   }
 }

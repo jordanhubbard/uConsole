@@ -1,6 +1,6 @@
 --- a/hw/sd/sdhci.c
 +++ b/hw/sd/sdhci.c
-@@ -1283,7 +1283,9 @@
+@@ -1283,6 +1283,8 @@
           * DMA can be enabled only if it is supported as indicated by
           * capabilities register
           */
@@ -10,4 +10,3 @@
 +                            R_SDHC_CAPAB_ADMA2_MASK))) {
              value &= ~SDHC_TRNS_DMA;
          }
- 
