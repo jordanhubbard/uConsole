@@ -95,8 +95,49 @@ static void boot_reset(DeviceState *dev)
     s->gpio[2] = 0x7fff;
     s->gpio[10] = 0x3f;
 }
+static int boot_pre_load(void *opaque)
+{
+    BCM2712BootState *s = opaque;
+    s->incoming_cqhci_profile = false;
+    s->incoming_cqhci_cookie = 0;
+    return 0;
+}
+static int boot_post_load(void *opaque, int version)
+{
+    BCM2712BootState *s = opaque;
+    return s->incoming_cqhci_profile == s->cqhci_profile ? 0 : -EINVAL;
+}
+static bool cqhci_profile_needed(void *opaque)
+{
+    return BCM2712_BOOT(opaque)->cqhci_profile;
+}
+static int cqhci_profile_save(void *opaque)
+{
+    BCM2712_BOOT(opaque)->incoming_cqhci_cookie = 0x43514831;
+    return 0;
+}
+static int cqhci_profile_load(void *opaque, int version)
+{
+    BCM2712BootState *s = opaque;
+    if (!s->cqhci_profile || s->incoming_cqhci_cookie != 0x43514831) {
+        return -EINVAL;
+    }
+    s->incoming_cqhci_profile = true;
+    return 0;
+}
+static const VMStateDescription vmstate_cqhci_profile = {
+    .name = TYPE_BCM2712_BOOT "/cqhci-profile",
+    .version_id = 1, .minimum_version_id = 1,
+    .needed = cqhci_profile_needed, .pre_save = cqhci_profile_save,
+    .post_load = cqhci_profile_load,
+    .fields = (const VMStateField[]) {
+        VMSTATE_UINT32(incoming_cqhci_cookie, BCM2712BootState),
+        VMSTATE_END_OF_LIST()
+    },
+};
 static const VMStateDescription vmstate_boot = {
     .name = TYPE_BCM2712_BOOT, .version_id = 1, .minimum_version_id = 1,
+    .pre_load = boot_pre_load, .post_load = boot_post_load,
     .fields = (const VMStateField[]) {
         VMSTATE_UINT32(cfg_ctrl, BCM2712BootState),
         VMSTATE_UINT32(cfg_mode, BCM2712BootState),
@@ -104,9 +145,13 @@ static const VMStateDescription vmstate_boot = {
         VMSTATE_UINT32_ARRAY(aon, BCM2712BootState, 7),
         VMSTATE_UINT32_ARRAY(gpio, BCM2712BootState, 16),
         VMSTATE_END_OF_LIST()
-    }
+    },
+    .subsections = (const VMStateDescription * const []) {
+        &vmstate_cqhci_profile, NULL
+    },
 };
 static const Property boot_properties[] = {
+    DEFINE_PROP_BOOL("cqhci-profile", BCM2712BootState, cqhci_profile, false),
     DEFINE_PROP_LINK("sdhci", BCM2712BootState, sdhci,
                      TYPE_SYSBUS_SDHCI, DeviceState *),
 };

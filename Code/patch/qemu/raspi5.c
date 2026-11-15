@@ -20,6 +20,7 @@
 #include "hw/intc/arm_gic.h"
 #include "hw/char/pl011.h"
 #include "hw/sd/sdhci.h"
+#include "hw/sd/bcm2712_cqhci.h"
 #include "hw/sd/sd.h"
 #include "hw/ssi/bcm2835_spi.h"
 #include "hw/misc/bcm2838_rng.h"
@@ -53,6 +54,8 @@ struct Raspi5MachineState {
     MemoryRegion mbox_mr;
     MemoryRegion mbox_regs;
     uint32_t board_rev;
+    bool sd_cqhci;
+    bool sd_initialized;
     MemoryRegion vc_dma_mr;
     MemoryRegion vc_alias[4];
 
@@ -180,6 +183,7 @@ static void raspi5_init(MachineState *ms)
 
     sd = qdev_new(TYPE_SYSBUS_SDHCI);
     object_property_add_child(OBJECT(ms), "sdhci", OBJECT(sd));
+    qdev_prop_set_bit(sd, "cqhci", s->sd_cqhci);
     qdev_prop_set_uint8(sd, "sd-spec-version", 3);
     qdev_prop_set_uint64(sd, "capareg", 0x052134b4);
     sysbus_realize(SYS_BUS_DEVICE(sd), &error_fatal);
@@ -192,12 +196,25 @@ static void raspi5_init(MachineState *ms)
         qdev_realize_and_unref(card, qdev_get_child_bus(sd, "sd-bus"), &error_fatal);
     }
     regs = qdev_new(TYPE_BCM2712_BOOT);
+    qdev_prop_set_bit(regs, "cqhci-profile", s->sd_cqhci);
     object_property_set_link(OBJECT(regs), "sdhci", OBJECT(sd), &error_fatal);
     sysbus_realize_and_unref(SYS_BUS_DEVICE(regs), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(regs), 0, 0x1000fff400ULL);
     sysbus_mmio_map(SYS_BUS_DEVICE(regs), 1, 0x107d504100ULL);
     sysbus_mmio_map(SYS_BUS_DEVICE(regs), 2, 0x107d510700ULL);
     sysbus_mmio_map(SYS_BUS_DEVICE(regs), 3, 0x107d517c00ULL);
+
+    if (s->sd_cqhci) {
+        DeviceState *cq = qdev_new(TYPE_BCM2712_CQHCI);
+        object_property_add_child(OBJECT(ms), "cqhci-controller", OBJECT(cq));
+        object_property_set_link(OBJECT(cq), "sdhci", OBJECT(sd), &error_fatal);
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(cq), &error_fatal);
+        sysbus_mmio_map(SYS_BUS_DEVICE(cq), 0, 0x1000fff200ULL);
+        sysbus_connect_irq(SYS_BUS_DEVICE(cq), 0,
+                           qdev_get_gpio_in_named(sd, "cqhci-irq", 0));
+        qdev_connect_gpio_out_named(sd, "cqhci-reset", 0,
+                                    qdev_get_gpio_in(cq, 0));
+    }
 
     /* The physical tree exposes the second BCM2712 SDHCI host for SDIO.
      * Register-level host behavior is present; no Wi-Fi card is invented. */
@@ -294,11 +311,30 @@ static void raspi5_init(MachineState *ms)
     s->boot.modify_dtb = raspi5_modify_dtb;
     s->boot.psci_conduit = QEMU_PSCI_CONDUIT_SMC;
     arm_load_kernel(s->cpu[0], ms, &s->boot);
+    s->sd_initialized = true;
 }
 
+static bool raspi5_get_sd_cqhci(Object *obj, Error **errp)
+{
+    return RASPI5_MACHINE(obj)->sd_cqhci;
+}
+static void raspi5_set_sd_cqhci(Object *obj, bool value, Error **errp)
+{
+    Raspi5MachineState *s = RASPI5_MACHINE(obj);
+    if (s->sd_initialized) {
+        error_setg(errp, "sd-cqhci must be configured before machine initialization");
+        return;
+    }
+    s->sd_cqhci = value;
+}
 static void raspi5_instance_init(Object *obj)
 {
     Raspi5MachineState *s = RASPI5_MACHINE(obj);
+    s->sd_cqhci = true;
+    object_property_add_bool(obj, "sd-cqhci", raspi5_get_sd_cqhci,
+                              raspi5_set_sd_cqhci);
+    object_property_set_description(obj, "sd-cqhci",
+        "Model CQHCI on the SD host; off retains the pre-CQHCI migration profile");
     object_property_add_uint32_ptr(obj, "board-revision", &s->board_rev,
                                    OBJ_PROP_FLAG_READWRITE);
 }

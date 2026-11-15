@@ -1,0 +1,137 @@
+{
+  "schema": "uconsole/pi5-cqhci-observation@1",
+  "date": "2026-11-15",
+  "base_revision": "958aedea75d1f17a35f47eecf9c610e8bfe2f941",
+  "source_sha256": {
+    "Code/patch/qemu/raspi5.c": "3bfe61036ba470ec671d3a984dacebbbf5280f66bad973d50525c8ab1082ab1f",
+    "Code/patch/qemu/bcm2712_cqhci.c": "b9fb11081d405369f7114b67088412ea5c7e8bdb97cb4d8a3232e480055fb6be",
+    "Code/patch/qemu/bcm2712_cqhci.h": "58e483d5288a4ecbb087455b58aea65bb2dda9547758f3b5656008489e3a9990",
+    "Code/patch/qemu/bcm2712_boot.c": "ae21a79a604a5bc5bb8533228256b6a2fa67e55d8d5cbc622b950f33ed04a549",
+    "Code/patch/qemu/bcm2712_boot.h": "3dd6943399adb1f0e809d2f130bae7021ddcc869808a92f029b747960bf0fff3",
+    "Code/patch/qemu/bcm2712-cqhci.patch": "093018311d8050b8fd0450b235c464d102ae26eced28ce24d73b859b9748e677",
+    "tools/build_emulator_qemu.py": "dff076e343c6c87787aefc10a06f457c9b02c1630f14d787d4c0efc5dca6ae70",
+    "tools/test_emulator_pi5_cqhci.py": "e26b22cdea5a07120227672110436343ff3503ccbb1cbda67e696caf1a426b6d"
+  },
+  "qemu_sha256": "29def37318fd162fefe91a0ccaa52cb649e8c13e3342ecb2e0071e6aa5b13818",
+  "native_build": {
+    "host": "Linux ARM64",
+    "qemu_version": "10.2.4",
+    "actual_exit": 0,
+    "original_archive_sha256": "821b545b92f165e57dddccac5077d76d4d436a226595b8813ad59306bbfd0746"
+  },
+  "cqhci_controls": {
+    "actual_exit": 0,
+    "passed": [
+      "actual CQHCI version and virtual timer profile",
+      "read-only identities resist writes",
+      "real SD card initialization and CMD13 transfer state",
+      "HALT completion captured",
+      "CQ signal mask prevents SDHCI CQ source",
+      "unmasking CQ signal presents actual SDHCI status",
+      "SDHCI signal mask prevents GIC IRQ",
+      "CQ source reaches declared GIC SPI",
+      "SDHCI W1C cannot clear an asserted CQ source",
+      "CQ acknowledgement lowers source and GIC line",
+      "disabled status capture does not latch HALT",
+      "TDL alignment follows hardware interface",
+      "enabled configuration cannot change descriptor format",
+      "HALT keeps real descriptor DMA pending",
+      "queued doorbell migrates without fake completion",
+      "migrated descriptor executes against actual card",
+      "DCMD returns actual SD status rather than fabricated data",
+      "actual DCMD completion raises TCC",
+      "TCN and interrupt acknowledgements are independent",
+      "unsupported card queue reports error",
+      "queue error identifies task5 and actual CMD44",
+      "failed queue request is not completed successfully",
+      "refused data queue changes neither DMA destination nor backing storage",
+      "all32 slots remain pending under HALT",
+      "individual task clear is self-clearing and preserves peers",
+      "halted clear-all has real completion status",
+      "SDHCI software reset cancels CQ queues and timers",
+      "CQ identities survive reset",
+      "synthetic source/target card bytes unchanged",
+      "invalid guest task descriptor reports response error and exact failed tag",
+      "invalid descriptor retires without a successful completion",
+      "unadvertised crypto context fails without plaintext fallback",
+      "profile mismatch True/False refused",
+      "profile mismatch False/True refused",
+      "actual legacy wire migration direction0",
+      "actual legacy wire migration direction1",
+      "hardware profile cannot change after initialization"
+    ],
+    "input_binaries_unchanged": true,
+    "legacy_binary_sha256": "d6d35d2a2e62800b6339e4e0f9a7b34c27c0c826e3e783837e7c29dddf2b4f6c"
+  },
+  "regressions": [
+    {
+      "test": "test_emulator_sdhci_stop.py",
+      "exit": 0
+    },
+    {
+      "test": "test_emulator_sdhci_adma_stop.py",
+      "exit": 0
+    },
+    {
+      "test": "test_emulator_pi5_boot.py",
+      "exit": 0
+    },
+    {
+      "test": "test_emulator_pi5_memory.py",
+      "exit": 0
+    }
+  ],
+  "source_cache_tests": {
+    "passed": 11
+  },
+  "linux": {
+    "kernel": "6.12.62-v8+ #2",
+    "kernel_sha256": "4871c5bbb93f24aadfc574eb6af392464f11bbc4f0eb50e1b40eff3e78d67276",
+    "original_dtb_sha256": "d01e2104a8b747e99e310bfb22aeac8100e3b98df29951b296b5cdc2e95afb53",
+    "derived_dtb_sha256": "c8ca4e6fdef4a11f276234d47fd5ffec315595962109f40e3e89089f8fa69017",
+    "dtb_identical_to_failed_baseline": true,
+    "supports_cqe_preserved": true,
+    "scope": "SD/UART subset, init bash shell, four CPUs, storage write/hash, natural reboot",
+    "actual_driver_exit": 0,
+    "actual_qemu_exit": 0,
+    "input_bytes_and_metadata_unchanged": true
+  },
+  "freebsd": {
+    "kernel_source_revision": "87e0a125850c5c791515fb7ae31ebcb6e8cfce72",
+    "kernel_sha256": "3604ee5b36b898bec6c069cb1a3d58b13f3e282bf386eeecd86544febc413f54",
+    "root_image_sha256": "66f2e8b890506186771387344fd727085565f40d592cae20bd6366aba936451a",
+    "memory_gib": 1,
+    "actual_driver_exit": 0,
+    "actual_qemu_exit": 0,
+    "checks": {
+      "natural_exit": true,
+      "all_commands": true,
+      "four_cpus": true,
+      "a76": true,
+      "cpu_affinity": true,
+      "psci": true,
+      "bcm2712_sd": true,
+      "rng": true,
+      "buffers_synced": true,
+      "no_panic": true,
+      "root_login": true,
+      "ncpu": true,
+      "init": true,
+      "login_process": true,
+      "userspace_services": true,
+      "ufs_root": true,
+      "matching_kernel": true,
+      "storage_roundtrip": true,
+      "full_modeled_memory": true,
+      "memory_banks_exact": true,
+      "inputs_unchanged": true
+    }
+  },
+  "limitations": [
+    "Positive queued-data DMA requires a command-queue-capable card backend; current SD v2/v3 must reject queue commands.",
+    "Queued scatter/gather, 64-bit data DMA, coalescing and in-flight data migration remain unqualified.",
+    "No macOS build/runtime qualification of this candidate.",
+    "Retained reference kernel/root contexts do not qualify a matched CURRENT release closure.",
+    "No RP1, GUI, physical hardware or distribution-release acceptance."
+  ]
+}
