@@ -205,6 +205,35 @@ def exercise(binary, legacy, root, check):
         check(target.read(CQ + 0x10) & 0x24 == 0x24 and
               target.read(CQ + 0x3c) == 1 << 31 and target.read(CQ + 0x2c) == 0,
               'unadvertised crypto context fails without plaintext fallback')
+        target.write(SD + 0x2f, 1, 'b')
+        target.write(CQ + 0xc, 1)
+        target.write(CQ + 8, 0x1001)
+        target.write(CQ + 0x28, 0xffffffff)
+        target.write(CQ + 8, 0x1000)
+        check(target.read(CQ + 0x28) == 0 and target.read(CQ + 0x2c) == 0,
+              'disabling CQE discards every pending doorbell without false completion')
+        target.write(CQ + 8, 0x1001)
+        target.write(CQ + 0xc, 0)
+        target.step(10000)
+        check(target.read(CQ + 0x28) == 0 and target.read(CQ + 0x2c) == 0,
+              're-enabling CQE never resurrects discarded descriptors')
+        target.write(CQ + 8, 0x1000)
+        target.write(CQ + 0x20, TABLE)
+        target.bytes(TABLE + 2 * 16, struct.pack('<QQ', 0x2f | (1 << 12) | (1 << 16),
+                                               (0x200000 << 32) | 0x31))
+        target.write(CQ + 8, 0x1001)
+        target.write(CQ + 0x28, 1 << 2)
+        target.step(1000)
+        check(target.read(CQ + 0x28) == 1 << 2 and target.read(CQ + 0x58) == 0,
+              'task descriptor fetched before the first card queue command')
+        target.write(CQ + 8, 0x1000)
+        target.write(CQ + 8, 0x1001)
+        target.step(10000)
+        check(target.read(CQ + 0x28) == 0 and target.read(CQ + 0x58) == 0 and
+              target.read(CQ + 0x2c) == 0 and target.read(CQ + 0x34) == 0,
+              'disable after descriptor fetch cancels its scheduled card command')
+        check(digest(card) == card_sha and digest(target_card) == card_sha,
+              'descriptor refusal and disable leave both backing cards unchanged')
         # Profile mismatch must never silently drop the new controller state.
         for index, (source_profile, target_profile) in enumerate(((True, False), (False, True))):
             source = Controller(root, f'ms{index}', stack, binary, profile=source_profile)

@@ -19,6 +19,12 @@ replay and all 21 retained FreeBSD multi-user checks at 1 GiB. Both OS replays
 use fresh COW disks and finish with natural reboot; their base inputs remain
 unchanged. These are reference contexts, not the final matched CURRENT release.
 
+The [queue-disable follow-up](pi5-cqhci-disable-verification-20261115.json)
+retains the failing disable check against that first binary, then binds the
+repair to 42 passing native controls and fresh successful Linux/FreeBSD
+replays. It checks both a halted queue and a task fetched before its first
+card command; cancellation during queued data DMA remains unqualified.
+
 The virtual profile reports CQHCI version 5.10, no inline crypto and a nominal
 1 MHz internal timer. That frequency is a model parameter, not a measured
 BCM2712 clock. Analog timing, transport/PHY behavior and physical SD performance
@@ -50,6 +56,13 @@ is refused rather than silently discarding controller state. The optional
 `--legacy-qemu /path/to/original/qemu-system-aarch64` additionally tests both
 wire-migration directions against the original executable. The legacy profile
 is not a substitute for implementing the hardware declared by a guest DTB.
+
+Disabling CQE cancels its pending host doorbells and scheduled task work without
+reporting successful task completions. Re-enabling the host cannot replay those
+discarded descriptors. Card queue recovery remains a separate operation; host
+cancellation does not issue a card task-management command. This implements the
+shared [CQHCI doorbell disable rule](https://docs.amd.com/r/en-US/am052-versal-aie-prime-pcm-gen2-register-reference/CQ_TASK_DOORBELL-eMMC-Register?contentId=RRO0avFNRomxBU6O8mQE2w),
+without importing that controller's board addresses or clock parameters.
 
 Because CQHCI connects to generic SDHCI interrupts and reset, also run
 `tools/test_emulator_sdhci_stop.py`, `tools/test_emulator_sdhci_adma_stop.py`,

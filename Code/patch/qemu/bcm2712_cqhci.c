@@ -386,6 +386,25 @@ static void clear_tasks(BCM2712CQHCIState *s, uint32_t mask)
     event(s, TCL);
 }
 
+static void cancel_queue(BCM2712CQHCIState *s)
+{
+    /* Disabling CQE clears its doorbells, not the card's command queue.
+     * In particular, it cannot generate TCN/TCC or restart stale DMA when
+     * software next enables the host. Already transferred bytes stay put.
+     */
+    timer_del(s->work_timer);
+    R(s, TDBR) = R(s, DPT) = R(s, DQS) = 0;
+    memset(s->order, 0, sizeof(s->order));
+    memset(s->block, 0, sizeof(s->block));
+    s->head = s->count = 0;
+    s->active = -1;
+    s->phase = IDLE;
+    s->task = s->sg_next = s->sg_address = 0;
+    s->sg_left = s->blocks_left = s->block_offset = 0;
+    s->faulted = s->halt_requested = false;
+    s->dma64 = s->sg_end = false;
+}
+
 static uint64_t read_reg(void *opaque, hwaddr offset, unsigned size)
 {
     BCM2712CQHCIState *s = opaque;
@@ -410,7 +429,7 @@ static void write_reg(void *opaque, hwaddr offset, uint64_t value, unsigned size
             R(s, CFG) = v & (ENABLE | DESC128 | DCMD);
         }
         if (!(R(s, CFG) & ENABLE)) {
-            timer_del(s->work_timer);
+            cancel_queue(s);
         } else {
             schedule(s, TICK_NS);
         }
