@@ -17,6 +17,7 @@ import tempfile
 import traceback
 
 from test_emulator_pcie_xhci import Machine
+from test_emulator_pi5_boot import ram_profile
 from test_emulator_pmic import connect
 from test_emulator_adc_migration import migrate
 from uconsole_emulator import qmp
@@ -44,10 +45,12 @@ class Controller(Machine):
             machine += ',sd-cqhci=' + ('on' if profile else 'off')
         if emmc:
             machine += ',sd-emmc=on'
+        machine, ram_args = ram_profile(machine, memory_gib)
         command = [str(binary), '-M', machine, '-m', str(memory_gib) + 'G', '-accel', 'qtest', '-S',
                    '-display', 'none', '-serial', 'none', '-monitor', 'none', '-nic', 'none',
                    '-qtest', f'unix:{test},server=on,wait=off',
                    '-qmp', f'unix:{self.monitor},server=on,wait=off']
+        command += ram_args
         if card:
             command += ['-drive', f'if=sd,format=raw,file={card}' +
                         (',cache=writethrough' if emmc else '')]

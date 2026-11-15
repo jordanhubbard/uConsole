@@ -69,3 +69,10 @@ Synthetic controls and retained reference guests do not qualify matched
 CURRENT system images, desktop behavior, physical storage timing, power loss
 or the Daemonarchy 1.6 release. Run the default SDHCI, Pi 5 boot/memory and
 reference OS regressions on the same candidate binary.
+
+The [sparse qtest follow-up](pi5-sparse-qtest-verification-20261115.json)
+retains a Linux CI host-reservation failure and verifies the large address-map
+profiles with explicit sparse RAM. All five capacities, both FDT cell widths,
+actual RAM sizes and address sentinels remain checked. Production allocation
+defaults and the compiled model bytes are unchanged; this is not a full
+resident-memory stress test.

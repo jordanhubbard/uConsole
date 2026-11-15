@@ -1,0 +1,707 @@
+{
+  "scope": "Sparse qtest address-map fixtures; production RAM defaults and compiled model bytes unchanged",
+  "source_archive_sha256": "f57f0d515f5de33b6291eff1a6920b49900b4e8532afc2c495e2cd5f7ff5fe4f",
+  "model_inputs_unchanged_from_memory_dma_followup": true,
+  "fixture_inputs": {
+    "tools/test_emulator_pi5_boot.py": "e943adbbbc2762a0e12ff2bb7ce9da7bd89a701acaaf7f41e9da3a55593f0bea",
+    "tools/test_emulator_pi5_memory.py": "fb8f4d1cdeb0597ed52dbd546ac6051b699f8139ea9ea91007691009720f3bd8",
+    "tools/test_emulator_pi5_cqhci.py": "c70ab8e626a4212195cdd71cfc770a9a591eb1899cfecbd58f431e89437c9619",
+    "tools/test_emulator_cqhci_data.py": "6f64c6fb294315c4abc0eec46fa281e64128f490cdc3f2b45fb3d328ea79a445"
+  },
+  "previous_ci_failure": {
+    "run": 43766361292,
+    "source_head": "f3ba919b5e423623c392336927fd4252a6eb6747",
+    "stage": "16 GiB startup before qtest connection",
+    "error": "cannot set up guest memory 'pi5.ram': Cannot allocate memory",
+    "not_a_passing_case": true
+  },
+  "repair": "Large Linux qtest guests use an explicit RAM backend with reserve=off, as existing Pi4 fixtures do. Capacity, sparse sentinels, FDT, mailbox and rejection assertions remain; QMP additionally verifies actual capacity and reservation mode. No host kernel setting changes.",
+  "linux": {
+    "binary_sha256": "57f9af3062d08952e8575b6975547657ec90dfbf874c62f5b6b97fe813084dd4",
+    "data_controls": 58,
+    "default_controls": 42,
+    "memory_profiles": [
+      {
+        "memory_gib": 1,
+        "actual_ram_bytes": 1073741824,
+        "host_swap_reservation": "default",
+        "size_cells": 1,
+        "banks": [
+          [
+            0,
+            1006632960
+          ]
+        ],
+        "board_revision": "0xa04171",
+        "ram_addresses": [
+          1048576,
+          1073741820
+        ],
+        "passed": true
+      },
+      {
+        "memory_gib": 1,
+        "actual_ram_bytes": 1073741824,
+        "host_swap_reservation": "default",
+        "size_cells": 2,
+        "banks": [
+          [
+            0,
+            1006632960
+          ]
+        ],
+        "board_revision": "0xa04171",
+        "ram_addresses": [
+          1048576,
+          1073741820
+        ],
+        "passed": true
+      },
+      {
+        "memory_gib": 2,
+        "actual_ram_bytes": 2147483648,
+        "host_swap_reservation": "default",
+        "size_cells": 1,
+        "banks": [
+          [
+            0,
+            1006632960
+          ],
+          [
+            1073741824,
+            1073741824
+          ]
+        ],
+        "board_revision": "0xb04170",
+        "ram_addresses": [
+          1048576,
+          2147483644
+        ],
+        "passed": true
+      },
+      {
+        "memory_gib": 2,
+        "actual_ram_bytes": 2147483648,
+        "host_swap_reservation": "default",
+        "size_cells": 2,
+        "banks": [
+          [
+            0,
+            1006632960
+          ],
+          [
+            1073741824,
+            1073741824
+          ]
+        ],
+        "board_revision": "0xb04170",
+        "ram_addresses": [
+          1048576,
+          2147483644
+        ],
+        "passed": true
+      },
+      {
+        "memory_gib": 4,
+        "actual_ram_bytes": 4294967296,
+        "host_swap_reservation": "default",
+        "size_cells": 1,
+        "banks": [
+          [
+            0,
+            1006632960
+          ],
+          [
+            1073741824,
+            1073741824
+          ],
+          [
+            2147483648,
+            2147483648
+          ]
+        ],
+        "board_revision": "0xc04170",
+        "ram_addresses": [
+          1048576,
+          2147483648,
+          4294967292
+        ],
+        "passed": true
+      },
+      {
+        "memory_gib": 4,
+        "actual_ram_bytes": 4294967296,
+        "host_swap_reservation": "default",
+        "size_cells": 2,
+        "banks": [
+          [
+            0,
+            1006632960
+          ],
+          [
+            1073741824,
+            1073741824
+          ],
+          [
+            2147483648,
+            2147483648
+          ]
+        ],
+        "board_revision": "0xc04170",
+        "ram_addresses": [
+          1048576,
+          2147483648,
+          4294967292
+        ],
+        "passed": true
+      },
+      {
+        "memory_gib": 8,
+        "actual_ram_bytes": 8589934592,
+        "host_swap_reservation": "off",
+        "size_cells": 1,
+        "banks": [
+          [
+            0,
+            1006632960
+          ],
+          [
+            1073741824,
+            1073741824
+          ],
+          [
+            2147483648,
+            2147483648
+          ],
+          [
+            4294967296,
+            2147483648
+          ],
+          [
+            6442450944,
+            2147483648
+          ]
+        ],
+        "board_revision": "0xd04170",
+        "ram_addresses": [
+          1048576,
+          2147483648,
+          4294967296,
+          8589934588
+        ],
+        "passed": true
+      },
+      {
+        "memory_gib": 8,
+        "actual_ram_bytes": 8589934592,
+        "host_swap_reservation": "off",
+        "size_cells": 2,
+        "banks": [
+          [
+            0,
+            1006632960
+          ],
+          [
+            1073741824,
+            1073741824
+          ],
+          [
+            2147483648,
+            2147483648
+          ],
+          [
+            4294967296,
+            2147483648
+          ],
+          [
+            6442450944,
+            2147483648
+          ]
+        ],
+        "board_revision": "0xd04170",
+        "ram_addresses": [
+          1048576,
+          2147483648,
+          4294967296,
+          8589934588
+        ],
+        "passed": true
+      },
+      {
+        "memory_gib": 16,
+        "actual_ram_bytes": 17179869184,
+        "host_swap_reservation": "off",
+        "size_cells": 1,
+        "banks": [
+          [
+            0,
+            1006632960
+          ],
+          [
+            1073741824,
+            1073741824
+          ],
+          [
+            2147483648,
+            2147483648
+          ],
+          [
+            4294967296,
+            2147483648
+          ],
+          [
+            6442450944,
+            2147483648
+          ],
+          [
+            8589934592,
+            2147483648
+          ],
+          [
+            10737418240,
+            2147483648
+          ],
+          [
+            12884901888,
+            2147483648
+          ],
+          [
+            15032385536,
+            2147483648
+          ]
+        ],
+        "board_revision": "0xe04171",
+        "ram_addresses": [
+          1048576,
+          2147483648,
+          4294967296,
+          8589934592,
+          17179869180
+        ],
+        "passed": true
+      },
+      {
+        "memory_gib": 16,
+        "actual_ram_bytes": 17179869184,
+        "host_swap_reservation": "off",
+        "size_cells": 2,
+        "banks": [
+          [
+            0,
+            1006632960
+          ],
+          [
+            1073741824,
+            1073741824
+          ],
+          [
+            2147483648,
+            2147483648
+          ],
+          [
+            4294967296,
+            2147483648
+          ],
+          [
+            6442450944,
+            2147483648
+          ],
+          [
+            8589934592,
+            2147483648
+          ],
+          [
+            10737418240,
+            2147483648
+          ],
+          [
+            12884901888,
+            2147483648
+          ],
+          [
+            15032385536,
+            2147483648
+          ]
+        ],
+        "board_revision": "0xe04171",
+        "ram_addresses": [
+          1048576,
+          2147483648,
+          4294967296,
+          8589934592,
+          17179869180
+        ],
+        "passed": true
+      }
+    ],
+    "family_controls": [
+      {
+        "pi500_gib": 1,
+        "accepted": false
+      },
+      {
+        "pi500_gib": 2,
+        "accepted": false
+      },
+      {
+        "pi500_gib": 4,
+        "accepted": false
+      },
+      {
+        "pi500_gib": 8,
+        "accepted": true
+      },
+      {
+        "pi500_gib": 16,
+        "accepted": true
+      }
+    ]
+  },
+  "macos": {
+    "binary_sha256": "d22676da82fb9c7e8c4a77898ad57cfcb4925176060cb24293307d6d52396fb8",
+    "data_controls": 58,
+    "default_controls": 40,
+    "memory_profiles": [
+      {
+        "memory_gib": 1,
+        "actual_ram_bytes": 1073741824,
+        "host_swap_reservation": "default",
+        "size_cells": 1,
+        "banks": [
+          [
+            0,
+            1006632960
+          ]
+        ],
+        "board_revision": "0xa04171",
+        "ram_addresses": [
+          1048576,
+          1073741820
+        ],
+        "passed": true
+      },
+      {
+        "memory_gib": 1,
+        "actual_ram_bytes": 1073741824,
+        "host_swap_reservation": "default",
+        "size_cells": 2,
+        "banks": [
+          [
+            0,
+            1006632960
+          ]
+        ],
+        "board_revision": "0xa04171",
+        "ram_addresses": [
+          1048576,
+          1073741820
+        ],
+        "passed": true
+      },
+      {
+        "memory_gib": 2,
+        "actual_ram_bytes": 2147483648,
+        "host_swap_reservation": "default",
+        "size_cells": 1,
+        "banks": [
+          [
+            0,
+            1006632960
+          ],
+          [
+            1073741824,
+            1073741824
+          ]
+        ],
+        "board_revision": "0xb04170",
+        "ram_addresses": [
+          1048576,
+          2147483644
+        ],
+        "passed": true
+      },
+      {
+        "memory_gib": 2,
+        "actual_ram_bytes": 2147483648,
+        "host_swap_reservation": "default",
+        "size_cells": 2,
+        "banks": [
+          [
+            0,
+            1006632960
+          ],
+          [
+            1073741824,
+            1073741824
+          ]
+        ],
+        "board_revision": "0xb04170",
+        "ram_addresses": [
+          1048576,
+          2147483644
+        ],
+        "passed": true
+      },
+      {
+        "memory_gib": 4,
+        "actual_ram_bytes": 4294967296,
+        "host_swap_reservation": "default",
+        "size_cells": 1,
+        "banks": [
+          [
+            0,
+            1006632960
+          ],
+          [
+            1073741824,
+            1073741824
+          ],
+          [
+            2147483648,
+            2147483648
+          ]
+        ],
+        "board_revision": "0xc04170",
+        "ram_addresses": [
+          1048576,
+          2147483648,
+          4294967292
+        ],
+        "passed": true
+      },
+      {
+        "memory_gib": 4,
+        "actual_ram_bytes": 4294967296,
+        "host_swap_reservation": "default",
+        "size_cells": 2,
+        "banks": [
+          [
+            0,
+            1006632960
+          ],
+          [
+            1073741824,
+            1073741824
+          ],
+          [
+            2147483648,
+            2147483648
+          ]
+        ],
+        "board_revision": "0xc04170",
+        "ram_addresses": [
+          1048576,
+          2147483648,
+          4294967292
+        ],
+        "passed": true
+      },
+      {
+        "memory_gib": 8,
+        "actual_ram_bytes": 8589934592,
+        "host_swap_reservation": "default",
+        "size_cells": 1,
+        "banks": [
+          [
+            0,
+            1006632960
+          ],
+          [
+            1073741824,
+            1073741824
+          ],
+          [
+            2147483648,
+            2147483648
+          ],
+          [
+            4294967296,
+            2147483648
+          ],
+          [
+            6442450944,
+            2147483648
+          ]
+        ],
+        "board_revision": "0xd04170",
+        "ram_addresses": [
+          1048576,
+          2147483648,
+          4294967296,
+          8589934588
+        ],
+        "passed": true
+      },
+      {
+        "memory_gib": 8,
+        "actual_ram_bytes": 8589934592,
+        "host_swap_reservation": "default",
+        "size_cells": 2,
+        "banks": [
+          [
+            0,
+            1006632960
+          ],
+          [
+            1073741824,
+            1073741824
+          ],
+          [
+            2147483648,
+            2147483648
+          ],
+          [
+            4294967296,
+            2147483648
+          ],
+          [
+            6442450944,
+            2147483648
+          ]
+        ],
+        "board_revision": "0xd04170",
+        "ram_addresses": [
+          1048576,
+          2147483648,
+          4294967296,
+          8589934588
+        ],
+        "passed": true
+      },
+      {
+        "memory_gib": 16,
+        "actual_ram_bytes": 17179869184,
+        "host_swap_reservation": "default",
+        "size_cells": 1,
+        "banks": [
+          [
+            0,
+            1006632960
+          ],
+          [
+            1073741824,
+            1073741824
+          ],
+          [
+            2147483648,
+            2147483648
+          ],
+          [
+            4294967296,
+            2147483648
+          ],
+          [
+            6442450944,
+            2147483648
+          ],
+          [
+            8589934592,
+            2147483648
+          ],
+          [
+            10737418240,
+            2147483648
+          ],
+          [
+            12884901888,
+            2147483648
+          ],
+          [
+            15032385536,
+            2147483648
+          ]
+        ],
+        "board_revision": "0xe04171",
+        "ram_addresses": [
+          1048576,
+          2147483648,
+          4294967296,
+          8589934592,
+          17179869180
+        ],
+        "passed": true
+      },
+      {
+        "memory_gib": 16,
+        "actual_ram_bytes": 17179869184,
+        "host_swap_reservation": "default",
+        "size_cells": 2,
+        "banks": [
+          [
+            0,
+            1006632960
+          ],
+          [
+            1073741824,
+            1073741824
+          ],
+          [
+            2147483648,
+            2147483648
+          ],
+          [
+            4294967296,
+            2147483648
+          ],
+          [
+            6442450944,
+            2147483648
+          ],
+          [
+            8589934592,
+            2147483648
+          ],
+          [
+            10737418240,
+            2147483648
+          ],
+          [
+            12884901888,
+            2147483648
+          ],
+          [
+            15032385536,
+            2147483648
+          ]
+        ],
+        "board_revision": "0xe04171",
+        "ram_addresses": [
+          1048576,
+          2147483648,
+          4294967296,
+          8589934592,
+          17179869180
+        ],
+        "passed": true
+      }
+    ],
+    "family_controls": [
+      {
+        "pi500_gib": 1,
+        "accepted": false
+      },
+      {
+        "pi500_gib": 2,
+        "accepted": false
+      },
+      {
+        "pi500_gib": 4,
+        "accepted": false
+      },
+      {
+        "pi500_gib": 8,
+        "accepted": true
+      },
+      {
+        "pi500_gib": 16,
+        "accepted": true
+      }
+    ],
+    "evidence_sha256": "02b2679fb794c848b9d2c004f565281cc289822cce2549dd0e7401f17b7854f0"
+  },
+  "limitations": [
+    "Address-map and DMA controls do not establish full resident-memory stress",
+    "Reference OS evidence remains bound to unchanged binaries in the prior receipt",
+    "No physical, matched CURRENT desktop or distribution qualification"
+  ]
+}
