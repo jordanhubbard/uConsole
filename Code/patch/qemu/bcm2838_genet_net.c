@@ -438,16 +438,27 @@ static uint64_t bcm2838_genet_make_u64(uint32_t hi, uint32_t lo)
     return ((uint64_t)hi << 32) | lo;
 }
 
-/* UniMAC has 0x80-byte RX, TX and RUNT MIB banks.  The packet counters
- * are word 10 of RX/TX; reset bits are RX=0, RUNT=1, TX=2.  Keep these
- * MAC counters separate from descriptor completions and DMA discards. */
-static void bcm2838_genet_count_packet(BCM2838GenetNetState *s, bool tx)
+/* UniMAC has 0x80-byte RX, TX and RUNT MIB banks.  Total packets are word
+ * 10 in RX/TX, but their class counters have different layouts: RX has a
+ * byte counter before multicast/broadcast, TX does not.  Reset bits are
+ * RX=0, RUNT=1, TX=2.  These count MAC frames, not DMA completions. */
+static void bcm2838_genet_count_packet(BCM2838GenetNetState *s, bool tx,
+                                      const uint8_t *packet)
 {
     unsigned reset = tx ? 4 : 1;
-    unsigned index = (tx ? 32 : 0) + 10;
+    unsigned base = tx ? 32 : 0;
+    unsigned multicast = tx ? 11 : 12;
+    unsigned unicast = tx ? 28 : 26;
 
     if (!(s->regs.umac.mib_ctrl & reset)) {
-        s->regs.umac.mib[index]++;
+        s->regs.umac.mib[base + 10]++;
+        if (is_broadcast_ether_addr(packet)) {
+            s->regs.umac.mib[base + multicast + 1]++;
+        } else if (is_multicast_ether_addr(packet)) {
+            s->regs.umac.mib[base + multicast]++;
+        } else {
+            s->regs.umac.mib[base + unicast]++;
+        }
     }
 }
 
@@ -485,7 +496,7 @@ static bool bcm2838_genet_xmit_packet(BCM2838GenetNetState *dev, void *packet,
     }
 
     qemu_send_packet(qemu_get_queue(dev->nic), buf, len);
-    bcm2838_genet_count_packet(dev, true);
+    bcm2838_genet_count_packet(dev, true, buf);
     return true;
 }
 
@@ -1019,7 +1030,7 @@ static ssize_t bcm2838_genet_receive(NetClientState *nc, const uint8_t *buf,
         FIELD_EX32(s->regs.umac.cmd, GENET_UMAC_CMD, RX_EN)) {
         /* A consumed frame reached the MAC even if DMA discarded it.
          * Do not count an unsuccessful receive callback. */
-        bcm2838_genet_count_packet(s, false);
+        bcm2838_genet_count_packet(s, false, buf);
     }
     bcm2838_genet_set_irq_default(s);
     bcm2838_genet_set_irq_prio(s);
