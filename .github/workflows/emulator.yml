@@ -74,6 +74,12 @@ jobs:
           python3 tools/test_emulator_pi5_memory.py --qemu build/emulator/qemu-build/qemu-system-aarch64 --output _build/pi5-memory > pi5-memory.log 2>&1
           python3 tools/test_prepare_pi5_boot.py > pi5-prepare.log 2>&1
           python3 tools/test_pi5_firmware_inputs.py > pi5-firmware-inputs.log 2>&1
+      - name: Exercise generic SDHCI transfer and reset regressions
+        run: |
+          python3 tools/test_emulator_sdhci_stop.py --qemu build/emulator/qemu-build/qemu-system-aarch64 > pi4-sdhci-stop.log 2>&1
+          python3 tools/test_emulator_sdhci_adma_stop.py --qemu build/emulator/qemu-build/qemu-system-aarch64 > pi4-sdhci-dma.log 2>&1
+      - name: Exercise CQHCI card commands, interrupts, reset and migration
+        run: python3 tools/test_emulator_pi5_cqhci.py --qemu build/emulator/qemu-build/qemu-system-aarch64 --output _build/pi5-cqhci > pi5-cqhci.log 2>&1
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -83,3 +89,5 @@ jobs:
             pi4-*.log
             pi5-*.log
             _build/pi5-memory/
+            _build/pi5-cqhci/*.json
+            _build/pi5-cqhci/*.log
