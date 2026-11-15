@@ -122,12 +122,15 @@ static void fail_task(BCM2712CQHCIState *s, unsigned cmd,
     }
 }
 
+/* Descriptor and payload DMA must not reenter device register callbacks. */
+static const MemTxAttrs dma_attrs = { .memory = true };
+
 static bool dma_read(BCM2712CQHCIState *s, uint64_t addr,
                      void *data, size_t length)
 {
     return addr <= UINT64_MAX - length &&
            (s->dma64 || addr + length <= (1ULL << 32)) &&
-           address_space_read(host(s)->dma_as, addr, MEMTXATTRS_UNSPECIFIED,
+           address_space_read(host(s)->dma_as, addr, dma_attrs,
                               data, length) == MEMTX_OK;
 }
 
@@ -331,7 +334,7 @@ static void work(void *opaque)
         amount = MIN(s->sg_left, 512 - s->block_offset);
         if (s->sg_address > UINT64_MAX - amount ||
             (!s->dma64 && s->sg_address + amount > (1ULL << 32)) ||
-            (read ? address_space_write(h->dma_as, s->sg_address, MEMTXATTRS_UNSPECIFIED,
+            (read ? address_space_write(h->dma_as, s->sg_address, dma_attrs,
                                         s->block + s->block_offset, amount) != MEMTX_OK :
                     !dma_read(s, s->sg_address, s->block + s->block_offset, amount))) {
             fail_task(s, read ? 46 : 47, true, true);

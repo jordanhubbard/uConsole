@@ -70,3 +70,8 @@ Because CQHCI connects to generic SDHCI interrupts and reset, also run
 the Pi 5 boot/memory controls and Linux/FreeBSD guest regressions on the exact
 candidate binary. Broader platform, desktop, physical and distribution
 acceptance remain separate gates.
+
+Descriptor and payload DMA are restricted to memory. The
+[memory-only DMA observation](pi5-cqhci-memory-dma-verification-20261115.json)
+records the rejected register-mutation regression, both malformed transfer
+directions and recovery, alongside the real-data and reference OS controls.

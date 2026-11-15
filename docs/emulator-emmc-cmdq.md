@@ -59,6 +59,12 @@ cold-cache storage readback and default Linux/FreeBSD reference replays. The
 Linux queue probe requires actual MMC/CMDQ state and rejects I/O errors, CQE
 recovery and data-loss warnings before accepting a natural reboot.
 
+The [memory-only DMA follow-up](pi5-cqhci-memory-dma-verification-20261115.json)
+retains a malformed MMIO-DMA failure, then binds the repair to 58 data controls
+on both native hosts, unchanged default/reference coverage and explicit recovery
+with a valid RAM request. Both DMA directions reject device-register targets
+without false completion or backing writes.
+
 Synthetic controls and retained reference guests do not qualify matched
 CURRENT system images, desktop behavior, physical storage timing, power loss
 or the Daemonarchy 1.6 release. Run the default SDHCI, Pi 5 boot/memory and

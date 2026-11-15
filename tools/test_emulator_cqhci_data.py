@@ -165,8 +165,39 @@ def adma_initialization(binary, root, check):
               'ordinary ADMA initialization preserves backing bytes')
 
 
+def mmio_dma_refusal(binary, root, check):
+    with ExitStack() as stack:
+        card = card_file(root, 'mmio-dma')
+        original_sha = digest(card)
+        m = Controller(root, 'mmio-dma', stack, binary, card=card, emmc=True)
+        initialize(m, check)
+        configure(m, wide=True)
+        for tag, read in ((3, True), (5, False)):
+            cfg = m.read(CQ + 8)
+            # The read destination would disable CFG reentrantly. The write
+            # source fits within real MMIO, then continues from ordinary RAM.
+            segments = [(CQ + 8, 512)] if read else [(CQ, 16), (A, 496)]
+            task(m, tag, segments, read=read, lba=40, wide=True)
+            for _ in range(20):
+                m.step(1000)
+            cmd = 46 if read else 47
+            check(m.read(CQ + 8) == cfg and m.read(CQ + 0x10) & 4 and
+                  m.read(CQ + 0x54) == (1 << 31) | (tag << 24) | (cmd << 16),
+                  f'MMIO DMA {"destination" if read else "source"} is refused without register mutation')
+            check(m.read(CQ + 0x2c) == 0 and m.read(CQ + 0x28) == 0 and
+                  m.read(CQ + 0x3c) & (1 << tag) and digest(card) == original_sha,
+                  f'MMIO DMA CMD{cmd} has no false completion or backing write')
+            command(m, 48, 1, 0x1b)
+            configure(m, wide=True)
+        task(m, 6, [(A, 512)], wide=True)
+        finish(m, 6)
+        check(read_bytes(m, A, 512) == pattern(8) and digest(card) == original_sha,
+              'normal RAM data succeeds after explicit malformed-DMA recovery')
+
+
 def exercise(binary, root, check):
     adma_initialization(binary, root, check)
+    mmio_dma_refusal(binary, root, check)
     with ExitStack() as stack:
         card = card_file(root, 'source')
         baseline = card.read_bytes()
