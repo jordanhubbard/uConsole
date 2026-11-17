@@ -9,6 +9,7 @@ from contextlib import ExitStack
 import hashlib
 import json
 from pathlib import Path
+import tempfile
 
 from test_emulator_rp1 import Machine, configure, BAR1
 from test_emulator_rp1_uart import VECTORS, send
@@ -50,6 +51,13 @@ def machine(binary, root, name, stack, incoming=False):
 
 def receive_break(m, n):
     qmp(m.monitor, 'chardev-send-break', {'id': f'rx{n}'})
+
+
+def migrate_devices(source, target, stack):
+    # Evidence roots can exceed sockaddr_un.sun_path. Only the transient
+    # migration socket needs a short path; retain all QEMU logs in the root.
+    sockets = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix='rp1-em-')))
+    migrate(source, target, sockets)
 
 
 def exercise_break(binary, root, passed, observations):
@@ -107,7 +115,7 @@ def exercise_break(binary, root, passed, observations):
         target = machine(binary, root, 'break-target', stack, incoming=True)
         clock = int(m.command('clock_step 1').split()[1], 0)
         target.command(f'clock_set {clock}')
-        migrate(m, target, root)
+        migrate_devices(m, target, stack)
         qmp(target.monitor, 'cont')
         assert target.read(base + 0x3c) & BE
         assert not target.read(base + 0x40) & BE
@@ -166,7 +174,7 @@ def exercise_overrun(binary, root, passed, observations):
         target = machine(binary, root, 'overrun-target', stack, incoming=True)
         clock = int(m.command('clock_step 1').split()[1], 0)
         target.command(f'clock_set {clock}')
-        migrate(m, target, root)
+        migrate_devices(m, target, stack)
         qmp(target.monitor, 'cont')
         assert target.read(base + 4) == 8
         assert target.read(base + 0x3c) & (BE | OE) == BE | OE
