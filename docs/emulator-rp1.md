@@ -188,3 +188,40 @@ and exact bundled executables for all three native package platforms. Original
 failures, socket-watermark controls and source normalization proofs remain in
 the independently hashed evidence archives. These controls do not establish
 whole-board RP1 integration, missing peripheral behavior or release acceptance.
+
+
+## Decoded receive errors
+
+The RP1 receive profile treats an already detected character-backend break as
+one zero byte carrying `DR.BE`, with a separately latched break-error interrupt.
+Its raw status is visible while masked; enabling the interrupt delivers the
+normal RP1 MSI-X vector. Reading data or writing `ECR` does not acknowledge that
+interrupt: `ICR.BE` owns its clear, separately from RP1 IACK. Disabled UART/RX
+inputs and the disconnected external input in loopback reject backend breaks.
+A full receive FIFO retains its existing bytes and reports break and overrun.
+
+`RSR.OE` stays set across data reads and interrupt acknowledgement until an
+`ECR` write. Per-character break status follows the character most recently read
+from `DR`. FIFO entries, receive status and error interrupt bits use existing
+VMState fields; no new migration subsection is added. The ordinary PL011
+profile retains its previous receive policy.
+
+The [PL011 reference, sections 2.8.5 and 3.3.1-3.3.2](https://documentation-service.arm.com/static/5e8e36c2fd977155116a90b5)
+defines these separate status and interrupt rules. The native fixture exercises
+all six UARTs, actual chardev break events, masks/MSI-X/IACK, receiver gates,
+full-FIFO preservation, independent clears, reset and real migration:
+
+```sh
+python3 tools/test_emulator_rp1_errors.py \
+  --qemu /path/to/qemu --output /path/to/new-results
+```
+
+This is decoded-event behavior. It does not model serial-bit break detection,
+line-level duration, parity/framing error generation, DMA or whole-board RP1
+integration. The [native observation](rp1-receive-error-verification-20261117.json) records
+21 controls on Linux and macOS ARM64, all nine native regression phases,
+18 host-backpressure controls, all ten RAM/FDT profiles and actual old/new
+ordinary PL011 migration on each host. Independent checks match all 75
+model/build inputs to Git and both compiled C files to the committed patch.
+The original model failures and staging/socket-path failures remain retained.
+Installed-package and distribution acceptance remain separate gates.

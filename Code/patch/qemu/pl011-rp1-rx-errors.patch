@@ -1,0 +1,34 @@
+--- a/hw/char/pl011.c
++++ b/hw/char/pl011.c
+@@ -283,6 +283,11 @@
+     int slot;
+     unsigned pipe_depth;
+ 
++    /* A decoded receive break raises its error interrupt even if RX is full.
++     * FIFO data/status and the independently cleared error IRQ are distinct. */
++    if (s->accurate_rx && (value & DR_BE)) {
++        s->int_level |= INT_BE;
++    }
+     pipe_depth = pl011_get_fifo_depth(s);
+     if (s->fifo_depth == 32 && s->read_count >= pipe_depth) {
+         /* A full RP1 RX FIFO drops the new character, preserving old bytes. */
+@@ -304,6 +309,9 @@
+     pl011_rx_timeout_update_at(s, true, when);
+     if (s->read_count == s->read_trigger) {
+         s->int_level |= INT_RX;
++        pl011_update(s);
++    }
++    if (s->accurate_rx) {
+         pl011_update(s);
+     }
+     if (s->accurate_tx) {
+@@ -480,7 +488,8 @@
+         s->int_level &= ~INT_RX;
+     }
+     trace_pl011_read_fifo(s->read_count, fifo_depth);
+-    s->rsr = c >> 8;
++    /* PL011 RSR.OE is sticky until ECR, unlike the per-character errors. */
++    s->rsr = (s->accurate_rx ? s->rsr & 8 : 0) | (c >> 8);
+     pl011_rx_timeout_update(s, false);
+     if (s->accurate_tx) {
+         pl011_loopback_mdmctrl(s);
