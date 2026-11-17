@@ -100,6 +100,7 @@ check-emulator: keyboard-oracle
 	python3 tools/test_emulator_rp1_uart.py --qemu '$(BUILD_DIR)/emulator/qemu-build/qemu-system-aarch64'
 	python3 tools/test_emulator_rp1_rx.py --qemu '$(BUILD_DIR)/emulator/qemu-build/qemu-system-aarch64'
 	python3 tools/test_emulator_rp1_tx.py --qemu '$(BUILD_DIR)/emulator/qemu-build/qemu-system-aarch64'
+	python3 tools/test_emulator_rp1_errors.py --qemu '$(BUILD_DIR)/emulator/qemu-build/qemu-system-aarch64' --output "$$(mktemp -d '$(BUILD_DIR)/emulator/rp1-errors.XXXXXX')/evidence"
 	python3 tools/test_emulator_pl011_profile.py --qemu '$(BUILD_DIR)/emulator/qemu-build/qemu-system-aarch64'
 	python3 tools/test_emulator_pcie2_contract.py --qemu '$(BUILD_DIR)/emulator/qemu-build/qemu-system-aarch64'
 	python3 tools/test_emulator_pi4_memory.py --qemu '$(BUILD_DIR)/emulator/qemu-build/qemu-system-aarch64'
