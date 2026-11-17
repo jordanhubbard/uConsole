@@ -218,5 +218,10 @@ python3 tools/test_emulator_rp1_errors.py \
 
 This is decoded-event behavior. It does not model serial-bit break detection,
 line-level duration, parity/framing error generation, DMA or whole-board RP1
-integration. The original native failures and candidate build observations are
-retained separately; candidate native and installed-package acceptance is pending.
+integration. The [native observation](rp1-receive-error-verification-20261117.json) records
+21 controls on Linux and macOS ARM64, all nine native regression phases,
+18 host-backpressure controls, all ten RAM/FDT profiles and actual old/new
+ordinary PL011 migration on each host. Independent checks match all 75
+model/build inputs to Git and both compiled C files to the committed patch.
+The original model failures and staging/socket-path failures remain retained.
+Installed-package and distribution acceptance remain separate gates.
