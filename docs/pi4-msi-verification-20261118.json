@@ -1,0 +1,103 @@
+{
+  "schema": "uconsole/native-pi4-msi-model-controls@1",
+  "source_base": "79e8e62529134b94f787237afc9540ffbbf0860b",
+  "host": "Linux aarch64, native QEMU build with selected system compiler/generator/libraries",
+  "binary_sha256": "b82ed50e0d3bb5994f1ab31b38d1c1364bc48d1d07bd1608ef02178a8c297ba8",
+  "generation": "d6e44a3d5622de93a8e763237eff361038932661626ef853d9244c529014a798",
+  "model_inputs": {
+    "bcm2838_pcie.c": "c7f867505c021f4fa2e8f1fdd6459df60d86a0270294d880f291a4698a83d30b",
+    "bcm2838_pcie.h": "3092528b15f3e64fd9516bcecb9f672dccfed97ea86df6edfdaa83b69a4e9292"
+  },
+  "native_full_build_actual_exit": 0,
+  "original_source_entries_verified_at_build": 798,
+  "configured_host_feature_macro_changes": {},
+  "first_original_MSIless_baseline_actual_exit": 1,
+  "first_original_MSIless_baseline_reason": "Connected endpoint lacks ordinary MSI capability",
+  "native_MSI_control_actual_exit": 0,
+  "actual_endpoint_vectors": 32,
+  "original_affected_suites": [
+    {
+      "name": "original-disconnected-controller",
+      "actual_exit": 0
+    },
+    {
+      "name": "original-connected-INTx",
+      "actual_exit": 0
+    },
+    {
+      "name": "original-native-FreeBSD-register-path",
+      "actual_exit": 0
+    }
+  ],
+  "actual_old_new_profile_cases": [
+    {
+      "case": "old-to-new-disconnected",
+      "status": "pass",
+      "expected_rejection": false,
+      "actual_refusal_target_exit": null,
+      "closed_logs": 2
+    },
+    {
+      "case": "new-to-old-disconnected",
+      "status": "pass",
+      "expected_rejection": false,
+      "actual_refusal_target_exit": null,
+      "closed_logs": 2
+    },
+    {
+      "case": "old-to-new-legacy-INTx",
+      "status": "pass",
+      "expected_rejection": false,
+      "actual_refusal_target_exit": null,
+      "closed_logs": 2
+    },
+    {
+      "case": "new-to-old-legacy-INTx",
+      "status": "pass",
+      "expected_rejection": false,
+      "actual_refusal_target_exit": null,
+      "closed_logs": 2
+    },
+    {
+      "case": "new-MSI-to-new-legacy-refusal",
+      "status": "pass",
+      "expected_rejection": true,
+      "actual_refusal_target_exit": 1,
+      "closed_logs": 2
+    },
+    {
+      "case": "new-legacy-to-new-MSI-refusal",
+      "status": "pass",
+      "expected_rejection": true,
+      "actual_refusal_target_exit": 1,
+      "closed_logs": 2
+    },
+    {
+      "case": "new-MSI-to-old-refusal",
+      "status": "pass",
+      "expected_rejection": true,
+      "actual_refusal_target_exit": 1,
+      "closed_logs": 2
+    },
+    {
+      "case": "old-to-new-MSI-refusal",
+      "status": "pass",
+      "expected_rejection": true,
+      "actual_refusal_target_exit": 1,
+      "closed_logs": 2
+    }
+  ],
+  "first_failed_link_preserved": true,
+  "same_XML_generator_link_pair": {
+    "original_generated_C_actual_exit": 1,
+    "system_generated_C_actual_exit": 0,
+    "original_unavailable_static_builder_calls": 36,
+    "system_unavailable_static_builder_calls": 0
+  },
+  "retained_original_MSI_functions_AST_unchanged": true,
+  "retained_CLI_all_eight_actual_exit": 0,
+  "native_guest_OS_qualification": false,
+  "physical_qualification": false,
+  "final_distribution_qualification": false,
+  "scope": "Native software-model and original cross-version protocol controls only. Source and binary hashes identify the tested model; no physical timing, full peripheral, installer/desktop or canonical lifecycle acceptance."
+}

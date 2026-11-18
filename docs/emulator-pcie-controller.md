@@ -42,8 +42,10 @@ BAR2 supplies a programmed inbound DMA alias to actual board RAM. For example,
 `0xc000000f` maps PCI `0xc0000000` to ARM zero with a 1 GiB aperture. Disabled
 or unsupported mappings do not silently provide DMA. Enabling unsupported
 BAR1/BAR3 returns an MMIO error. Native endpoint INTx A–D feeds GIC SPI
-143–146; endpoint MSI/MSI-X capabilities are disabled in this profile. Controller
-and software MSI banks separately retain their SPI 147/148 controls.
+143–146. The connected endpoint also advertises ordinary 64-bit MSI; its
+32-vector controller bank feeds SPI 148. MSI-X remains disabled because the
+compact aperture has no room for its table/PBA. Controller and software-set
+interrupt banks retain their SPI 147/148 controls.
 
 The board enables the optional `compact-mmio` xHCI property. It keeps all actual
 register operations and transfer engines but advertises a 4 KiB BAR with runtime
@@ -53,8 +55,8 @@ fixed 4 KiB resource in the [pinned firmware Xhci.asl](https://github.com/tianoc
 Generic QEMU xHCI retains its default 16 KiB layout; compact mode explicitly
 requires `msix=off` because its MSI-X table/PBA use the larger layout.
 
-This profile has no electrical PHY/MDIO/SerDes timing, VL805-specific behavior
-or endpoint MSI implementation. Actual USB storage bootstrap is qualified
+This profile has no electrical PHY/MDIO/SerDes timing or VL805-specific behavior.
+Actual USB storage bootstrap is qualified
 separately from controller tests; a command-ring test alone does not establish
 UEFI or kernel boot.
 
@@ -95,8 +97,10 @@ Native FreeBSD programs an identity 8GiB BAR2 aperture but restricts child DMA b
 960MiB. Its FDT outbound range maps PCI `0xc0000000` to CPU `0x600000000`.
 The native-init test reproduces that setup and cold bridge-window relocation,
 then executes real xHCI DMA/INTx, reset and migration. Native MSI initialization
-registers are exercised, but no endpoint MSI/EOI support is claimed. The existing
-xHCI endpoint has MSI/MSI-X disabled and uses native DT INTx without guest tunables.
+registers are exercised by that retained INTx control. Earlier guest bootstrap
+results below used the MSI-less endpoint. The current model adds ordinary MSI,
+and requires fresh guest boot evidence before those results qualify its changed
+default endpoint capabilities.
 
 The new root-port capability layout has a distinct VMState section identity;
 older connected-layout streams are rejected rather than silently misinterpreted.
@@ -222,3 +226,56 @@ files. Its kernel log passed the storage I/O cleanliness guard, its source image
 remained unchanged, and the only stop sequence was a guest-requested reset.
 The earlier debugger-observed run remains disqualified. This is simulator
 bootstrap evidence, not physical Pi 4 or Pi 5 acceptance.
+
+
+## Endpoint MSI and migration profiles, 2026-11-18
+
+The connected compact xHCI endpoint now supports ordinary MSI. Its messages pass
+through the real PCI DMA address space to the programmed MSI target DWORD,
+independently of the inbound RAM window. The decoder uses the selected native
+32-vector data mask/base, latches pending bits, and applies the controller mask
+and W1C operations before driving GIC SPI 148. It does not also assert INTx for
+an MSI-enabled completion. A target inside a RAM aperture takes precedence on
+the PCI side without exposing a CPU-side interrupt injector or corrupting RAM.
+The native FreeBSD EOI write is accepted; Linux's W1C-only path is also retained.
+The pinned Linux v6.12 and retained FreeBSD driver references above define the
+selected software protocol, rather than electrical timing.
+
+Use `endpoint-msi=off` explicitly only when reproducing the older connected INTx
+profile. The ordinary connected default enables the capability; the default
+disconnected port is unchanged. A connected MSI profile carries a distinct
+migration subsection. Incompatible connected streams are rejected, while the
+disconnected and explicitly selected legacy INTx profiles retain their tested
+old/new wire compatibility.
+
+```sh
+python3 tools/test_emulator_pcie_msi.py \
+  --qemu build/emulator/qemu-build/qemu-system-aarch64 \
+  --output _build/pi4-msi-current
+python3 tools/test_emulator_pcie_msi.py \
+  --qemu build/emulator/qemu-build/qemu-system-aarch64 \
+  --legacy-qemu /path/to/retained-msi-less-qemu \
+  --output _build/pi4-msi-cross-version
+```
+
+The output directory must be new. Unix sockets use short temporary paths, and
+closed QEMU logs and profile results are retained at the selected output path.
+Without a legacy executable, the tool runs both current-profile mismatch
+controls and explicitly lists the six unexecuted cross-version cases. It does
+not substitute the current executable for an older one. With a real MSI-less
+executable it also checks both directions of disconnected/legacy INTx migration
+and both old/MSI incompatibilities.
+
+The [native record](pi4-msi-verification-20261118.json) binds the C/header and
+executable hashes. All 32 endpoint vectors, filtering, masking/pending delivery,
+RAM isolation, pending migration and reset/reprogramming pass. The three original
+controller/INTx/FreeBSD-register suites and eight actual old/new profile controls
+also pass. The original MSI-less endpoint fails the new capability control.
+An initial full build failed its final link because a newer inherited GLib
+generator did not match the selected system libraries; that failure is retained.
+A native same-XML link pair reproduces the generator mismatch, and the fresh
+build with matching system tools passes without changing configured features.
+
+These are native software model controls. Current native FreeBSD SD/USB/UEFI
+boot, installed desktop, final distribution, physical PCIe and complete peripheral
+qualification remain separate requirements.

@@ -5,7 +5,8 @@
  * The default remains a disconnected port. Opt-in connected-xhci uses actual
  * PCI devices/configuration, programmed CPU/PCI windows, a BAR2 RAM DMA window
  * and native INTx. PCI IDs describe QEMU devices, not a fabricated VL805.
- * PHY/MDIO timing and endpoint-generated MSI are not implemented. Unsupported
+ * The connected endpoint supports native32-vector MSI. PHY/MDIO timing is not
+ * implemented. Unsupported
  * controller accesses fail rather than becoming blanket register RAM.
  * Register definitions: Linux v6.12 pcie-brcmstb.c and EDK2 Bcm2711.h.
  */
@@ -117,6 +118,13 @@ static void update_regions(BCM2838PcieState *s)
         memory_region_set_address(&s->inbound, pci_base);
         memory_region_set_enabled(&s->inbound, enabled);
     }
+    /* MSI is decoded on the PCI side independently of the BAR2 RAM window.
+     * Give its exact DWORD priority over RAM when targets overlap. */
+    memory_region_set_enabled(&s->msi, false);
+    memory_region_set_address(&s->msi,
+        ((uint64_t)reg(s, 0x4048) << 32) | (reg(s, 0x4044) & ~3U));
+    memory_region_set_enabled(&s->msi,
+        link_up(s) && s->endpoint_msi && (reg(s, 0x4044) & 1));
     memory_region_transaction_commit();
 }
 
@@ -259,6 +267,8 @@ static MemTxResult pcie_read(void *opaque, hwaddr off, uint64_t *data,
         *data = s->reset;
     } else if (off == PORT_STATUS) {
         *data = 0x80 | (link_up(s) ? 0x30 : 0);
+    } else if (off == 0x4060 && s->connected_xhci && s->endpoint_msi) {
+        *data = 0; /* MSI EOI has no retained read state. */
     } else if (off == REVISION) {
         *data = 0x0320;
     } else if (bank >= 0) {
@@ -315,6 +325,9 @@ static MemTxResult pcie_write(void *opaque, hwaddr off, uint64_t value,
             /* A real downstream reset also resets endpoint engine/config. */
             device_cold_reset(DEVICE(s->root_port));
         }
+    } else if (off == 0x4060 && s->connected_xhci && s->endpoint_msi) {
+        /* FreeBSD writes EOI after W1C. IRQ is the unmasked pending level;
+         * Linux uses W1C alone. No synthetic extra interrupt is generated. */
     } else if (off == PORT_STATUS || off == REVISION) {
         /* Read-only straps and identification. */
     } else if (bank >= 0) {
@@ -353,6 +366,40 @@ static const MemoryRegionOps pcie_ops = {
     .impl.min_access_size = 1, .impl.max_access_size = 4,
 };
 
+/* Linux v6.12 pcie-brcmstb.c and the retained FreeBSD bcm2838_pci.c
+ * program MSI_BAR[63:2], enable bit0, and DATA_CONFIG=0xffe06540. High16
+ * bits mask the low16 message data; the low5 data bits select one vector.
+ * This is real PCI endpoint DMA, never a CPU-side interrupt injection. */
+static MemTxResult msi_write(void *opaque, hwaddr off, uint64_t value,
+                             unsigned size, MemTxAttrs attrs)
+{
+    BCM2838PcieState *s = opaque;
+    uint32_t config = reg(s, 0x404c), mask = config >> 16;
+
+    if (off || size != 4) {
+        return MEMTX_ERROR;
+    }
+    if ((value & mask) == (config & mask)) {
+        s->status[1] |= 1U << (value & 31);
+        update_irq(s);
+    }
+    return MEMTX_OK;
+}
+
+static MemTxResult msi_read(void *opaque, hwaddr off, uint64_t *data,
+                            unsigned size, MemTxAttrs attrs)
+{
+    *data = 0;
+    return MEMTX_ERROR;
+}
+
+static const MemoryRegionOps msi_ops = {
+    .read_with_attrs = msi_read, .write_with_attrs = msi_write,
+    .endianness = DEVICE_LITTLE_ENDIAN,
+    .valid.min_access_size = 4, .valid.max_access_size = 4,
+    .impl.min_access_size = 4, .impl.max_access_size = 4,
+};
+
 static void pcie_set_irq(void *opaque, int pin, int level)
 {
     BCM2838PcieState *s = opaque;
@@ -389,6 +436,10 @@ static void pcie_realize(DeviceState *dev, Error **errp)
                               s->ram, 0, 1);
     memory_region_set_enabled(&s->inbound, false);
     memory_region_add_subregion(&s->dma_memory, 0, &s->inbound);
+    memory_region_init_io(&s->msi, OBJECT(s), &msi_ops, s,
+                          "bcm2711-pcie-msi", 4);
+    memory_region_set_enabled(&s->msi, false);
+    memory_region_add_subregion_overlap(&s->dma_memory, 0, &s->msi, 1);
     address_space_init(&s->dma_as, &s->dma_memory, "bcm2711-pcie-dma");
     s->regions_ready = true;
     if (!s->connected_xhci) {
@@ -413,7 +464,8 @@ static void pcie_realize(DeviceState *dev, Error **errp)
     xhci = pci_new(PCI_DEVFN(0, 0), "qemu-xhci");
     object_property_add_child(OBJECT(s), "xhci", OBJECT(xhci));
     DEVICE(xhci)->id = g_strdup("bcm-xhci");
-    if (!object_property_set_str(OBJECT(xhci), "msi", "off", errp) ||
+    if (!object_property_set_str(OBJECT(xhci), "msi",
+                                 s->endpoint_msi ? "on" : "off", errp) ||
         !object_property_set_str(OBJECT(xhci), "msix", "off", errp) ||
         !object_property_set_bool(OBJECT(xhci), "compact-mmio", true, errp)) {
         object_unref(xhci);
@@ -436,13 +488,15 @@ static int pcie_pre_save(void *opaque)
 {
     BCM2838PcieState *s = opaque;
     s->migration_connected = s->connected_xhci;
+    s->migration_msi = s->connected_xhci && s->endpoint_msi;
     return 0;
 }
 
 static int pcie_post_load(void *opaque, int version)
 {
     BCM2838PcieState *s = opaque;
-    if (s->migration_connected != s->connected_xhci) {
+    if (s->migration_connected != s->connected_xhci ||
+        s->migration_msi != (s->connected_xhci && s->endpoint_msi)) {
         return -EINVAL;
     }
     update_regions(s);
@@ -477,6 +531,26 @@ static const VMStateDescription vmstate_pcie_mdio = {
     }
 };
 
+static bool msi_needed(void *opaque)
+{
+    BCM2838PcieState *s = opaque;
+    return s->connected_xhci && s->endpoint_msi;
+}
+
+/* Old disconnected/explicit legacy INTx profiles retain their exact stream.
+ * A connected MSI endpoint has different PCI capabilities: identify it and
+ * refuse incompatible incoming streams rather than corrupting endpoint state. */
+static const VMStateDescription vmstate_pcie_msi = {
+    .name = TYPE_BCM2838_PCIE "/endpoint-msi",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .needed = msi_needed,
+    .fields = (const VMStateField[]) {
+        VMSTATE_BOOL(migration_msi, BCM2838PcieState),
+        VMSTATE_END_OF_LIST()
+    }
+};
+
 static const VMStateDescription vmstate_pcie = {
     .name = TYPE_BCM2838_PCIE, .version_id = 2, .minimum_version_id = 1,
     .pre_save = pcie_pre_save, .post_load = pcie_post_load,
@@ -494,6 +568,7 @@ static const VMStateDescription vmstate_pcie = {
     },
     .subsections = (const VMStateDescription * const[]) {
         &vmstate_pcie_mdio,
+        &vmstate_pcie_msi,
         NULL
     }
 };
@@ -521,6 +596,7 @@ static void pcie_init(Object *obj)
 
 static const Property pcie_props[] = {
     DEFINE_PROP_BOOL("connected-xhci", BCM2838PcieState, connected_xhci, false),
+    DEFINE_PROP_BOOL("endpoint-msi", BCM2838PcieState, endpoint_msi, true),
     DEFINE_PROP_LINK("ram", BCM2838PcieState, ram, TYPE_MEMORY_REGION, MemoryRegion *),
 };
 

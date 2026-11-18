@@ -52,7 +52,8 @@ def native_init(m):
     m.config(0, 0, 0, 0x20, ((new_limit >> 16) & 0xfff0) << 16 | 0xc000)
     m.config(0, 0, 0, 0x18, 0x00010100)
     m.config(0, 0, 0, 4, 6)
-    # MSI setup is register/control only; selected xHCI exposes no MSI/MSI-X.
+    # Exercise native MSI setup while retaining this original INTx control.
+    # The endpoint capability is left disabled; MSI has a separate full test.
     m.reg(0x4508, 0xffffffff)
     m.reg(0x4514, 0xffffffff)
     m.reg(0x4044, 0xfffffffd)
