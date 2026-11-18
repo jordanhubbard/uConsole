@@ -96,8 +96,78 @@
   },
   "retained_original_MSI_functions_AST_unchanged": true,
   "retained_CLI_all_eight_actual_exit": 0,
-  "native_guest_OS_qualification": false,
+  "native_guest_OS_qualification": true,
   "physical_qualification": false,
   "final_distribution_qualification": false,
-  "scope": "Native software-model and original cross-version protocol controls only. Source and binary hashes identify the tested model; no physical timing, full peripheral, installer/desktop or canonical lifecycle acceptance."
+  "scope": "Native software-model, original cross-version protocol and five matched-source99 Pi4 guest controls. Source and binary hashes identify the tested model. Physical timing, full peripheral fidelity, final installer/desktop and canonical lifecycle acceptance remain open.",
+  "tested_model_commit": "22472564764ae8237ef5f36c7fd8e223f8ecf143",
+  "exact_committed_source_entries_verified_at_repeat_build": 799,
+  "native_guest_OS_controls": {
+    "matched_FreeBSD_source": "6e5b08ee72d4b1e123273b1775ad673e53bfee40",
+    "unchanged_original_timeout_seconds": 300,
+    "original_guard_count": 144,
+    "diagnostic_files": 76,
+    "completed_native_probe_executions": 35,
+    "native_FreeBSD_xHCI_MSI_use": {
+      "usb-network-2g": [
+        "xhci0: attempting to allocate 1 MSI vectors (16 supported)",
+        "xhci0: using IRQ 93 for MSI",
+        "xhci0: MSI enabled"
+      ],
+      "usb-network-8g": [
+        "xhci0: attempting to allocate 1 MSI vectors (16 supported)",
+        "xhci0: using IRQ 93 for MSI",
+        "xhci0: MSI enabled"
+      ]
+    },
+    "profiles": [
+      {
+        "profile": "sd-network-2g",
+        "actual_exit": 0,
+        "original_guard_count": 27,
+        "actual_guest_physical_memory_bytes": 2054504448,
+        "four_CPUs_and_4KiB_pages": true,
+        "all_original_guards_and_diagnostic_hashes_reverified": true,
+        "complete_private_evidence_archive_sha256": "e08eb08b82e4b368ac9d0d54b7741eb312fc472f007537a25ab2451bb0767e55"
+      },
+      {
+        "profile": "sd-network-8g",
+        "actual_exit": 0,
+        "original_guard_count": 27,
+        "actual_guest_physical_memory_bytes": 8429842432,
+        "four_CPUs_and_4KiB_pages": true,
+        "all_original_guards_and_diagnostic_hashes_reverified": true,
+        "complete_private_evidence_archive_sha256": "8e8a7561859f94db9d6febd9ed7bceb1e42d48ac38563fa535cde40e9d9b2287"
+      },
+      {
+        "profile": "usb-network-2g",
+        "actual_exit": 0,
+        "original_guard_count": 35,
+        "actual_guest_physical_memory_bytes": 2054504448,
+        "four_CPUs_and_4KiB_pages": true,
+        "all_original_guards_and_diagnostic_hashes_reverified": true,
+        "complete_private_evidence_archive_sha256": "ddf445c354244a0559f510c38b6306b5d991d549b84968ac0f6a0c2e9498d253"
+      },
+      {
+        "profile": "usb-network-8g",
+        "actual_exit": 0,
+        "original_guard_count": 35,
+        "actual_guest_physical_memory_bytes": 8429842432,
+        "four_CPUs_and_4KiB_pages": true,
+        "all_original_guards_and_diagnostic_hashes_reverified": true,
+        "complete_private_evidence_archive_sha256": "a158a8d7bf09bb7b73daa5e043febc9ee598dc48522947e268448ee8ddbc7d59"
+      },
+      {
+        "profile": "uefi-usb-8g",
+        "actual_exit": 0,
+        "original_guard_count": 20,
+        "actual_guest_physical_memory_bytes": 8418861056,
+        "four_CPUs_and_4KiB_pages": true,
+        "all_original_guards_and_diagnostic_hashes_reverified": true,
+        "complete_private_evidence_archive_sha256": "a4f94e14d9124dad486103809d3117db7e96fe2d7f0ca4eaaca774fcfba47065"
+      }
+    ],
+    "all_complete_private_evidence_archives_verified_on_healthy_controller_and_independent_healthy_host": true,
+    "scope": "Pi4 software SD/network 2/8GiB, USB/network 2/8GiB and UEFI/ACPI USB8GiB controls on matched source99 native world/kernel/loader. Original 300s deadlines, memory bounds, all144 guards, seven probes per profile, four network 1MiB bidirectional transfers/host-key checks, reset/ACPI guards retained. No full peripheral fidelity/physical/Pi5/final installer/desktop/update/rollback/canonical SDK/lifecycle/release acceptance."
+  }
 }

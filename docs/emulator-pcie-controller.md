@@ -98,9 +98,8 @@ Native FreeBSD programs an identity 8GiB BAR2 aperture but restricts child DMA b
 The native-init test reproduces that setup and cold bridge-window relocation,
 then executes real xHCI DMA/INTx, reset and migration. Native MSI initialization
 registers are exercised by that retained INTx control. Earlier guest bootstrap
-results below used the MSI-less endpoint. The current model adds ordinary MSI,
-and requires fresh guest boot evidence before those results qualify its changed
-default endpoint capabilities.
+results below used the MSI-less endpoint. Fresh qualification of the MSI-enabled
+candidate is recorded under [current MSI guest qualification](#current-msi-guest-qualification).
 
 The new root-port capability layout has a distinct VMState section identity;
 older connected-layout streams are rejected rather than silently misinterpreted.
@@ -108,7 +107,7 @@ The disconnected controller's migration contract is unchanged and was tested
 against the older qualified binary. A connected-only optional MDIO subsection
 preserves selector, SSC and transaction state; reset clears that state.
 
-The frozen model candidate is generation
+The earlier MSI-less model candidate was generation
 `0242009a2e892f7efaaacf6a014b41cab35888f84647256504eccd2493bef1e6`, system binary
 SHA256 `08d5088766b2670847f0ec1c57cc7aeceb24f6c3fc98caff6ed2f6265718d834`.
 The pinned U-Boot binary SHA256 is
@@ -133,6 +132,38 @@ model, including full-memory bounds and natural reset; its receipt is
 `pi4-fdt-usb-20261108/uefi-usb-hogs-8g/result.json` under the debug directory.
 These are native guest runs in the simulator. QEMU still injects U-Boot; they do
 not qualify EEPROM/VideoCore boot or physical hardware.
+
+## Current MSI guest qualification
+
+The MSI-enabled model at commit `22472564764ae8237ef5f36c7fd8e223f8ecf143`
+was rebuilt natively on Linux aarch64. Its executable SHA-256 is
+`b82ed50e0d3bb5994f1ab31b38d1c1364bc48d1d07bd1608ef02178a8c297ba8`.
+Five fresh controls used matched FreeBSD source
+`6e5b08ee72d4b1e123273b1775ad673e53bfee40` world, kernel and loader:
+
+| Profile | Memory | Original checks | Result |
+| --- | --- | --- | --- |
+| U-Boot/FDT SD and GENET | 2 GiB | 27 | Pass |
+| U-Boot/FDT SD and GENET | 8 GiB | 27 | Pass |
+| U-Boot/FDT USB-only and GENET | 2 GiB | 35 | Pass |
+| U-Boot/FDT USB-only and GENET | 8 GiB | 35 | Pass |
+| UEFI/ACPI USB | 8 GiB | 20 | Pass |
+
+All original 300-second deadlines, memory bounds and 144 checks were retained.
+Independent verification rehashed all 76 diagnostic files and checked seven
+completed native probes per profile, four CPUs and 4 KiB pages. Each network
+profile completed trusted SSH, bidirectional 1 MiB transfers and a natural
+reset. Both USB/network guests reported `xhci0: MSI enabled` after allocating
+a vector and completed their USB-root I/O with that interrupt path. The UEFI
+control additionally retained and independently verified six raw ACPI tables,
+four enabled GICC records and guest-reset/stop events before controlled QMP exit.
+Complete private raw archives were verified on two healthy hosts before NAS
+mirroring. The [verification summary](pi4-msi-verification-20261118.json) records
+model, source and evidence identities.
+
+These controls cover the selected simulator boot and I/O profiles. Full peripheral
+fidelity, EEPROM/VideoCore boot, physical hardware and final distribution
+installer/desktop/update/rollback qualification remain open.
 
 ## Reset, interrupts and migration
 
