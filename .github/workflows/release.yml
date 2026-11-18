@@ -117,6 +117,7 @@ jobs:
           python3 "$resources/tools/test_emulator_pcie.py" > "$evidence/pcie.log" 2>&1
           python3 "$resources/tools/test_emulator_pcie_xhci.py" > "$evidence/pcie-xhci.log" 2>&1
           python3 "$resources/tools/test_emulator_pcie_fdt.py" --qemu "$UCONSOLE_BUILD_DIR/emulator/qemu-build/qemu-system-aarch64" > "$evidence/pcie-fdt.log" 2>&1
+          python3 "$resources/tools/test_emulator_pcie_msi.py" --qemu "$UCONSOLE_BUILD_DIR/emulator/qemu-build/qemu-system-aarch64" --output "$evidence/pcie-msi-rebuilt" > "$evidence/pcie-msi-rebuilt.log" 2>&1
           python3 "$resources/tools/test_prepare_pi5_boot.py" > "$evidence/pi5-prepare.log" 2>&1
           python3 "$resources/tools/test_pi5_firmware_inputs.py" > "$evidence/pi5-firmware-inputs.log" 2>&1
           python3 "$resources/tools/test_emulator_pi5_boot.py" --qemu "$UCONSOLE_BUILD_DIR/emulator/qemu-build/qemu-system-aarch64" > "$evidence/pi5-boot-rebuilt.log" 2>&1
@@ -153,6 +154,7 @@ jobs:
           for suite in rng200 pcie pcie_xhci pcie_fdt xhci_storage genet framebuffer_alias avs_thermal sdhci_stop sdhci_adma_stop; do
             python3 "$resources/tools/test_emulator_$suite.py" --qemu "$qemu" > "$evidence/bundled-$suite.log" 2>&1
           done
+          python3 "$resources/tools/test_emulator_pcie_msi.py" --qemu "$qemu" --output "$evidence/pcie-msi-bundled" > "$evidence/pcie-msi-bundled.log" 2>&1
           python3 "$resources/tools/test_emulator_genet_network.py" --qemu-system "$qemu" > "$evidence/bundled-genet-network.log" 2>&1
           python3 "$resources/tools/test_emulator_genet_tx_staging.py" --qemu-system "$qemu" > "$evidence/bundled-genet-tx-staging.log" 2>&1
           python3 "$resources/tools/test_emulator_genet_mib.py" --qemu-system "$qemu" > "$evidence/bundled-genet-mib.log" 2>&1
@@ -227,6 +229,8 @@ jobs:
             build/native-archive-validation/cqhci-*/*.log
             build/native-archive-validation/pcie2-contract-*/**/*.log
             build/native-archive-validation/pcie2-contract-*/**/result.json
+            build/native-archive-validation/pcie-msi-*/profile-results.json
+            build/native-archive-validation/pcie-msi-*/**/*.log
           if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         with:
