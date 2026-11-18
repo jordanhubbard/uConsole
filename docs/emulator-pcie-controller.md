@@ -42,8 +42,10 @@ BAR2 supplies a programmed inbound DMA alias to actual board RAM. For example,
 `0xc000000f` maps PCI `0xc0000000` to ARM zero with a 1 GiB aperture. Disabled
 or unsupported mappings do not silently provide DMA. Enabling unsupported
 BAR1/BAR3 returns an MMIO error. Native endpoint INTx A–D feeds GIC SPI
-143–146; endpoint MSI/MSI-X capabilities are disabled in this profile. Controller
-and software MSI banks separately retain their SPI 147/148 controls.
+143–146. The connected endpoint also advertises ordinary 64-bit MSI; its
+32-vector controller bank feeds SPI 148. MSI-X remains disabled because the
+compact aperture has no room for its table/PBA. Controller and software-set
+interrupt banks retain their SPI 147/148 controls.
 
 The board enables the optional `compact-mmio` xHCI property. It keeps all actual
 register operations and transfer engines but advertises a 4 KiB BAR with runtime
@@ -53,8 +55,8 @@ fixed 4 KiB resource in the [pinned firmware Xhci.asl](https://github.com/tianoc
 Generic QEMU xHCI retains its default 16 KiB layout; compact mode explicitly
 requires `msix=off` because its MSI-X table/PBA use the larger layout.
 
-This profile has no electrical PHY/MDIO/SerDes timing, VL805-specific behavior
-or endpoint MSI implementation. Actual USB storage bootstrap is qualified
+This profile has no electrical PHY/MDIO/SerDes timing or VL805-specific behavior.
+Actual USB storage bootstrap is qualified
 separately from controller tests; a command-ring test alone does not establish
 UEFI or kernel boot.
 
@@ -95,8 +97,9 @@ Native FreeBSD programs an identity 8GiB BAR2 aperture but restricts child DMA b
 960MiB. Its FDT outbound range maps PCI `0xc0000000` to CPU `0x600000000`.
 The native-init test reproduces that setup and cold bridge-window relocation,
 then executes real xHCI DMA/INTx, reset and migration. Native MSI initialization
-registers are exercised, but no endpoint MSI/EOI support is claimed. The existing
-xHCI endpoint has MSI/MSI-X disabled and uses native DT INTx without guest tunables.
+registers are exercised by that retained INTx control. Earlier guest bootstrap
+results below used the MSI-less endpoint. Fresh qualification of the MSI-enabled
+candidate is recorded under [current MSI guest qualification](#current-msi-guest-qualification).
 
 The new root-port capability layout has a distinct VMState section identity;
 older connected-layout streams are rejected rather than silently misinterpreted.
@@ -104,7 +107,7 @@ The disconnected controller's migration contract is unchanged and was tested
 against the older qualified binary. A connected-only optional MDIO subsection
 preserves selector, SSC and transaction state; reset clears that state.
 
-The frozen model candidate is generation
+The earlier MSI-less model candidate was generation
 `0242009a2e892f7efaaacf6a014b41cab35888f84647256504eccd2493bef1e6`, system binary
 SHA256 `08d5088766b2670847f0ec1c57cc7aeceb24f6c3fc98caff6ed2f6265718d834`.
 The pinned U-Boot binary SHA256 is
@@ -129,6 +132,38 @@ model, including full-memory bounds and natural reset; its receipt is
 `pi4-fdt-usb-20261108/uefi-usb-hogs-8g/result.json` under the debug directory.
 These are native guest runs in the simulator. QEMU still injects U-Boot; they do
 not qualify EEPROM/VideoCore boot or physical hardware.
+
+## Current MSI guest qualification
+
+The MSI-enabled model at commit `22472564764ae8237ef5f36c7fd8e223f8ecf143`
+was rebuilt natively on Linux aarch64. Its executable SHA-256 is
+`b82ed50e0d3bb5994f1ab31b38d1c1364bc48d1d07bd1608ef02178a8c297ba8`.
+Five fresh controls used matched FreeBSD source
+`6e5b08ee72d4b1e123273b1775ad673e53bfee40` world, kernel and loader:
+
+| Profile | Memory | Original checks | Result |
+| --- | --- | --- | --- |
+| U-Boot/FDT SD and GENET | 2 GiB | 27 | Pass |
+| U-Boot/FDT SD and GENET | 8 GiB | 27 | Pass |
+| U-Boot/FDT USB-only and GENET | 2 GiB | 35 | Pass |
+| U-Boot/FDT USB-only and GENET | 8 GiB | 35 | Pass |
+| UEFI/ACPI USB | 8 GiB | 20 | Pass |
+
+All original 300-second deadlines, memory bounds and 144 checks were retained.
+Independent verification rehashed all 76 diagnostic files and checked seven
+completed native probes per profile, four CPUs and 4 KiB pages. Each network
+profile completed trusted SSH, bidirectional 1 MiB transfers and a natural
+reset. Both USB/network guests reported `xhci0: MSI enabled` after allocating
+a vector and completed their USB-root I/O with that interrupt path. The UEFI
+control additionally retained and independently verified six raw ACPI tables,
+four enabled GICC records and guest-reset/stop events before controlled QMP exit.
+Complete private raw archives were verified on two healthy hosts before NAS
+mirroring. The [verification summary](pi4-msi-verification-20261118.json) records
+model, source and evidence identities.
+
+These controls cover the selected simulator boot and I/O profiles. Full peripheral
+fidelity, EEPROM/VideoCore boot, physical hardware and final distribution
+installer/desktop/update/rollback qualification remain open.
 
 ## Reset, interrupts and migration
 
@@ -222,3 +257,56 @@ files. Its kernel log passed the storage I/O cleanliness guard, its source image
 remained unchanged, and the only stop sequence was a guest-requested reset.
 The earlier debugger-observed run remains disqualified. This is simulator
 bootstrap evidence, not physical Pi 4 or Pi 5 acceptance.
+
+
+## Endpoint MSI and migration profiles, 2026-11-18
+
+The connected compact xHCI endpoint now supports ordinary MSI. Its messages pass
+through the real PCI DMA address space to the programmed MSI target DWORD,
+independently of the inbound RAM window. The decoder uses the selected native
+32-vector data mask/base, latches pending bits, and applies the controller mask
+and W1C operations before driving GIC SPI 148. It does not also assert INTx for
+an MSI-enabled completion. A target inside a RAM aperture takes precedence on
+the PCI side without exposing a CPU-side interrupt injector or corrupting RAM.
+The native FreeBSD EOI write is accepted; Linux's W1C-only path is also retained.
+The pinned Linux v6.12 and retained FreeBSD driver references above define the
+selected software protocol, rather than electrical timing.
+
+Use `endpoint-msi=off` explicitly only when reproducing the older connected INTx
+profile. The ordinary connected default enables the capability; the default
+disconnected port is unchanged. A connected MSI profile carries a distinct
+migration subsection. Incompatible connected streams are rejected, while the
+disconnected and explicitly selected legacy INTx profiles retain their tested
+old/new wire compatibility.
+
+```sh
+python3 tools/test_emulator_pcie_msi.py \
+  --qemu build/emulator/qemu-build/qemu-system-aarch64 \
+  --output _build/pi4-msi-current
+python3 tools/test_emulator_pcie_msi.py \
+  --qemu build/emulator/qemu-build/qemu-system-aarch64 \
+  --legacy-qemu /path/to/retained-msi-less-qemu \
+  --output _build/pi4-msi-cross-version
+```
+
+The output directory must be new. Unix sockets use short temporary paths, and
+closed QEMU logs and profile results are retained at the selected output path.
+Without a legacy executable, the tool runs both current-profile mismatch
+controls and explicitly lists the six unexecuted cross-version cases. It does
+not substitute the current executable for an older one. With a real MSI-less
+executable it also checks both directions of disconnected/legacy INTx migration
+and both old/MSI incompatibilities.
+
+The [native record](pi4-msi-verification-20261118.json) binds the C/header and
+executable hashes. All 32 endpoint vectors, filtering, masking/pending delivery,
+RAM isolation, pending migration and reset/reprogramming pass. The three original
+controller/INTx/FreeBSD-register suites and eight actual old/new profile controls
+also pass. The original MSI-less endpoint fails the new capability control.
+An initial full build failed its final link because a newer inherited GLib
+generator did not match the selected system libraries; that failure is retained.
+A native same-XML link pair reproduces the generator mismatch, and the fresh
+build with matching system tools passes without changing configured features.
+
+These are native software model controls. Current native FreeBSD SD/USB/UEFI
+boot, installed desktop, final distribution, physical PCIe and complete peripheral
+qualification remain separate requirements.

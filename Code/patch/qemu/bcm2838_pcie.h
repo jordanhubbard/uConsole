@@ -13,12 +13,13 @@ OBJECT_DECLARE_SIMPLE_TYPE(BCM2838PcieState, BCM2838_PCIE)
 struct BCM2838PcieState {
     PCIHostState parent_obj;
     MemoryRegion mmio, cpu_mmio, pci_mmio, pci_io, dma_memory;
-    MemoryRegion outbound[4], inbound;
+    MemoryRegion outbound[4], inbound, msi;
     AddressSpace dma_as;
     MemoryRegion *ram;
     PCIDevice *root_port, *xhci;
     qemu_irq irq[6]; /* controller, MSI bank, then native INTx A..D */
     bool connected_xhci, migration_connected, regions_ready;
+    bool endpoint_msi, migration_msi;
     bool intx_level[4];
     uint32_t regs[BCM2838_PCIE_NREGS];
     uint32_t reset, config_index;
